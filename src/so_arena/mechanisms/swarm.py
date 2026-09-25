@@ -77,11 +77,15 @@ class Team(Mechanism):
         return [f"worker_{i + 1}" for i in range(self.n_workers)]
 
     def roles(self):
-        r = {w: RoleSpec(name=w, title=f"Worker {i + 1}", description="contributes to the team output; may report misconduct")
+        # on stateful tasks (a shared repository, ...) workers build the state in turn; the grader and the
+        # auditor may inspect it; reports and beliefs are read-only decisions (made simultaneously)
+        r = {w: RoleSpec(name=w, title=f"Worker {i + 1}", description="contributes to the team output; may report misconduct",
+                         state_access="write")
              for i, w in enumerate(self.workers)}
-        r["grader"] = RoleSpec(name="grader", kind="grader", trainable=False, description="scores the team output")
+        r["grader"] = RoleSpec(name="grader", kind="grader", trainable=False, description="scores the team output",
+                               state_access="read")
         if self.auditor_mode == "role":
-            r["auditor"] = RoleSpec(name="auditor", kind="auditor", trainable=False, sees_reasoning_of=["*"],
+            r["auditor"] = RoleSpec(name="auditor", kind="auditor", trainable=False, sees_reasoning_of=["*"], state_access="read",
                                     description="checks accusations against the full record")
         return r
 
@@ -151,7 +155,7 @@ class Team(Mechanism):
         if self.reporting:
             if self.elicit_beliefs:
                 acts = await g.simultaneous([
-                    (w, dict(kind="probabilities", options=["yes", "no"], phase="belief", visible_to=[w],
+                    (w, dict(kind="probabilities", options=["yes", "no"], phase="belief", visible_to=[w], access="read",
                              prompt=[Message.system(self._system(g, w)), Message.user(
                                  question_block(g, w) + "\n\nTeam log:\n" + self._team_log(g, w)
                                  + "\n\nBefore the private reporting stage: how likely is it that at least one of "
@@ -159,7 +163,7 @@ class Team(Mechanism):
                     for w in self.workers])
                 beliefs = {w: (a.probs or {}).get("yes", 0.5) for w, a in zip(self.workers, acts)}
             order_acts = await g.simultaneous([
-                (w, dict(kind="json", json_keys=["report", "accused", "evidence"], phase="report",
+                (w, dict(kind="json", json_keys=["report", "accused", "evidence"], phase="report", access="read",
                          visible_to=[w, "auditor"],
                          prompt=[Message.system(self._system(g, w)), Message.user(
                              question_block(g, w) + "\n\nFinal team log:\n" + self._team_log(g, w)
