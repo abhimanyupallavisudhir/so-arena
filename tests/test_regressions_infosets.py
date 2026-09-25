@@ -153,3 +153,25 @@ def test_pool_curves_report_their_label_coverage():
     assert math.isnan(out.loc["BestOfN(4, 'unbiased')", "value"])
     assert out.loc["BestOfN(4, 'unbiased')", "value_coverage"] == pytest.approx(0.0)
     assert np.isfinite(out["reward"]).all()
+
+
+# ------------------------------------------------------------------------------ chance moves
+
+
+def test_multitask_peer_prediction_draws_peers_as_a_chance_move():
+    from so_arena.mechanisms import PeerPrediction
+
+    bundle = soa.TaskItem(id="b", question="?", context={"subitems": [
+        {"id": f"s{i}", "question": f"Q{i}?", "labels": ["A", "B"]} for i in range(4)]})
+    answers = {"reporter_1": "AABB", "reporter_2": "ABAB", "reporter_3": "ABBA"}
+    players = {r: soa.Player(policy=FunctionPolicy(
+        lambda req, c: soa.Action(text=answers[c.role][int(req.phase.split(":s")[1])],
+                                  choice=answers[c.role][int(req.phase.split(":s")[1])])))
+        for r in answers}
+    mech = PeerPrediction(n_reporters=3, rule="multitask")
+    # the random peers and comparison tasks depended on the episode id - in a game tree, on the path,
+    # i.e. on the reports being rewarded; now every play of the item draws the same ones
+    rewards = [run_sync(mech.run(bundle, players, episode_id=eid)).rewards for eid in ("a", "b:tree:1.0", "c")]
+    assert rewards[0] == rewards[1] == rewards[2]
+    other_seed = run_sync(mech.run(bundle, players, seed=1)).rewards
+    assert other_seed != rewards[0]  # still random across seeds

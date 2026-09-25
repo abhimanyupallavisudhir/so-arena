@@ -14,11 +14,9 @@
 from __future__ import annotations
 
 import math
-import random
 
 from so_arena.core.game import Game
 from so_arena.core.mechanism import Mechanism, Outcome, RoleSpec
-from so_arena.core.policy import stable_hash
 from so_arena.core.rewards import FromOutcome, RewardRule
 from so_arena.core.types import Message
 from so_arena.mechanisms._common import agent_system, question_block
@@ -131,7 +129,7 @@ class PeerPrediction(Mechanism):
                 out[r] = info + self.alpha * pred
         else:  # multitask (Dasgupta & Ghosh style)
             T = len(subs)
-            rng = random.Random(stable_hash(g.episode_id, "multitask"))
+            rng = g.chance("multitask")  # a chance move: the same peers and tasks whatever the reports are
             for r in rs:
                 total = 0.0
                 for t in range(T):

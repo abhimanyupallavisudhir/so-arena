@@ -38,9 +38,10 @@ resolution, a stronger-model audit `ModelAudit`, manipulation checks `PositionFo
 * **Instructed arms / ASD** (`samplers.arms`), binary or graded over all answers.
 * **Best-of-N self-play** (`samplers.pools`): any mechanism is expanded into a *sampled game tree*
   (pools of K candidates at each decision, replayed with memoized prefixes), and exact Bo(n) or
-  KL-tilted policies are computed for every role by backward induction - the general form of the
-  nested Bo(n)-proposer / Bo(m)-critic procedure of the "debate with self-play best-of-N" post,
-  including simultaneous moves. Outputs the 1D "worm" curves and 2D meshes.
+  KL-tilted policies are computed for every role by backward induction over information sets - the
+  general form of the nested Bo(n)-proposer / Bo(m)-critic procedure of the "debate with self-play
+  best-of-N" post, including simultaneous and hidden moves (a role never selects on what it cannot
+  see). Outputs the 1D "worm" curves and 2D meshes, with the label coverage of every value.
 * **Prompt optimization** (`samplers.prompt_search`): an optimizer LLM that knows the mechanism (rules,
   rewards, the agent's view) proposes strategies scored by mechanism reward only (OPRO-style,
   GEPA-style reflective, evolutionary, autoresearch-style research log with a ratchet, and the reference

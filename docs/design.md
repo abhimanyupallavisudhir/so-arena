@@ -129,9 +129,13 @@ The protocol is ordinary async Python calling `g.act(role, kind=..., prompt=...,
 * supports **simultaneous moves** (`g.simultaneous`) so that no mover sees the others' current actions;
 * can **branch**: with a `BranchController`, every decision becomes a node with a pool of $K$ sampled
   candidates; replaying the protocol under different plans (with memoized prefixes) expands any
-  imperative protocol into a sampled game tree. Node keys depend only on role, phase, a deterministic
-  slot counter and earlier choices, so simultaneous movers share pools (information sets). Each pool's
-  cost is charged to exactly one leaf episode, so leaves add up to the tree's cost;
+  imperative protocol into a sampled game tree. A decision's key is its role's **information set** -
+  the request it is sent (prompt and view), its own earlier choices, and the state if it can see it -
+  so nodes that differ only in moves the role cannot see (a simultaneous partner's move, another role's
+  private turn, a hidden draw) share one pool, and `evaluate_tree` gives them one selection, weighted by
+  how likely each node is (counterfactual reach). Selecting per node instead would let best-of-N act on
+  information the role never had. Each pool's cost is charged to exactly one leaf episode, so leaves
+  add up to the tree's cost;
 * draws **nature's moves** (audits, tie-breaks) with `g.chance(tag)`, from the item, repeat, seed and tag
   only - never from what a role did. Every candidate of a decision faces the same draw, so best-of-N
   selects on what the audit would find rather than on audit luck, and arms are compared on the same
@@ -180,7 +184,10 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
   concordance, within-item correlation, label efficiency, incentive gap recovered, expected agent/judge
   scores under softmax propensities, judge accuracy, AUROC / TPR at FPR.
 * `analysis.optimization`: exact Bo$n$ (unbiased and plug-in) and tilted selection, KL, backward
-  induction on sampled game trees with simultaneous stages, optimization grids.
+  induction over the information sets of sampled game trees (fictitious play where moves are hidden or
+  simultaneous, with the fixed-point gap reported), optimization grids; every value comes with its
+  selection-weighted label coverage (`<key>_coverage`), and values resting on too little of the selected
+  mass are dropped (`min_coverage`).
 * `games`: normal-form games, pure/strict/mixed Nash, zero-sum values, (coarse) correlated equilibria
   with ground-truth welfare bounds, replicator dynamics, fictitious play, regret matching, basins,
   policy-gradient learning dynamics.

@@ -134,6 +134,18 @@ checkpoints, scripted behaviours - by simulation (*empirical game-theoretic anal
   grow a population of strategies by best responses to the current meta-equilibrium and report
   NashConv (sum of regrets) as distance from equilibrium (`samplers.psro`).
 
+**Selection over information sets.** Best-of-$n$ and tilting on a sampled game tree are selection
+policies applied at each decision to the mover's expected payoff. Where a role cannot see an earlier
+move - a simultaneous partner's, another role's private turn, a hidden draw - the payoff of each of its
+candidates is an average over the histories it cannot tell apart, weighted by how likely the others'
+behaviour makes each (its counterfactual reach), and one selection serves all of them: the agent-form
+analogue of a quantal-response equilibrium (McKelvey & Palfrey 1998) with the selection policy as the
+response function. Selecting separately behind each hidden move would grant the role the hidden
+information - a clairvoyant response that no policy of the role can implement, overstating what
+optimization achieves for it (a blind guesser of a coin would "win" every time). Without hidden moves
+the solution is plain backward induction; with them it is the fixed point of fictitious play
+(`analysis.optimization.evaluate_tree`, whose `gap` reports the distance from it).
+
 **Optimizers that model each other.** When prompt search (an LLM optimizer) finds strategies for one
 agent, its proposals depend on what it assumes about the others. PSRO makes that assumption explicit:
 the optimizer is told the other roles' meta-strategy (strategies and probabilities) and asked for a
@@ -370,6 +382,7 @@ Irving, Christiano & Amodei (2018), AI safety via debate.
 Lanctot et al. (2017), A unified game-theoretic approach to multiagent reinforcement learning, *NeurIPS*.
 Manheim & Garrabrant (2018), Categorizing variants of Goodhart's law.
 Maskin (1999), Nash equilibrium and welfare optimality, *RES*.
+McKelvey & Palfrey (1998), Quantal response equilibria for extensive form games, *Experimental Economics*.
 Milgrom (1981), Good news and bad news: representation theorems and applications, *Bell J. Econ.*
 Miller, Resnick & Zeckhauser (2005), Eliciting informative feedback: the peer-prediction method, *Management Science*.
 Moore & Repullo (1988), Subgame perfect implementation, *Econometrica*.

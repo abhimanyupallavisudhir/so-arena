@@ -101,6 +101,13 @@ surface = exp.grid({"worker": [1, 2, 4, 8], "critic": [1, 2, 4]})         # exac
 tilt = exp.grid({"worker": [0, 1, 3, 10]}, kind="tilt")                    # KL-regularized RL optimum
 ```
 
+Each value column comes with `<key>_coverage`: the share of the plays selection favours that have a
+ground-truth label. Optimization often moves onto exactly the candidates that are hard to label, so a
+value resting on less than `min_coverage` (default 0.5) of the selected mass is dropped (NaN, with a
+warning) rather than reported. Roles select per information set: a role that cannot see a move (a
+hidden draw, a private turn, a simultaneous partner) cannot condition on it, and the `gap` column says
+how far fictitious play ended from a fixed point where that matters.
+
 Pool sizes and optimization levels accept `"role:phase"` keys to treat a role's decisions separately,
 e.g. `pool_sizes={"worker": 8, "worker:rebuttal1": 4, "critic": 4}` and
 `exp.grid({"worker:work": [1, 8], "worker:rebuttal1": [1, 4], "critic": [1, 4]})` to ask whether optimizing
