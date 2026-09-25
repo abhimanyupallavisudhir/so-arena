@@ -226,20 +226,29 @@ class FromOutcome(RewardRule):
 
 
 class TeamReward(RewardRule):
-    """Every team member receives the team's score (a common objective)."""
+    """Every team member receives the team's score (a common objective).
 
-    def __init__(self, key: str = "team_score", roles: Sequence[str] | None = None):
+    If an audit caught and reverted a violation (``outcome.data["caught"]``), the team is paid the
+    post-audit score ``team_score_reverted``; otherwise the (possibly hacked) ``team_score``.
+    """
+
+    def __init__(self, key: str = "team_score", roles: Sequence[str] | None = None, revert_on_caught: bool = True):
         self.key = key
         self.roles = list(roles) if roles is not None else None
+        self.revert_on_caught = revert_on_caught
         self.name = "team"
 
     def compute(self, ep):
-        score = ep.outcome.data.get(self.key)
-        roles = self.roles or ep.outcome.data.get("team_roles") or ep.trainable_roles
+        d = ep.outcome.data
+        score = d.get(self.key)
+        if self.revert_on_caught and d.get("caught") and d.get("team_score_reverted") is not None:
+            score = d["team_score_reverted"]
+        roles = self.roles or d.get("team_roles") or ep.trainable_roles
         return {r: (None if score is None else float(score)) for r in roles}
 
     def describe(self):
-        return "every team member receives the same team score (a shared objective)"
+        return ("every team member receives the same team score (a shared objective); if an audit catches "
+                "misconduct it is reverted and the team is paid the corrected score")
 
 
 class Whistleblower(RewardRule):

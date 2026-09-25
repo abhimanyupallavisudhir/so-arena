@@ -4,6 +4,7 @@ from so_arena.core.ground_truth import (
     FunctionScorer,
     GroundTruthScorer,
     JudgeCorrectness,
+    LabelValue,
     ModelAudit,
     PositionFollowed,
     StanceValue,
