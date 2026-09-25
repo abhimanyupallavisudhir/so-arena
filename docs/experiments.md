@@ -191,7 +191,10 @@ Verification is a systematic experimental axis - vary the verifier set, whose cl
 (`roles=`), the budget (`budget_per_role=`), and display (`display="strip_unverified"`, `show_output=`).
 Other gap settings: `get_domain("sql")` (private database: `affordances={"agents": ["db"]}`,
 `tools={"agents": ["sql"]}`, verifier `sql`), `get_domain("code")` (hidden tests; verifiers `python` and
-`tests`), `get_domain("quality")` (hidden passage; verifier `quote`).
+`tests`), `get_domain("quality")` (hidden passage; verifier `quote`), `get_domain("lean")` (statement
+faithfulness; kinds `"faithful?"` and `"which_formalization"`; verifiers `lean_parse` (rules-only structure)
+and `lean` (typechecks when a Lean toolchain with Mathlib is installed); split results by
+`metadata["mutation"]`, and set the mutant mix - the difficulty dial - with `operator_weights=`).
 
 ## 8. Swarms: shared objectives vs. reporting incentives - *offline demo*
 

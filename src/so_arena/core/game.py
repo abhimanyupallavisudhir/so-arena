@@ -21,6 +21,7 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from so_arena.core.actions import Action, ActionKind, ActionRequest, GameView, TurnView
 from so_arena.core.items import TaskItem
 from so_arena.core.policy import ActContext, Policy, stable_hash
+from so_arena.core.state import Environment, StateStore, Workspace, WorkspaceSlot, diff_trees, using_workspace
 from so_arena.core.tools import Tool
 from so_arena.core.types import Message, Usage
 from so_arena.core.verification import (
@@ -77,6 +79,7 @@ class Turn(BaseModel):
     node: str | None = None
     candidate: int | None = None
     group: str | None = None
+    state: str | None = None  # the snapshot this turn left behind (roles with write access to the state)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -91,12 +94,25 @@ class RunContext:
         verifiers: dict[str, Verifier] | None = None,
         tools: dict[str, Tool] | None = None,
         resources: dict[str, Any] | None = None,
+        environment: Environment | None = None,
+        states: StateStore | str | None = None,
     ):
+        """``environment`` builds each item's starting state and adds its tools; ``states`` is where
+        snapshots are kept (a :class:`StateStore` or a directory; default: see :class:`StateStore`)."""
         self.run_id = run_id
         self.seed = seed
         self.verifiers = dict(verifiers or {})
-        self.tools = dict(tools or {})
+        self.environment = environment
+        self.tools = {**(environment.tools() if environment is not None else {}), **dict(tools or {})}
         self.resources = dict(resources or {})
+        self._states = StateStore(states) if isinstance(states, (str, Path)) else states
+
+    @property
+    def states(self) -> StateStore:
+        """The snapshot store (created on first use)."""
+        if self._states is None:
+            self._states = StateStore()
+        return self._states
 
 
 class NodeRecord(BaseModel):
@@ -116,6 +132,7 @@ class _Produced(BaseModel):
     verifications: list[Verification]
     shown: str
     usage: Usage
+    state: str | None = None  # snapshot left behind by a role with write access
 
 
 class BranchController:
@@ -174,7 +191,11 @@ class Game:
         branch: BranchController | None = None,
         seed: int = 0,
         repeat: int = 0,
+        state: str | None = None,
+        base_state: str | None = None,
     ):
+        """``state`` is the snapshot the episode starts from (the item's $S_0$, or the work under review);
+        ``base_state`` the task's original starting state, against which changes are shown."""
         self.mechanism = mechanism
         self.repeat = repeat
         self.item = item
@@ -197,6 +218,9 @@ class Game:
         self._slot_group: dict[int, str | None] = {}
         self._verif_counts: dict[str, int] = defaultdict(int)
         self._group_counter = 0
+        self.state = state
+        self.base_state = base_state if base_state is not None else state
+        self._group_writers: dict[str, str] = {}
         import random
 
         self.rng = random.Random(stable_hash(seed, episode_id))
@@ -305,6 +329,25 @@ class Game:
     def judge_note(self) -> str:
         return JUDGE_VERIFICATION_NOTE if self.verifiers else ""
 
+    # ------------------------------------------------------------------------------ state
+    @property
+    def states(self) -> StateStore:
+        return self.ctx.states
+
+    def state_access(self, role: str) -> str:
+        """``"none"``, ``"read"`` or ``"write"``: how ``role`` may act on the episode's state (none without state)."""
+        if self.state is None:
+            return "none"
+        spec = self.roles.get(role)
+        return spec.state_access if spec is not None else "none"
+
+    def state_diff(self, since: str | None = None, **kw: Any) -> str:
+        """Reviewer-readable changes from ``since`` (default: the task's starting state) to the current state."""
+        base = since or self.base_state
+        if self.state is None or base is None:
+            return ""
+        return diff_trees(self.states.files_dir(base), self.states.files_dir(self.state), **kw)
+
     # ------------------------------------------------------------------------------ acting
     def _node_key(self, role: str, phase: str, slot: int, group: str | None) -> str:
         # Decisions of the same simultaneous group are excluded: a simultaneous mover's pool must not
@@ -322,10 +365,25 @@ class Game:
         # repeats differ). In branch mode the episode id depends on the path, so it is excluded:
         # a node's pool must be the same whichever path first reaches it.
         eid = "" if self.branch is not None else self.episode_id
+        # A role with state access acts in its own working copy of the current state (one per sampled
+        # candidate); with write access the frozen copy becomes the state the rest of the play sees.
+        access = self.state_access(role)
+        parent = self.state
+        slot = WorkspaceSlot(self.states, parent, access) if access != "none" and parent else None
         # repeats draw fresh samples (distinct cache keys) rather than replaying cached completions
         actx = ActContext(role=role, sample_index=self.repeat * 10_000 + sample_index, game=self,
-                          tools=self.tools_for(role), seed=stable_hash(self.seed, self.item.id, key, eid))
-        action = await player.policy.act(request, actx)
+                          tools=self.tools_for(role), seed=stable_hash(self.seed, self.item.id, key, eid), workspace=slot)
+        new_state: str | None = None
+        try:
+            with using_workspace(slot):
+                action = await player.policy.act(request, actx)
+        except BaseException:
+            if slot is not None:
+                slot.close(keep=False)
+            raise
+        if slot is not None:
+            kept = slot.close(keep=access == "write")
+            new_state = kept if kept != parent else None
         usage = action.usage + actx.usage if action.usage.calls or action.usage.effort_seconds else actx.usage
         action.usage = usage
         verifs: list[Verification] = []
@@ -334,23 +392,33 @@ class Game:
         if vs and action.text:
             vp = self.mechanism.verification
             assert vp is not None
-            for claim in parse_claims(action.text, role):
-                v = vs.get(claim.kind)
-                if v is None:
-                    verifs.append(Verification(claim=claim, status="unknown_kind"))
-                    continue
-                if vp.budget_per_role is not None and self._verif_counts[role] >= vp.budget_per_role:
-                    verifs.append(Verification(claim=claim, status="over_budget"))
-                    continue
-                self._verif_counts[role] += 1
-                try:
-                    res = await v.verify(claim, self.item, self)
-                except Exception as e:  # verifier failures are logged, not fatal
-                    res = Verification(claim=claim, status="error", detail=repr(e))
-                usage = usage + res.usage
-                verifs.append(res)
+            scratch: Workspace | None = None
+            try:
+                for claim in parse_claims(action.text, role):
+                    v = vs.get(claim.kind)
+                    if v is None:
+                        verifs.append(Verification(claim=claim, status="unknown_kind"))
+                        continue
+                    if vp.budget_per_role is not None and self._verif_counts[role] >= vp.budget_per_role:
+                        verifs.append(Verification(claim=claim, status="over_budget"))
+                        continue
+                    self._verif_counts[role] += 1
+                    # claims about the state are checked on a scratch copy of the state the claimant left
+                    target = new_state or parent
+                    if getattr(v, "uses_state", False) and scratch is None and target:
+                        scratch = self.states.fork(target, access="read")
+                    try:
+                        with using_workspace(scratch if getattr(v, "uses_state", False) else None):
+                            res = await v.verify(claim, self.item, self)
+                    except Exception as e:  # verifier failures are logged, not fatal
+                        res = Verification(claim=claim, status="error", detail=repr(e))
+                    usage = usage + res.usage
+                    verifs.append(res)
+            finally:
+                if scratch is not None:
+                    self.states.discard(scratch)
             shown = annotate(action.text, verifs, display=vp.display, show_output=vp.show_output)
-        return _Produced(action=action, verifications=verifs, shown=shown, usage=usage)
+        return _Produced(action=action, verifications=verifs, shown=shown, usage=usage, state=new_state)
 
     async def act(
         self,
@@ -378,6 +446,11 @@ class Game:
                 prompt = [Message.user(prompt)]
             request = ActionRequest(kind=kind, prompt=list(prompt or []), phase=phase, **fields)
         # everything up to the first await runs synchronously: slot, key and view are deterministic
+        if group is not None and self.state_access(role) == "write":
+            other = self._group_writers.setdefault(group, role)
+            if other != role:
+                raise ValueError(f"{self.mechanism.name}: roles {other!r} and {role!r} move simultaneously and both write "
+                                 "the shared state; let them act in turn")
         slot = self._slot
         self._slot += 1
         self._slot_group[slot] = group
@@ -396,6 +469,8 @@ class Game:
             node, cand = None, None
             self.usage[role] = self.usage[role] + produced.usage
         self._decisions[slot] = (key, cand or 0)
+        if produced.state is not None:
+            self.state = produced.state
 
         a = produced.action
         if record:
@@ -407,7 +482,7 @@ class Game:
                     choice=a.choice, probs=a.probs, score=a.score, data=a.data,
                     verifications=produced.verifications, tool_calls=a.tool_calls,
                     usage=produced.usage if self.branch is None else Usage(), parse_ok=a.parse_ok,
-                    node=node, candidate=cand, group=group, metadata=a.metadata,
+                    node=node, candidate=cand, group=group, state=produced.state, metadata=a.metadata,
                 )
             )
             self.turns.sort(key=lambda t: t.slot)

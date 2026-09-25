@@ -88,6 +88,9 @@ class Verifier(abc.ABC):
     name: str = "verifier"
     description: str = ""  # shown to agents when the verifier is available to them
     example: str = ""
+    # stateful tasks: verify() runs with the claimant's resulting state as the current workspace
+    # (a scratch copy, see so_arena.core.state.current_workspace)
+    uses_state: bool = False
 
     @abc.abstractmethod
     async def verify(self, claim: Claim, item: TaskItem, game: "Game | None" = None) -> Verification: ...

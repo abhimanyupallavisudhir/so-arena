@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from so_arena.core.game import BranchController, Game, Player, RunContext, Turn
 from so_arena.core.items import TaskItem
+from so_arena.core.state import STATE_ACCESS, StateAccess
 from so_arena.core.types import Usage
 from so_arena.core.verification import VerificationPolicy
 
@@ -43,6 +44,9 @@ class RoleSpec(BaseModel):
     sees_reasoning_of: list[str] = Field(default_factory=list)  # roles whose CoT it sees ("*" = all)
     required: bool = True
     title: str | None = None
+    # access to the episode's state (repository, database, ...), if it has one: "write" acts on it,
+    # "read" acts on a throwaway copy (e.g. a reviewer running the tests), "none" sees only messages
+    state_access: StateAccess = "none"
 
 
 class Outcome(BaseModel):
@@ -90,6 +94,10 @@ class Episode(BaseModel):
     seed: int = 0
     created_at: str = Field(default_factory=lambda: _dt.datetime.now(_dt.timezone.utc).isoformat())
     error: str | None = None
+    # stateful tasks: the snapshot the episode started from, the one it ended in, and where they are stored
+    initial_state: str | None = None
+    final_state: str | None = None
+    state_store: str | None = None
 
     # -------------------------------------------------------------------- convenience accessors
     def reward(self, role: str) -> float | None:
@@ -137,7 +145,8 @@ class Mechanism(abc.ABC):
     def __init__(self, *, reward: "RewardRule | None" = None, verification: VerificationPolicy | None = None,
                  name: str | None = None, affordances: dict[str, list[str]] | None = None,
                  tools: dict[str, list[str]] | None = None, sees_reasoning: dict[str, list[str]] | None = None,
-                 trainable: dict[str, bool] | None = None, **config: Any):
+                 trainable: dict[str, bool] | None = None, state_access: dict[str, str] | None = None,
+                 **config: Any):
         """Args (common to all mechanisms):
             reward: reward rule (defaults to :meth:`default_reward`).
             verification: which claims are verified and how results are shown.
@@ -145,13 +154,19 @@ class Mechanism(abc.ABC):
                 names, ``"agents"`` (every agent-kind role) or ``"all"``; values are lists of private
                 item keys / tool names / roles whose chain of thought the role sees.
             trainable: per-role override of whether a role receives reward (e.g. train the judge).
+            state_access: per-role override of access to a stateful task's state (``"none"``,
+                ``"read"``, ``"write"``), e.g. ``{"reviewer": "read"}`` to let a reviewer run the tests.
         """
+        bad = {v for v in (state_access or {}).values() if v not in STATE_ACCESS}
+        if bad:
+            raise ValueError(f"state_access values must be one of {STATE_ACCESS}, got {sorted(bad)}")
         self.config = config
         self.role_overrides = {
             "affordances": dict(affordances or {}),
             "tools": dict(tools or {}),
             "sees_reasoning_of": dict(sees_reasoning or {}),
             "trainable": dict(trainable or {}),
+            "state_access": dict(state_access or {}),
         }
         for k, v in self.role_overrides.items():
             if v:
@@ -169,10 +184,11 @@ class Mechanism(abc.ABC):
                 for r, spec in specs.items():
                     if key == r or key == "all" or (key == "agents" and spec.kind == "agent"):
                         setattr(spec, field, sorted(set(getattr(spec, field)) | set(vals)))
-        for key, flag in self.role_overrides["trainable"].items():
-            for r, spec in specs.items():
-                if key == r or key == "all" or (key == "agents" and spec.kind == "agent"):
-                    spec.trainable = bool(flag)
+        for field, cast in (("trainable", bool), ("state_access", str)):
+            for key, val in self.role_overrides[field].items():
+                for r, spec in specs.items():
+                    if key == r or key == "all" or (key == "agents" and spec.kind == "agent"):
+                        setattr(spec, field, cast(val))
         return specs
 
     # ------------------------------------------------------------------ to implement
@@ -249,7 +265,9 @@ class Mechanism(abc.ABC):
         censored = item.censored() if item.ground_truth is not None or any(
             a.value is not None for a in item.answers or []) else item
         eid = episode_id or f"{item.id}:{self.name}:{profile}:{repeat}"
-        g = Game(self, censored, players, ctx=ctx, episode_id=eid, branch=branch, seed=seed, repeat=repeat)
+        base, head = initial_states(item, ctx)
+        g = Game(self, censored, players, ctx=ctx, episode_id=eid, branch=branch, seed=seed, repeat=repeat,
+                 state=head, base_state=base)
         error = None
         try:
             outcome = await self.protocol(g)
@@ -279,6 +297,9 @@ class Mechanism(abc.ABC):
             repeat=repeat,
             seed=seed,
             error=error,
+            initial_state=head,
+            final_state=g.state,
+            state_store=str(ctx.states.root) if head is not None else None,
         )
         if error is None:
             try:
@@ -292,3 +313,20 @@ class Mechanism(abc.ABC):
         else:
             ep.reward_status = "error"
         return ep
+
+
+def initial_states(item: TaskItem, ctx: RunContext) -> tuple[str | None, str | None]:
+    """(base, head) snapshots an episode on ``item`` starts from.
+
+    An item may reference existing states (``context["state"] = {"base": ..., "head": ...}``: e.g. work
+    under review, shown as changes from ``base``); otherwise the run's environment builds the item's
+    starting state from the *uncensored* item (hidden environment state may depend on ground truth).
+    """
+    ref = item.context.get("state")
+    if isinstance(ref, dict) and (ref.get("head") or ref.get("base")):
+        head = ref.get("head") or ref.get("base")
+        return ref.get("base") or head, head
+    if ctx.environment is not None:
+        s0 = ctx.environment.initial_state(item, ctx.states)
+        return s0, s0
+    return None, None

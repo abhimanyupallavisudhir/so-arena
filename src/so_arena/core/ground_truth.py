@@ -150,14 +150,23 @@ class JudgeCorrectness(GroundTruthScorer):
 
 
 class FunctionScorer(GroundTruthScorer):
-    """``fn(episode, item) -> dict`` (sync or async)."""
+    """``fn(episode, item) -> dict`` or ``fn(episode, item, ctx) -> dict`` (sync or async); the run
+    context gives stateful scorers the snapshot store (see :func:`so_arena.core.state.final_view`)."""
 
     def __init__(self, fn: Callable[..., Any], name: str = "function"):
+        import inspect
+
         self.fn = fn
         self.name = name
+        try:
+            params = inspect.signature(fn).parameters.values()
+            self._wants_ctx = sum(p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD) for p in params) >= 3 or any(
+                p.kind == p.VAR_POSITIONAL for p in params)
+        except (TypeError, ValueError):
+            self._wants_ctx = False
 
     async def score(self, ep, item, ctx=None):
-        out = self.fn(ep, item)
+        out = self.fn(ep, item, ctx) if self._wants_ctx else self.fn(ep, item)
         if asyncio.iscoroutine(out):
             out = await out
         return out or {}

@@ -43,7 +43,8 @@ attacking.
 A `Domain` supplies items plus the domain's **verifiers** (trusted claim checks), **tools** (private
 capabilities that create capability gaps) and **ground-truth scorers**. Built in: synthetic persuasion
 and team worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool),
-text-to-SQL over a private database, code with hidden tests (including a hackable team task),
+text-to-SQL over a private database, code with hidden tests (including a hackable team task), Lean
+statement faithfulness (miniF2F formalizations vs. single-edit mutants; a rules-only structure verifier),
 forecasting (Manifold; pending resolutions), and QA sets (GSM8K, MMLU, TruthfulQA, GPQA, QuALITY with
 verified quotes).
 

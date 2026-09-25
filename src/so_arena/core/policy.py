@@ -35,6 +35,7 @@ from so_arena.core.types import Completion, GenerateOptions, Message, Usage
 
 if TYPE_CHECKING:
     from so_arena.core.game import Game
+    from so_arena.core.state import Workspace, WorkspaceSlot
     from so_arena.models.base import Model
 
 
@@ -53,6 +54,7 @@ class ActContext:
         game: "Game | None" = None,
         tools: dict[str, Tool] | None = None,
         seed: int = 0,
+        workspace: "Workspace | WorkspaceSlot | None" = None,
     ):
         self.role = role
         self.sample_index = sample_index
@@ -60,6 +62,15 @@ class ActContext:
         self.tools = tools or {}
         self.rng = random.Random(stable_hash(seed, role, sample_index))
         self.usage = Usage()
+        from so_arena.core.state import Workspace as _Workspace, WorkspaceSlot as _Slot
+
+        self._slot = _Slot.of(workspace) if isinstance(workspace, _Workspace) else workspace
+
+    @property
+    def workspace(self) -> "Workspace | None":
+        """The working copy of the task's state this decision acts on (roles with state access only),
+        forked on first use; scripted policies may edit it directly, LLM policies use workspace tools."""
+        return self._slot.get() if self._slot is not None else None
 
     async def generate(self, model: "Model", messages: Sequence[Message], options: GenerateOptions | None = None,
                        *, sample_offset: int = 0) -> Completion:
@@ -71,8 +82,14 @@ class ActContext:
         tool = self.tools.get(name)
         if tool is None:
             return f"error: unknown tool {name!r}; available: {sorted(self.tools)}"
+        from so_arena.core.state import _CURRENT, using_workspace
+
+        def _current_slot():
+            return _CURRENT.get()
+
         item = self.game.item if self.game is not None else None
-        res = await tool.call(args, item, self.game)  # type: ignore[arg-type]
+        with using_workspace(self._slot if self._slot is not None else _current_slot()):
+            res = await tool.call(args, item, self.game)  # type: ignore[arg-type]
         self.usage = self.usage + res.usage
         return res.output
 

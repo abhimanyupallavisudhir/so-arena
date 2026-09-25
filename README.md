@@ -15,8 +15,8 @@ behaviour** - and keeps doing so under training. OversightArena makes that measu
 * **metrics** relate reward to ground truth - ASD (log/Brier/graded), pairwise concordance, label
   efficiency, optimization curves, equilibria and their ground-truth welfare;
 * **settings with real capability gaps** - chess (engine ground truth), text-to-SQL over a private
-  database, code with hidden tests, forecasting with delayed resolution, QA with hidden passages - with
-  **verified claims** as a first-class experimental axis.
+  database, code with hidden tests, Lean statement faithfulness, forecasting with delayed resolution,
+  QA with hidden passages - with **verified claims** as a first-class experimental axis.
 
 It builds on [Inspect](https://inspect.aisi.org.uk) for models and interoperates with
 [ControlArena](https://control-arena.aisi.org.uk): ControlArena logs become rewarded episodes (ASD next
@@ -77,8 +77,8 @@ simulated models that prices every call).
 | **Samplers** | instructed arms (ASD), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary / autoresearch-style ratchet) with honest/deceptive/… directives, PSRO, RL environments |
 | **Metrics** | ASD (any proper score, paired bootstrap), graded ASD, concordance, label efficiency, incentive gap recovered, expected scores, judge accuracy, AUROC/TPR |
 | **Game theory** | empirical games, pure/strict/mixed Nash, zero-sum values, (coarse) correlated equilibria with ground-truth welfare bounds, replicator dynamics, basins, policy-gradient learning dynamics, an analytic whistleblower model |
-| **Domains** | synthetic persuasion & team worlds, chess, text-to-SQL, code with hidden tests, forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY |
-| **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, fact checkers) under per-mechanism budgets and display rules |
+| **Domains** | synthetic persuasion & team worlds, chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY |
+| **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, Lean statement structure, Lean typechecking, fact checkers) under per-mechanism budgets and display rules |
 | **Deferred ground truth** | release mechanism results with a SHA-256 commitment; resolve and score when the truth arrives |
 | **Infrastructure** | Inspect backend (all providers), response cache, dry-run cost simulation, model registry, resumable run stores, YAML specs, CLI, self-contained HTML reports, Inspect task export, ControlArena bridge |
 

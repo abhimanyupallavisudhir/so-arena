@@ -14,6 +14,7 @@ from typing import Any, ClassVar
 from so_arena.core.game import RunContext
 from so_arena.core.ground_truth import GroundTruthScorer, default_scorers
 from so_arena.core.items import TaskItem
+from so_arena.core.state import Environment, StateStore
 from so_arena.core.tools import Tool
 from so_arena.core.verification import Verifier
 
@@ -37,9 +38,16 @@ class Domain(abc.ABC):
     def ground_truth_scorers(self) -> list[GroundTruthScorer]:
         return default_scorers()
 
-    def context(self, *, run_id: str = "run", seed: int = 0, resources: dict[str, Any] | None = None) -> RunContext:
+    def environment(self) -> Environment | None:
+        """Stateful domains: the environment that builds each item's starting state and acts on it."""
+        return None
+
+    def context(self, *, run_id: str = "run", seed: int = 0, resources: dict[str, Any] | None = None,
+                states: StateStore | str | None = None) -> RunContext:
+        """The run context: verifier and tool registries, resources and - for stateful domains - the
+        environment and the snapshot store (``states``: a store or directory; default: see StateStore)."""
         return RunContext(run_id=run_id, seed=seed, verifiers=self.verifiers(), tools=self.tools(),
-                          resources=resources)
+                          resources=resources, environment=self.environment(), states=states)
 
     def behaviours(self) -> dict[str, str]:
         """Strategy prompts for commonly used behaviour labels in this domain (optional)."""
