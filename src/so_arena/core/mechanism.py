@@ -151,8 +151,8 @@ class Episode(BaseModel):
     ground_truth: dict[str, Any] = Field(default_factory=dict)
     gt_status: Literal["known", "pending", "unknown", "unscored"] = "unscored"
     # model usage of the play; in a sampled game tree each (shared) candidate pool is charged to one
-    # canonical play, so the tree's leaf episodes sum to its total without double counting
-    # (see Game.episode_usage)
+    # canonical leaf, so the tree's leaf episodes sum to its total without double counting
+    # (see samplers.pools.expand_tree)
     usage: dict[str, Usage] = Field(default_factory=dict)
     tags: dict[str, Any] = Field(default_factory=dict)
     trainable_roles: list[str] = Field(default_factory=list)
@@ -378,7 +378,7 @@ class Mechanism(abc.ABC):
             positions=dict(g.positions),
             turns=list(g.turns),
             outcome=outcome,
-            usage=g.episode_usage(),  # in branch mode: each shared pool charged to one canonical play
+            usage=g.episode_usage(),  # in branch mode: none (expand_tree charges each shared pool to one leaf)
             tags=dict(tags or {}),
             trainable_roles=self.trainable_roles(),
             role_kinds={r: spec.kind for r, spec in g.roles.items()},

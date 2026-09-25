@@ -11,14 +11,18 @@ policy* maps the payoffs to a distribution over candidates:
 * :class:`Uniform` - the base policy (Bo1).
 
 For multi-agent mechanisms, :func:`evaluate_tree` performs backward induction on a *sampled game
-tree* (see :mod:`so_arena.samplers.pools`): at each node the mover's selection policy is applied to
-its expected payoff under everyone else's policies downstream. This generalizes the nested
+tree* (see :mod:`so_arena.samplers.pools`): at each information set the mover's selection policy is
+applied to its expected payoff under everyone else's policies. This generalizes the nested
 Bo(n)-proposer / Bo(m)-critic procedure of "debate with self-play best-of-N optimization"
-(Arcadia, 2026) to any protocol, any number of players and general-sum rewards. Simultaneous moves
-(nodes in the same information set) are solved as stage games by fictitious play.
+(Arcadia, 2026) to any protocol, any number of players and general-sum rewards. Moves a role cannot
+see - simultaneous ones, private turns, hidden draws - put several nodes into one information set, which
+gets one selection (refined by fictitious play), so no role selects on information it did not have.
 
 Missing rewards (errored or pending leaves) are never counted as payoffs: selection treats such a
-candidate as the worst in its pool, and expectations average over the finite rewards only.
+candidate as the worst in its pool, and expectations average over the finite rewards only. Missing
+ground-truth labels are left out of expected values the same way, and every summary reports the
+selection-weighted share of plays that have one (``coverage``): a value averaged over a sliver of what
+selection favours is not a measurement of it.
 
 The key identity connecting this to ASD is in :func:`first_order_gain`: the derivative at
 $\\beta=0$ of the tilted policy's expected ground-truth value equals $\\mathrm{Cov}(u,v)$.
@@ -28,6 +32,7 @@ from __future__ import annotations
 
 import abc
 import itertools
+import logging
 import math
 from collections.abc import Sequence
 from typing import Any
@@ -38,6 +43,7 @@ from scipy.special import comb
 
 from pydantic import BaseModel, Field
 
+log = logging.getLogger("so_arena")
 
 # ------------------------------------------------------------------------------ selection policies
 
@@ -147,23 +153,32 @@ def _nanmean(xs: Sequence[float]) -> float:
 
 
 def pool_curve(pool: pd.DataFrame, *, selections: Sequence[Selection], reward_col: str = "reward",
-               value_cols: Sequence[str] = ("value",), group_col: str = "item_id") -> pd.DataFrame:
+               value_cols: Sequence[str] = ("value",), group_col: str = "item_id",
+               min_coverage: float = 0.5) -> pd.DataFrame:
     """Expected reward and values under each selection policy, averaged over groups (items).
 
     ``pool`` has one row per sampled candidate; each group is a pool for one decision. A candidate
     whose reward is missing is the worst for selection, and - like a missing value - is left out of
     the expectations (renormalized over the rest) rather than counted as a reward of 0.
+    ``<value>_coverage`` is the selection-weighted share of candidates that have a value (averaged over
+    groups); a group whose coverage is below ``min_coverage`` contributes no value (see
+    :func:`optimization_grid`).
     """
     rows = []
+    low = 0
     for sel in selections:
-        er, ev, kls = [], {c: [] for c in value_cols}, []
+        er, ev, cv, kls = [], {c: [] for c in value_cols}, {c: [] for c in value_cols}, []
         for _, g in pool.groupby(group_col):
             w = g[reward_col].to_numpy(dtype=float)
             p = sel.probs(w)
             er.append(_weighted_mean(p, w))
             kls.append(sel.kl(w))
             for c in value_cols:
-                ev[c].append(_weighted_mean(p, g[c].to_numpy(dtype=float)))
+                x = g[c].to_numpy(dtype=float)
+                cov = float(p[np.isfinite(x)].sum())
+                cv[c].append(cov)
+                ev[c].append(_weighted_mean(p, x) if cov >= min_coverage else math.nan)
+                low += cov < min_coverage and np.isfinite(x).any()
         row = {"selection": repr(sel), "reward": _nanmean(er), "kl": float(np.mean(kls)), "n_groups": len(er)}
         if isinstance(sel, BestOfN):
             row["n"] = sel.n
@@ -171,7 +186,11 @@ def pool_curve(pool: pd.DataFrame, *, selections: Sequence[Selection], reward_co
             row["beta"] = sel.beta
         for c in value_cols:
             row[c] = _nanmean(ev[c])
+            row[f"{c}_coverage"] = float(np.mean(cv[c])) if cv[c] else math.nan
         rows.append(row)
+    if low:
+        log.warning("pool_curve: %d group value(s) dropped: below %.0f%% of the selected mass has a label",
+                    low, 100 * min_coverage)
     return pd.DataFrame(rows)
 
 
@@ -192,7 +211,7 @@ def first_order_gain(pool: pd.DataFrame, reward_col: str = "reward", value_col: 
 
 class TreeNode(BaseModel):
     id: str
-    key: str  # decision key; nodes with equal keys share one pool (an information set)
+    key: str  # the role's information set; nodes with equal keys share one pool and one selection
     role: str
     phase: str = ""
     group: str | None = None
@@ -230,30 +249,135 @@ class GameTree(BaseModel):
 class TreeValue(BaseModel):
     rewards: dict[str, float]
     values: dict[str, float]
+    # The share of plays - weighted by how often the selection policies reach them - that have a finite
+    # reward / ground-truth label. ``rewards`` and ``values`` average over those plays only, so they say
+    # nothing about the rest: best-of-N may put most of its mass on candidates nobody could label.
+    reward_coverage: dict[str, float] = Field(default_factory=dict)
+    coverage: dict[str, float] = Field(default_factory=dict)
+    # The largest L1 distance, over information sets, between a set's selection and its selection policy's
+    # response to everyone's final behaviour: 0 at a fixed point (always, in trees without hidden moves).
+    gap: float = 0.0
 
 
-def _combine(parts: list[TreeValue], weights: np.ndarray) -> TreeValue:
-    rewards: dict[str, float] = {}
-    values: dict[str, float] = {}
-    for dict_name, target in (("rewards", rewards), ("values", values)):
-        keys = set().union(*[getattr(p, dict_name).keys() for p in parts]) if parts else set()
-        for k in keys:
-            num, den = 0.0, 0.0
-            for p, w in zip(parts, weights):
-                x = getattr(p, dict_name).get(k)
-                if x is not None and np.isfinite(x) and w > 0:
-                    num += w * x
-                    den += w
-            target[k] = num / den if den > 0 else math.nan
-    return TreeValue(rewards=rewards, values=values)
+class _Tree:
+    """A game tree indexed for solving: information sets, depths, and value vectors (rewards, then values)."""
+
+    def __init__(self, tree: GameTree):
+        self.tree = tree
+        self.rkeys = sorted({r for leaf in tree.leaves.values() for r in leaf.rewards})
+        self.vkeys = sorted({k for leaf in tree.leaves.values() for k in leaf.values})
+        self.ridx = {r: i for i, r in enumerate(self.rkeys)}
+        m = len(self.rkeys) + len(self.vkeys)
+        self.x: dict[str, np.ndarray] = {}  # expected components (NaN: no play below has one)
+        self.cov: dict[str, np.ndarray] = {}  # probability that the play has each component
+        for lid, leaf in tree.leaves.items():
+            x = np.full(m, math.nan)
+            for r, v in leaf.rewards.items():
+                if v is not None and math.isfinite(v):
+                    x[self.ridx[r]] = float(v)
+            for i, k in enumerate(self.vkeys):
+                v = leaf.values.get(k)
+                if v is not None and math.isfinite(v):
+                    x[len(self.rkeys) + i] = float(v)
+            self.x[lid], self.cov[lid] = x, np.isfinite(x).astype(float)
+        self.parent: dict[str, str] = {}
+        self.depth = {tree.root: 0}
+        self.order: list[str] = []  # decision nodes, parents before children
+        queue = [tree.root]
+        while queue:
+            nid = queue.pop()
+            if nid not in tree.nodes:
+                continue
+            self.order.append(nid)
+            for c in tree.nodes[nid].children:
+                self.parent[c], self.depth[c] = nid, self.depth[nid] + 1
+                queue.append(c)
+        self.order.sort(key=self.depth.__getitem__)
+        self.sets: dict[str, list[str]] = {}
+        for nid in self.order:
+            self.sets.setdefault(tree.nodes[nid].key, []).append(nid)
+        for key, ids in self.sets.items():
+            if len({(tree.nodes[n].role, len(tree.nodes[n].children)) for n in ids}) > 1:
+                raise ValueError(f"information set {key}: its nodes differ in role or number of candidates")
+        self.roles = sorted({tree.nodes[n].role for n in self.order})
+        self.sigma = {key: np.full(len(tree.nodes[ids[0]].children), 1.0 / len(tree.nodes[ids[0]].children))
+                      for key, ids in self.sets.items()}
+        for nid in reversed(self.order):
+            self.combine(nid)
+
+    def combine(self, nid: str) -> None:
+        """A node's expected components under its information set's selection, each averaged over the
+        children that have it (a missing reward or label is left out, not counted as 0)."""
+        node = self.tree.nodes[nid]
+        p = self.sigma[node.key][:, None]
+        kids = np.stack([self.x[c] for c in node.children])
+        fin = np.isfinite(kids)
+        num, den = (p * np.where(fin, kids, 0.0)).sum(0), (p * fin).sum(0)
+        self.x[nid] = np.where(den > 0, num / np.where(den > 0, den, 1.0), math.nan)
+        self.cov[nid] = (p * np.stack([self.cov[c] for c in node.children])).sum(0)
+
+    def refresh(self, ids: list[str]) -> None:
+        """Recompute the nodes of an information set whose selection changed, and all their ancestors."""
+        todo: set[str] = set()
+        for nid in ids:
+            while nid is not None and nid not in todo:
+                todo.add(nid)
+                nid = self.parent.get(nid)
+        for nid in sorted(todo, key=self.depth.__getitem__, reverse=True):
+            self.combine(nid)
+
+    def reach(self) -> dict[str, np.ndarray]:
+        """Counterfactual reach of every node for every role: the probability that everyone else's
+        selections (and the fixtures' draws) lead there - the weight of a node within its role's
+        information set (the role's own moves are the same at every node of the set)."""
+        roles = np.array(self.roles)
+        out = {self.tree.root: np.ones(len(roles))}
+        for nid in self.order:
+            node = self.tree.nodes[nid]
+            mine = roles == node.role
+            for i, c in enumerate(node.children):
+                out[c] = out[nid] * np.where(mine, 1.0, self.sigma[node.key][i])
+        return out
+
+    def payoffs(self, key: str, reach: dict[str, np.ndarray]) -> np.ndarray:
+        """Expected reward of each candidate of an information set: over its nodes, weighted by reach."""
+        ids = self.sets[key]
+        role = self.tree.nodes[ids[0]].role
+        k = len(self.sigma[key])
+        j = self.ridx.get(role)
+        if j is None:
+            return np.full(k, math.nan)
+        w = np.array([reach[n][self.roles.index(role)] for n in ids])
+        if not w.sum() > 0:  # an information set nothing leads to: weigh its nodes equally
+            w = np.ones(len(ids))
+        u = np.array([[self.x[c][j] for c in self.tree.nodes[n].children] for n in ids])
+        fin = np.isfinite(u)
+        num, den = (w[:, None] * np.where(fin, u, 0.0)).sum(0), (w[:, None] * fin).sum(0)
+        return np.where(den > 0, num / np.where(den > 0, den, 1.0), math.nan)
 
 
 def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, *,
-                  fp_iters: int = 200) -> TreeValue:
-    """Backward induction: expected rewards (per role) and values when each role uses its selection policy.
+                  fp_iters: int = 200, tol: float = 1e-12) -> TreeValue:
+    """Expected rewards (per role) and values when each role uses its selection policy, by backward
+    induction over *information sets*.
 
-    Roles without a policy act as their base (uniform over their pool). Simultaneous stages are
-    solved by ``fp_iters`` rounds of fictitious play (see :func:`_solve_stage`).
+    A node's key is its role's information set (see :meth:`~so_arena.core.game.Game._infoset_key`): the
+    nodes that differ only in moves the role cannot see - a simultaneous partner's move, another role's
+    private turn, a dealer's hidden card - share one pool and get one selection, applied to each
+    candidate's expected reward over the set's nodes weighted by how likely everyone else's behaviour
+    makes each of them (counterfactual reach). A role therefore never selects on information it did not
+    have.
+
+    Selections are computed deepest information sets first, each against the current behaviour below it
+    (exact backward induction when every information set is a single node), then refined by fictitious
+    play: for ``t = 2..fp_iters`` each selection moves to $(1-1/t)\,\sigma + \frac1t\,\mathrm{sel}(u)$
+    until nothing changes by more than ``tol``. Simultaneous stages and hidden moves are solved this way;
+    the result's ``gap`` says how far from a fixed point it ended (0 without hidden moves).
+
+    Roles without a policy act as their base (uniform over their pool). A missing reward (an errored or
+    pending leaf) or ground-truth label is never counted as a payoff or a value: selection treats a
+    candidate without one as the worst, expectations average over the plays that have one, and
+    ``coverage`` / ``reward_coverage`` report the (selection-weighted) share of plays that do.
     """
     policies = policies or {}
 
@@ -261,112 +385,61 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
         # a "role:phase" policy (e.g. optimize only the rebuttal) overrides the role-level one
         return policies.get(f"{role}:{phase}", policies.get(role, Uniform()))
 
-    def ev(nid: str) -> TreeValue:
-        if nid in tree.leaves:
-            leaf = tree.leaves[nid]
-            return TreeValue(rewards={k: (math.nan if v is None else float(v)) for k, v in leaf.rewards.items()},
-                             values=dict(leaf.values))
-        node = tree.nodes[nid]
-        # simultaneous group: this node's children are nodes of the same group with a shared key
-        if node.group is not None:
-            members = _group_chain(tree, node)
-            if len(members) > 1:
-                return _solve_stage(tree, members, sel, ev, fp_iters)
-        kids = [ev(c) for c in node.children]
-        w = np.array([k.rewards.get(node.role, math.nan) for k in kids], dtype=float)
-        return _combine(kids, sel(node.role, node.phase).probs(w))
+    t_ = _Tree(tree)
+    if tree.root in tree.leaves:
+        return _tree_value(t_, tree.root, 0.0)
+    # deepest information sets first: backward induction when each set is a single node
+    order = sorted(t_.sets, key=lambda k: (-max(t_.depth[n] for n in t_.sets[k]), k))
 
-    return ev(tree.root)
+    def response(key: str, reach: dict[str, np.ndarray]) -> np.ndarray:
+        node = tree.nodes[t_.sets[key][0]]
+        return sel(node.role, node.phase).probs(t_.payoffs(key, reach))
 
-
-def _group_chain(tree: GameTree, node: TreeNode) -> list[TreeNode]:
-    """Roles moving simultaneously with ``node``: successive levels in the same group.
-
-    Any node of a level stands for it (they share one key): in a truncated tree some are leaves.
-    """
-    chain = [node]
-    level = [node]
-    while True:
-        kids = [tree.nodes[c] for n in level for c in n.children if c in tree.nodes]
-        if not kids or kids[0].group != node.group or kids[0].role in [c.role for c in chain]:
+    for it in range(1, max(1, fp_iters) + 1):
+        reach = t_.reach()
+        change = 0.0
+        for key in order:
+            br = response(key, reach)
+            new = br if it == 1 else (1 - 1.0 / it) * t_.sigma[key] + br / it
+            d = float(np.abs(new - t_.sigma[key]).sum())
+            if d > 0:
+                t_.sigma[key] = new
+                t_.refresh(t_.sets[key])
+            change = max(change, d)
+        if it > 1 and change <= tol:
             break
-        chain.append(kids[0])
-        level = [k for k in kids if k.key == kids[0].key]
-    return chain
+    reach = t_.reach()
+    gap = max((float(np.abs(response(k, reach) - t_.sigma[k]).sum()) for k in order), default=0.0)
+    return _tree_value(t_, tree.root, gap)
 
 
-def _marginal(T: np.ndarray, pis: list[np.ndarray], a: int) -> np.ndarray:
-    """Expected payoff of each of player ``a``'s candidates, contracting all other axes with ``pis``.
-
-    Only finite cells count (renormalized over their probability), so one missing reward does not
-    decide its whole row; a candidate with no finite cell gets NaN - the worst, for selection.
-    """
-    mask = np.isfinite(T)
-    num, den = np.where(mask, T, 0.0), mask.astype(float)
-    for b in reversed(range(len(pis))):  # descending order keeps lower axis indices valid
-        if b != a:
-            num = np.tensordot(num, pis[b], axes=([b], [0]))
-            den = np.tensordot(den, pis[b], axes=([b], [0]))
-    return np.where(den > 0, num / np.where(den > 0, den, 1.0), math.nan)
-
-
-def _solve_stage(tree: GameTree, members: list[TreeNode], sel, ev, fp_iters: int) -> TreeValue:
-    """Solve a simultaneous-move stage by fictitious play of the selection policies.
-
-    Each member selects from its (shared) pool using its expected payoff against the average of the
-    others' selections so far. The average starts at the first selections (made against uniform
-    beliefs) rather than at the uniform base policy, whose weight would otherwise only decay as
-    $1/T$: a candidate that is best against everything is then selected exactly.
-
-    Missing rewards are not payoffs: expected payoffs average over the finite cells only (as a
-    sequential node renormalizes over its finite children). A cell is missing when its leaf errored
-    or when the tree was truncated (``max_leaves``) inside the stage - a truncated play is a leaf
-    that stands for candidate 0 of every member it did not branch on.
-    """
-    sizes = [len(m.children) for m in members]
-    outcomes: dict[tuple[int, ...], TreeValue] = {}
-
-    def walk(nid: str, depth: int, idx: tuple[int, ...]) -> None:
-        if depth == len(members):
-            outcomes[idx] = ev(nid)
-            return
-        node = tree.nodes.get(nid)
-        if node is None or node.key != members[depth].key:  # truncated: unplanned decisions took candidate 0
-            outcomes[idx + (0,) * (len(members) - depth)] = ev(nid)
-            return
-        for i, c in enumerate(node.children):
-            walk(c, depth + 1, idx + (i,))
-
-    walk(members[0].id, 0, ())
-    roles = [m.role for m in members]
-    R = {r: np.full(tuple(sizes), math.nan) for r in roles}
-    for idx, tv in outcomes.items():
-        for r in roles:
-            x = tv.rewards.get(r, math.nan)
-            if x is not None and np.isfinite(x):
-                R[r][idx] = x
-
-    def respond(beliefs: list[np.ndarray]) -> list[np.ndarray]:
-        return [sel(r, m.phase).probs(_marginal(R[r], beliefs, a)) for a, (r, m) in enumerate(zip(roles, members))]
-
-    pis = respond([np.full(s, 1.0 / s) for s in sizes])
-    for t in range(2, fp_iters + 1):
-        pis = [(1 - 1.0 / t) * p + q / t for p, q in zip(pis, respond(pis))]
-    weights = [float(np.prod([pis[a][i] for a, i in enumerate(idx)])) for idx in outcomes]
-    return _combine(list(outcomes.values()), np.array(weights))
+def _tree_value(t_: _Tree, nid: str, gap: float) -> TreeValue:
+    x, cov, nr = t_.x[nid], t_.cov[nid], len(t_.rkeys)
+    return TreeValue(rewards={r: float(x[i]) for i, r in enumerate(t_.rkeys)},
+                     values={k: float(x[nr + i]) for i, k in enumerate(t_.vkeys)},
+                     reward_coverage={r: float(cov[i]) for i, r in enumerate(t_.rkeys)},
+                     coverage={k: float(cov[nr + i]) for i, k in enumerate(t_.vkeys)}, gap=gap)
 
 
 def optimization_grid(trees: Sequence[GameTree], grid: dict[str, Sequence[int | float]], *,
-                      kind: str = "bon", mode: str = "unbiased") -> pd.DataFrame:
+                      kind: str = "bon", mode: str = "unbiased", min_coverage: float = 0.5) -> pd.DataFrame:
     """Evaluate every combination of per-role optimization levels, averaged over trees (items).
 
     ``grid`` maps ``"role"`` or ``"role:phase"`` -> list of n (``kind="bon"``) or beta (``kind="tilt"``).
-    Returns one row per
-    combination with ``level_<role>``, ``reward_<role>`` and every value key, plus bootstrap CIs over
-    items for each value (``<key>_ci_low/high``).
+    Returns one row per combination with ``level_<role>``, ``reward_<role>`` and every value key, plus
+    bootstrap CIs over items for each value (``<key>_ci_low/high``), the selection-weighted label coverage
+    (``<key>_coverage``, the mean over items of the share of selected plays that have a label) and the
+    largest fixed-point gap of the trees' solutions (``gap``, see :func:`evaluate_tree`).
+
+    An item whose label coverage for a key is below ``min_coverage`` contributes no value for it (NaN, and
+    a warning): its average would describe only a sliver of what selection favours - e.g. best-of-N
+    moving onto the candidates nobody could label.
     """
+    from so_arena.analysis.metrics import bootstrap_mean_ci
+
     roles = list(grid)
     rows = []
+    low = 0
     for levels in itertools.product(*[grid[r] for r in roles]):
         pols: dict[str, Selection] = {}
         for r, lv in zip(roles, levels):
@@ -375,15 +448,22 @@ def optimization_grid(trees: Sequence[GameTree], grid: dict[str, Sequence[int | 
         row: dict[str, Any] = {f"level_{r}": lv for r, lv in zip(roles, levels)}
         all_roles = sorted(set().union(*[set(tv.rewards) for tv in per_tree]))
         for r in all_roles:
-            row[f"reward_{r}"] = float(np.nanmean([tv.rewards.get(r, math.nan) for tv in per_tree]))
+            row[f"reward_{r}"] = _nanmean([tv.rewards.get(r, math.nan) for tv in per_tree])
         keys = sorted(set().union(*[set(tv.values) for tv in per_tree]))
-        from so_arena.analysis.metrics import bootstrap_mean_ci
-
         for k in keys:
+            cov = np.array([tv.coverage.get(k, 0.0) for tv in per_tree], dtype=float)
             arr = np.array([tv.values.get(k, math.nan) for tv in per_tree], dtype=float)
-            row[k] = float(np.nanmean(arr)) if np.isfinite(arr).any() else math.nan
+            dropped = (cov < min_coverage) & np.isfinite(arr)
+            low += int(dropped.sum())
+            arr = np.where(dropped, math.nan, arr)
+            row[k] = _nanmean(arr)
             lo, hi = bootstrap_mean_ci(arr, n_boot=500)
             row[f"{k}_ci_low"], row[f"{k}_ci_high"] = lo, hi
+            row[f"{k}_coverage"] = float(cov.mean()) if len(cov) else math.nan
+        row["gap"] = max((tv.gap for tv in per_tree), default=0.0)
         row["n_items"] = len(per_tree)
         rows.append(row)
+    if low:
+        log.warning("optimization_grid: %d item value(s) dropped: below %.0f%% of the selected plays have a label",
+                    low, 100 * min_coverage)
     return pd.DataFrame(rows)

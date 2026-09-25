@@ -199,8 +199,13 @@ def test_tree_truncated_inside_a_simultaneous_stage():
     root = tree.nodes[tree.root]
     assert root.group is not None and tree.n_leaves == 3
     assert sorted(c in tree.nodes for c in root.children) == [False, True]  # truncated inside the stage
-    base = evaluate_tree(tree)  # uniform play over the observed cells
-    assert base.rewards["debater_a"] == pytest.approx(np.mean([leaf.rewards["debater_a"] for leaf in tree.leaves.values()]))
+    # uniform play, each decision over its observed candidates: the truncated play stands for B's first
+    # candidate, so it is A's second candidate's whole value (not one cell of four, pooled with A's first)
+    base = evaluate_tree(tree)
+    staged = next(c for c in root.children if c in tree.nodes)
+    cut = next(c for c in root.children if c in tree.leaves)
+    b_mean = np.mean([tree.leaves[c].rewards["debater_a"] for c in tree.nodes[staged].children])
+    assert base.rewards["debater_a"] == pytest.approx(0.5 * b_mean + 0.5 * tree.leaves[cut].rewards["debater_a"])
     opt = evaluate_tree(tree, {"debater_a": BestOfN(2), "debater_b": BestOfN(2)})
     assert all(np.isfinite(v) for v in opt.rewards.values())
 

@@ -28,12 +28,13 @@ from typing import Any
 import pandas as pd
 
 from so_arena.analysis.optimization import GameTree, TreeLeaf, TreeNode, optimization_grid
-from so_arena.core.game import BranchController, Player, RunContext
+from so_arena.core.game import BranchController, NodeRecord, Player, RunContext
 from so_arena.core.ground_truth import GroundTruthScorer, default_scorers
 from so_arena.core.items import TaskItem
 from so_arena.core.mechanism import Episode, Mechanism
 from so_arena.core.runner import Profile, build_players, score_episode
 from so_arena.core.store import RunStore
+from so_arena.core.types import Usage
 
 log = logging.getLogger("so_arena")
 
@@ -76,6 +77,7 @@ async def expand_tree(
     sem = asyncio.Semaphore(concurrency)
     nodes: dict[str, TreeNode] = {}
     leaves: dict[str, TreeLeaf] = {}
+    traces: dict[str, list[NodeRecord]] = {}  # leaf -> every decision of its play
     episodes: list[Episode] = []
     truncated = False
 
@@ -98,6 +100,7 @@ async def expand_tree(
             if nxt is not None:
                 truncated = True
             leaves[pid] = TreeLeaf(id=pid, rewards=dict(ep.rewards), values=leaf_values(ep), episode_id=ep.id)
+            traces[pid] = list(trace)
             if keep_episodes:
                 episodes.append(ep)
             if ep.error:
@@ -112,10 +115,42 @@ async def expand_tree(
     root = await expand(())
     if truncated:
         log.warning("tree for %s truncated at %d leaves", item.id, max_leaves)
+    charged = _charge_pools(root_bc, traces)
+    leaf_of = {leaf.episode_id: lid for lid, leaf in leaves.items()}
+    for ep in episodes:
+        ep.usage = charged.get(leaf_of.get(ep.id, ""), {})
     usage = {r: u.model_dump() for r, u in root_bc.usage.items()}
     tree = GameTree(item_id=item.id, mechanism=mechanism.name, root=root, nodes=nodes, leaves=leaves,
                     roles=list(mechanism.roles()), usage=usage)
     return tree, episodes
+
+
+def _charge_pools(bc: BranchController, traces: dict[str, list[NodeRecord]]) -> dict[str, dict[str, Usage]]:
+    """Charge each sampled pool to one canonical leaf, so a tree's leaf episodes sum to its total usage.
+
+    A pool belongs to an information set, which plays that differ in moves its role cannot see all pass
+    through; its canonical leaf is the one whose play, among those passing through it, takes the
+    lexicographically smallest choices (in the order of the decisions) - deterministic, whichever replay
+    sampled the pool first.
+    """
+    canon: dict[str, tuple[tuple[int, ...], str]] = {}
+    for lid, trace in traces.items():
+        order = tuple(n.choice for n in sorted(trace, key=lambda n: n.slot))
+        for n in trace:
+            if n.key not in canon or (order, lid) < canon[n.key]:
+                canon[n.key] = (order, lid)
+    out: dict[str, dict[str, Usage]] = {}
+    for key, pool in bc.memo.items():
+        if key not in canon:  # every sampled pool lies on some complete play; keep the total right regardless
+            if not traces:
+                continue
+            log.warning("pool %s is on no leaf's play; charged to the first leaf", key)
+            canon[key] = ((), min(traces))
+        lid, role = canon[key][1], bc.roles[key]
+        for p in pool:
+            out.setdefault(lid, {})
+            out[lid][role] = out[lid].get(role, Usage()) + p.usage
+    return out
 
 
 class OptimizationExperiment:

@@ -170,24 +170,26 @@ class BranchController:
     """Pools of candidate actions at decision nodes, and a plan selecting which candidate to follow.
 
     ``pool_sizes`` maps ``"role"`` or ``"role:phase"`` -> K (the phase-specific key wins; unlisted
-    decisions get K=1). The memo is shared across replays, so each node's pool is sampled exactly
-    once; ``usage`` (shared by all forks) counts each sample once. Episodes of the replays record
-    the pools they are the canonical play of (see :meth:`Game.episode_usage`), so the distinct plays
-    of a fully expanded tree sum to ``usage``.
+    decisions get K=1). Decisions are keyed by information set (:meth:`Game._infoset_key`) and the memo
+    is shared across replays, so each information set's pool is sampled exactly once, whichever play
+    reaches it first; ``usage`` (shared by all forks) counts each sample once.
+    :func:`~so_arena.samplers.pools.expand_tree` charges each pool to one canonical leaf episode, so the
+    leaves of a fully expanded tree sum to ``usage``.
     """
 
     def __init__(self, pool_sizes: dict[str, int] | None = None, plan: dict[str, int] | None = None,
                  memo: dict[str, list[_Produced]] | None = None, locks: dict[str, asyncio.Lock] | None = None,
-                 usage: dict[str, Usage] | None = None):
+                 usage: dict[str, Usage] | None = None, roles: dict[str, str] | None = None):
         self.pool_sizes = dict(pool_sizes or {})
         self.plan = dict(plan or {})
         self.memo = memo if memo is not None else {}
         self.locks = locks if locks is not None else {}
         self.usage = usage if usage is not None else defaultdict(Usage)
+        self.roles = roles if roles is not None else {}  # pool key -> the role it belongs to
         self.trace: list[NodeRecord] = []
 
     def fork(self, plan: dict[str, int]) -> "BranchController":
-        return BranchController(self.pool_sizes, plan, self.memo, self.locks, self.usage)
+        return BranchController(self.pool_sizes, plan, self.memo, self.locks, self.usage, self.roles)
 
     def pool_size(self, role: str, phase: str = "") -> int:
         """Pool size for a decision: a ``"role:phase"`` key overrides a ``"role"`` key (default 1)."""
@@ -204,6 +206,7 @@ class BranchController:
                 for p in pool:
                     self.usage[role] = self.usage[role] + p.usage
                 self.memo[key] = pool
+                self.roles[key] = role
         pool = self.memo[key]
         idx = self.plan.get(key, 0)
         self.trace.append(NodeRecord(key=key, role=role, phase=phase, k=len(pool), choice=idx, group=group, slot=slot))
@@ -453,13 +456,36 @@ class Game:
 
     # ------------------------------------------------------------------------------ acting
     def _node_key(self, role: str, phase: str, slot: int, group: str | None) -> str:
-        # Decisions of the same simultaneous group are excluded: a simultaneous mover's pool must not
-        # depend on its partners' current choices (in replays they may complete synchronously first).
+        """A plain run's decision key (it seeds the policy's randomness): the decision's position and every
+        earlier decision. Decisions of the same simultaneous group are excluded."""
         path = [
             self._decisions[s] for s in sorted(self._decisions)
             if s < slot and (group is None or self._slot_group.get(s) != group)
         ]
         raw = json.dumps([role, phase, slot, path])
+        return hashlib.sha256(raw.encode()).hexdigest()[:20]
+
+    def _infoset_key(self, role: str, request: ActionRequest, *, slot: int, access: str, state: str | None,
+                     used: int) -> str:
+        """A game-tree decision's key: its *information set* - everything the role can condition on here.
+
+        That is the request it is sent (prompt and view: every turn it may see, as shown to it), its own
+        earlier decisions and the candidates it took (perfect recall), the state it acts on if it can see it
+        (or if its claims are checked against it) and the verifications it has used. Moves it cannot see -
+        another role's private turn, a simultaneous partner's current move, a dealer's hidden card - do not
+        enter the key, so the nodes that differ only in them share one pool of candidates, and selection
+        (:func:`~so_arena.analysis.optimization.evaluate_tree`) picks one distribution for all of them. Keying
+        by the whole path instead would let best-of-N choose separately behind every hidden move, i.e. act on
+        information the role never had.
+
+        Tools are assumed to reveal only what the item and the visible state determine (as the built-in ones
+        do): a tool reading hidden, path-dependent game data would make a role's observations differ within
+        what its key treats as one information set.
+        """
+        own = [self._decisions[s] for s in sorted(self._decisions) if s < slot and self._slot_role.get(s) == role]
+        sees_state = access != "none" or any(getattr(v, "uses_state", False) for v in self.verifiers_for(role).values())
+        raw = json.dumps([role, request.phase, access, state if sees_state else None, used, own,
+                          request.model_dump(mode="json")], sort_keys=True, default=str)
         return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
     async def _produce(self, role: str, request: ActionRequest, sample_index: int, key: str = "",
@@ -580,12 +606,16 @@ class Game:
         self._slot_group[slot] = group
         self._slot_role[slot] = role
         request = request.model_copy(update={"view": self.view(role, exclude_group=group), "phase": request.phase or phase})
-        key = self._node_key(role, request.phase, slot, group)
         # verifications the role used on this play so far (earlier decisions only, like the node key)
         used = sum(n for s, (r, n) in self._verif_used.items() if r == role and s < slot)
         # the state the decision acts on; simultaneous movers all act on the state the stage began with, as
         # their views exclude each other's moves (a partner may finish first, in plain runs and in replays)
         parent = self._group_state.setdefault(group, self.state) if group is not None else self.state
+        if self.branch is not None:  # game trees: one pool per information set
+            key = self._infoset_key(role, request, slot=slot, access=self.state_access(role, access), state=parent,
+                                    used=used)
+        else:
+            key = self._node_key(role, request.phase, slot, group)
 
         async def sample(i: int) -> _Produced:
             return await self._produce(role, request, i, key, used, access, parent)
@@ -636,27 +666,15 @@ class Game:
     def episode_usage(self) -> dict[str, Usage]:
         """Model usage to record with this play's episode.
 
-        Outside branch mode: every call the play made. In branch mode a node's pool (all K candidates)
-        is shared by every play through the node, so it is charged to one *canonical* play: the one
-        taking the first candidate there and at every decision the node's key does not depend on
-        (later decisions and simultaneous partners). Each pool thus counts exactly once among the
-        distinct plays of a tree - its leaf episodes sum to the controller's ``usage`` when the tree
-        is fully expanded - and the attribution does not depend on which replay sampled a pool first.
+        Outside branch mode: every call the play made. In branch mode a pool (all K candidates of an
+        information set) is shared by every play through the information set - including plays that
+        differ only in moves the role cannot see - so no single play can tell whether it should pay for
+        it: the play records nothing here, and :func:`~so_arena.samplers.pools.expand_tree` charges each
+        pool to one canonical leaf once the tree is known.
         """
         if self.branch is None:
             return dict(self.usage)
-        out: dict[str, Usage] = {}
-        slots = sorted(self._decisions)
-        for s in slots:
-            key, _ = self._decisions[s]
-            group = self._slot_group.get(s)
-            free = [t for t in slots if t >= s or (group is not None and self._slot_group.get(t) == group)]
-            if any(self._decisions[t][1] != 0 for t in free):
-                continue
-            role = self._slot_role[s]
-            for p in self.branch.memo.get(key, []):
-                out[role] = out.get(role, Usage()) + p.usage
-        return out
+        return {}
 
     def total_usage(self) -> Usage:
         total = Usage()
