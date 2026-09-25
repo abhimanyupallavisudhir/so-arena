@@ -21,6 +21,8 @@ TIPS = {
     "slope": "Reward gained per unit of ground truth (task fixed effects)",
     "frontier_gap": "Best reward reachable by good strategies minus best reward reachable by bad ones — what a strong optimiser sees",
     "argmax_gt": "Ground truth of the strategy the mechanism rewards most",
+    "best_gt": "Best ground truth among the sampled strategies",
+    "gt_regret": "Ground truth lost if agents adopt the strategy the mechanism rewards most, instead of the best one sampled",
     "accuracy": "Share of final decisions that were correct",
     "p_correct": "Judge's mean probability on the correct answer",
     "log_score": "Judge's mean log probability on the correct answer",
@@ -110,9 +112,10 @@ def html_report(
     if len(trainable) and gcol in trainable and trainable[gcol].notna().any():
         ic = ic_report(trainable, roles=roles, gt=gt)
         parts.append(f"<h2>Incentive compatibility <span class='mut'>(ground truth: {html.escape(gt)})</span></h2>")
-        keep = [c for c in ["mechanism", "asd", "lo", "hi", "pairwise_acc", "spearman", "frontier_gap", "argmax_gt", "r_good", "r_bad", "n_tasks"] if c in ic]
+        keep = [c for c in ["mechanism", "asd", "lo", "hi", "pairwise_acc", "spearman", "slope", "frontier_gap", "argmax_gt",
+                            "best_gt", "gt_regret", "r_good", "r_bad", "n_tasks"] if c in ic]
         parts.append(_table(ic[keep]))
-        if len(ic):
+        if len(ic) and "asd" in ic and ic["asd"].notna().any():
             fig, _ = asd_bars(ic)
             figs.setdefault("ASD by mechanism", save(fig, path.with_name(path.stem + "_asd.png")))
     if figs:

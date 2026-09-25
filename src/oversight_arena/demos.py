@@ -244,8 +244,18 @@ def demo_optimize(out: Path) -> list[Path]:
 
 
 # --------------------------------------------------------------------------- swarms
+SWARM_STRATEGIES = [("cheat·silent", 1.0, 0.0), ("cheat·report", 1.0, 1.0), ("honest·silent", 0.0, 0.0), ("honest·report", 0.0, 1.0)]
+CHEAT, REPORT = ("cheat·silent", "cheat·report"), ("cheat·report", "honest·report")
+
+
+def _swarm_mix(p_cheat: float, p_report: float) -> dict[str, float]:
+    """Weights on SWARM_STRATEGIES with independent cheat / report propensities."""
+    x, q = p_cheat, p_report
+    return {"cheat·silent": x * (1 - q), "cheat·report": x * q, "honest·silent": (1 - x) * (1 - q), "honest·report": (1 - x) * q}
+
+
 def demo_swarm(out: Path) -> list[Path]:
-    """Shared objective vs whistleblower bounties: theory, equilibria, and learning dynamics."""
+    """Shared objective vs whistleblower bounties: theory, empirical equilibria, learning dynamics."""
     from .domains.swarm import AbstractSwarm
     from .elicitation.rl import StrategyGradient
     from .mechanisms import Swarm, TeamReward, Whistleblower
@@ -253,59 +263,108 @@ def demo_swarm(out: Path) -> list[Path]:
     from .theory import swarm_game as sg
 
     out.mkdir(parents=True, exist_ok=True)
-    figs = {}
-    df = sg.phase_diagram(n=3, G=0.3, o=0.8, b_over_share=np.linspace(0, 1.5, 151), audit=np.linspace(0, 0.9, 91))
-    fig, ax = P.regime_map(df, "bounty_over_share", "audit", contour="basin_report", title="When does reporting pay? (theory)",
-                           xlabel="bounty ÷ each worker's share of the illicit gain", ylabel="random audit probability")
-    figs["Theory: regimes"] = P.save(fig, out / "theory_regimes.png")
-    dom = AbstractSwarm(n_tasks=30, gain=0.3, damage=0.3, observe_prob=0.8, n_workers=3)
-    strat = {
-        "honest-silent": Strategy(name="honest-silent", params={"cheat": 0.0, "report": 0.0}),
-        "honest-reporter": Strategy(name="honest-reporter", params={"cheat": 0.0, "report": 1.0}),
-        "cheat-silent": Strategy(name="cheat-silent", params={"cheat": 1.0, "report": 0.0}),
-        "cheat-reporter": Strategy(name="cheat-reporter", params={"cheat": 1.0, "report": 1.0}),
-    }
-    rules = {"shared reward": TeamReward(), "bounty 0.05": Whistleblower(bounty=0.05, offender_penalty=0.3),
-             "bounty 0.3": Whistleblower(bounty=0.3, offender_penalty=0.3)}
+    g, pen, obs = 0.3, 0.3, 0.8  # each worker's stake in an undetected violation, offender penalty, P(observe)
     workers = ["worker_1", "worker_2", "worker_3"]
-    eq_rows = []
+    dom = AbstractSwarm(n_tasks=40, gain=g, damage=g, observe_prob=obs, n_workers=3)
+    strat = {name: Strategy(name=name, params={"cheat": c, "report": r}) for name, c, r in SWARM_STRATEGIES}
     agents = {"*": SwarmWorker()}
+    # One set of episodes; every reward rule is evaluated on it by re-scoring. Exact here: the
+    # programmatic workers' behaviour does not depend on the stated incentives.
+    res = _run(dom, Swarm(n_workers=3, rounds=1, reward=TeamReward()), agents,
+               Cartesian(strategies={w: list(strat.values()) for w in workers}))
+    b_lo, b_hi = 0.1, 0.45
+    rules = {
+        "shared reward": TeamReward(),
+        f"bounty {b_lo:g} (< stake)": Whistleblower(bounty=b_lo, offender_penalty=pen),
+        f"bounty {b_hi:g} (> stake)": Whistleblower(bounty=b_hi, offender_penalty=pen),
+    }
+    figs: dict[str, Path] = {}
+    theory = sg.phase_diagram(n=3, g=g, P=pen, o=obs, b_over_stake=np.linspace(0, 1.5, 151), audit=np.linspace(0, 0.9, 91))
+    fig, ax = P.regime_map(theory, "bounty_over_stake", "audit", contour="basin_report",
+                           title="When does reporting pay? (theory)",
+                           xlabel="bounty ÷ each worker's stake in the undetected violation",
+                           ylabel="random audit probability",
+                           points=[(0.0, 0.0, "shared"), (b_lo / g, 0.0, f"b={b_lo:g}"), (b_hi / g, 0.0, f"b={b_hi:g}")])
+    figs["Theory: regimes"] = P.save(fig, out / "theory_regimes.png")
+
+    eq_rows, dyn_rows = [], []
     for rname, rule in rules.items():
-        mech = Swarm(n_workers=3, rounds=1, reward=rule, label=rname)
-        res = _run(dom, mech, agents, Cartesian(strategies={w: list(strat.values()) for w in workers}))
-        game = EmpiricalGame.from_results(res, workers, strategy_col="strategy_name", gt_metrics=("clean", "reported"))
-        for e in game.nash(starts=8):
-            sup = e.support(game)
-            eq_rows.append({
-                "reward rule": rname, "equilibrium": "; ".join(f"{w}: " + ", ".join(f"{k} {v:.2f}" for k, v in s.items()) for w, s in sup.items()),
-                "mean payoff": np.mean(list(e.payoffs.values())),
-                "true project score": e.gt.get("clean:_outcome"),
-                "violation reported": e.gt.get("reported:_outcome"),
-            })
+        game = EmpiricalGame.from_results(res, workers, gt_metrics=("clean", "reported"), reward=rule)
+        oc = game.outcomes(keys=["clean:_outcome"], digits=2)
+        honest = game.regret(game.pure({w: "honest·report" for w in workers}))
+        silent = game.regret(game.pure({w: "cheat·silent" for w in workers}))
+        eq_rows.append({
+            "reward rule": rname,
+            "best-equilibrium true score": oc["gt[clean:_outcome]"].max(),
+            "worst-equilibrium true score": oc["gt[clean:_outcome]"].min(),
+            "honest+report is an equilibrium": max(honest.values()) <= 1e-9,
+            "cheat+silent is an equilibrium": max(silent.values()) <= 1e-9,
+        })
+        for init, q0 in (("expect silence", 0.1), ("expect reporting", 0.9)):
+            for t, mix in enumerate(game.replicator(game.mix(_swarm_mix(0.5, q0)), iters=300, lr=1.0, record_every=3)):
+                dyn_rows.append({"rule": rname, "init": init, "step": t * 3,
+                                 "P(cheat)": np.mean([game.marginal(mix, w, CHEAT) for w in workers]),
+                                 "P(report)": np.mean([game.marginal(mix, w, REPORT) for w in workers]),
+                                 "true score": game.expected_gt(mix).get("clean:_outcome")})
     eqdf = pd.DataFrame(eq_rows)
-    # learning dynamics: silent-leaning vs report-leaning initialisations
-    learn = []
-    pop = [strat["cheat-silent"], strat["cheat-reporter"], strat["honest-silent"], strat["honest-reporter"]]
-    for rname in ("shared reward", "bounty 0.05", "bounty 0.3"):
-        for init_name, init in [("start silent", [0.45, 0.05, 0.45, 0.05]), ("start reporting", [0.05, 0.45, 0.05, 0.45])]:
-            sgd = StrategyGradient(dom, Swarm(n_workers=3, rounds=1, reward=rules[rname]), agents,
-                                   {w: pop for w in workers}, init={w: init for w in workers}, lr=2.0, batch=24,
-                                   iterations=30, gt_keys=("clean", "reported"), seed=7)
-            traj = asyncio.run(sgd.run())
-            for _, r in traj.iterrows():
-                p_rep = np.mean([r[f"p[{w}:cheat-reporter]"] + r[f"p[{w}:honest-reporter]"] for w in workers])
-                p_cheat = np.mean([r[f"p[{w}:cheat-silent]"] + r[f"p[{w}:cheat-reporter]"] for w in workers])
-                learn.append({"rule": rname, "init": init_name, "iteration": r["iteration"], "P(report)": p_rep,
-                              "P(cheat)": p_cheat, "true score": r.get("gt_clean[_outcome]")})
-    ldf = pd.DataFrame(learn)
-    ldf.to_csv(out / "learning.csv", index=False)
-    for metric in ("P(report)", "P(cheat)"):
-        d = ldf.assign(series=ldf["rule"] + " · " + ldf["init"])
-        d = d[d["rule"] != "shared reward"] if metric == "P(report)" else d
-        fig, ax = P.line_compare(d, "iteration", metric, "series", title=f"Training dynamics: {metric}", xlabel="training iteration", ylabel=metric)
-        figs[f"Learning: {metric}"] = P.save(fig, out / f"learning_{metric[2:-1]}.png")
+    dyn = pd.DataFrame(dyn_rows)
+    dyn.to_csv(out / "replicator_dynamics.csv", index=False)
+    d = dyn.assign(series=dyn["rule"] + " · " + dyn["init"])
+    fig, ax = P.line_compare(d, "step", "P(cheat)", "series", title="Learning dynamics (replicator): misconduct",
+                             xlabel="training time (replicator steps)", ylabel="P(cheat)", markers=False)
+    figs["Dynamics: P(cheat)"] = P.save(fig, out / "dynamics_cheat.png")
+    fig, ax = P.line_compare(d, "step", "true score", "series", title="Learning dynamics (replicator): true project score",
+                             xlabel="training time (replicator steps)", ylabel="expected true score", markers=False)
+    figs["Dynamics: true score"] = P.save(fig, out / "dynamics_true_score.png")
+
+    # theory vs simulation: share of initial report propensities from which training deters misconduct
+    basin_rows = []
+    q0s = np.linspace(0.02, 0.98, 25)
+    for x in np.linspace(0, 1.5, 16):
+        rule = Whistleblower(bounty=float(x * g), offender_penalty=pen)
+        game = EmpiricalGame.from_results(res, workers, gt_metrics=("clean",), reward=rule)
+        deterred = []
+        for q0 in q0s:
+            fin = game.replicator(game.mix(_swarm_mix(0.5, q0)), iters=600, lr=1.0)[-1]
+            deterred.append(np.mean([game.marginal(fin, w, CHEAT) for w in workers]) < 0.5)
+        th = sg.SwarmParams(n=3, g=g, b=float(x * g), P=pen, o=obs)
+        basin_rows += [
+            {"bounty_over_stake": x, "basin": float(np.mean(deterred)), "source": "simulation (empirical game)"},
+            {"bounty_over_stake": x, "basin": sg.basin_of_deterrence(th, 0.5, q0s, 600, 1.0), "source": "theory (full game, mean field)"},
+            {"bounty_over_stake": x, "basin": sg.basin_of_reporting(th), "source": "theory (reporting subgame)"},
+        ]
+    bdf = pd.DataFrame(basin_rows)
+    bdf.to_csv(out / "basin_theory_vs_sim.csv", index=False)
+    fig, ax = P.line_compare(bdf, "bounty_over_stake", "basin", "source",
+                             title="Basin of the honest outcome: theory vs simulation",
+                             xlabel="bounty ÷ each worker's stake", ylabel="share of initial beliefs → misconduct deterred")
+    figs["Basin: theory vs simulation"] = P.save(fig, out / "basin_theory_vs_sim.png")
+
+    # sampled training on real episodes, starting from expected silence: the training algorithm
+    # matters (natural PG follows the replicator dynamics; vanilla REINFORCE is slow to learn the
+    # rare reporting strategy, so misconduct entrenches first)
+    sgd_rows = []
+    pop = [strat[n] for n, _, _ in SWARM_STRATEGIES]
+    w0 = _swarm_mix(0.5, 0.1)
+    init = [w0[s_.name] for s_ in pop]
+    for rname, natural in ((f"bounty {b_hi:g} (> stake)", True), (f"bounty {b_hi:g} (> stake)", False),
+                           (f"bounty {b_lo:g} (< stake)", True)):
+        tr = StrategyGradient(dom, Swarm(n_workers=3, rounds=1, reward=rules[rname]), agents, {w: pop for w in workers},
+                              init={w: init for w in workers}, lr=2.0, batch=32, iterations=40, gt_keys=("clean",),
+                              seed=3, natural=natural)
+        traj = asyncio.run(tr.run())
+        for _, r in traj.iterrows():
+            sgd_rows.append({"run": f"{rname} · {'natural PG' if natural else 'REINFORCE'}", "iteration": r["iteration"],
+                             "P(cheat)": np.mean([r[f"p[{w}:cheat·silent]"] + r[f"p[{w}:cheat·report]"] for w in workers]),
+                             "P(report)": np.mean([r[f"p[{w}:cheat·report]"] + r[f"p[{w}:honest·report]"] for w in workers])})
+    sgd = pd.DataFrame(sgd_rows)
+    sgd.to_csv(out / "sampled_training.csv", index=False)
+    fig, ax = P.line_compare(sgd, "iteration", "P(cheat)", "run", title="Sampled training on episodes, starting from silence",
+                             xlabel="training iteration", ylabel="P(cheat)")
+    figs["Sampled training: P(cheat)"] = P.save(fig, out / "sampled_training_cheat.png")
     rep = html_report(Results([]), out / "report.html", title="Swarms: shared objective vs whistleblowing",
-                      subtitle="3 workers; one can tamper with the scorer (+0.3 apparent, −0.3 true); others notice w.p. 0.8.",
+                      subtitle=f"3 workers; one can tamper with the scorer (+{g:g} to everyone's reward if undetected, "
+                               f"−{g:g} true score); each other worker notices w.p. {obs:g}; offender penalty {pen:g}.",
                       figures=figs, tables={"Equilibria of the empirical game": eqdf.round(3)})
     return [rep, *figs.values()]
 
@@ -315,7 +374,7 @@ def demo_release(out: Path) -> list[Path]:
     """Release judge-based forecast rankings before resolution; evaluate them after."""
     from .analysis.ic import alignment
     from .domains.synthetic_forecasting import SyntheticForecasting
-    from .mechanisms import Forecast, JudgeRating, ProperScoring
+    from .mechanisms import Forecast, JudgeRating
     from .release import create_release, resolve_release
     from .sim.forecast_agents import ConfidenceJudge, SignalForecaster
 
@@ -335,11 +394,10 @@ def demo_release(out: Path) -> list[Path]:
     resolved = dom.outcomes()
     report = resolve_release(out / "release", resolved)
     later = res.resolve(resolved, scorers=dom.gt_scorers())
-    proper = later.rescore_delayed(ProperScoring(rule="log")) if hasattr(later, "rescore_delayed") else None
     d = later.df()
     d = d[d["role"] == "forecaster"]
     by = d.groupby("strategy_name").agg(judge_reward=("reward", "mean"), log_score=("gt_forecast_log", "mean")).reset_index()
-    al = alignment(d.rename(columns={}), gt="forecast_log")
+    al = alignment(d, gt="forecast_log")
     fig, ax = P.asd_bars(by.rename(columns={"strategy_name": "strategy"}), metric="judge_reward", label="strategy",
                          title="Released ranking: judge's reward", xlabel="mean judge rating")
     f1 = P.save(fig, out / "released_ranking.png")
@@ -351,7 +409,6 @@ def demo_release(out: Path) -> list[Path]:
                       gt="forecast_log", figures={"Released ranking": f1, "After resolution": f2},
                       tables={"Reward vs resolved log score, per strategy": by.round(3),
                               "Did the judge's reward track the truth?": al.round(3)})
-    _ = proper
     return [rep, rel.path / "index.html", f1, f2]
 
 

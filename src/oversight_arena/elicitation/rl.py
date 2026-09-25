@@ -3,9 +3,11 @@
 Three levels of fidelity:
 
 1. :class:`StrategyGradient` — *strategy-level* RL: each trainable role holds a softmax policy
-   over a population of strategies (prompts / parameterised behaviours) and is updated with
-   REINFORCE on real episodes. Cheap (no weights), multi-agent, and it exhibits the learning
-   dynamics that decide which equilibrium training selects (cf. replicator dynamics).
+   over a population of strategies (prompts / parameterised behaviours) and is updated from
+   real episodes, by REINFORCE (vanilla policy gradient) or by natural policy gradient
+   (≈ exponential weights, whose mean-field limit is the replicator dynamics of
+   :meth:`EmpiricalGame.replicator`). Cheap (no weights), multi-agent, and it exhibits the
+   learning dynamics that decide which equilibrium training selects.
 2. :class:`MechanismEnv` — a text environment (PettingZoo-AEC-like) exposing any mechanism as
    an RL environment for one or more trainable roles: ``reset()`` → observation of the role to
    act; ``step(text)`` → next observation; final rewards from the mechanism's reward rule. Plug
@@ -37,7 +39,14 @@ from ..mechanisms.base import Mechanism
 
 
 class StrategyGradient:
-    """Independent softmax-policy REINFORCE learners over strategy populations.
+    """Independent softmax-policy learners over strategy populations, trained on real episodes.
+
+    With ``natural=False`` (REINFORCE) the expected logit update is
+    $\Delta\theta_a = \eta\,\pi_a (u_a - \bar u)$: rarely played strategies learn slowly. With
+    ``natural=True`` (natural policy gradient for the softmax, i.e. exponential weights / Hedge)
+    it is $\eta\,(u_a - \bar u)$, estimated per sampled strategy as its mean reward in the batch
+    minus the baseline — the stochastic version of the replicator dynamics. Both have the same rest points but can reach *different* equilibria
+    from the same start, so equilibrium selection depends on the training algorithm.
 
     Args:
         populations: per trainable role, its strategy set (the policy's support).
@@ -46,6 +55,7 @@ class StrategyGradient:
         batch: episodes per iteration (tasks sampled with replacement).
         init: optional initial probabilities per role (e.g. start near 'silent' to test
             path dependence / basins of attraction).
+        natural: natural policy gradient (see above) instead of REINFORCE.
     """
 
     def __init__(
@@ -64,10 +74,12 @@ class StrategyGradient:
         gt_keys: Sequence[str] = ("correct",),
         seed: int = 0,
         concurrency: int = 8,
+        natural: bool = False,
     ):
         self.domain = domain
         self.mechanism = mechanism
         self.agents = agents if isinstance(agents, AgentTable) else AgentTable(agents)
+        self.natural = natural
         self.pop = populations
         self.fixed = fixed or {}
         self.lr = lr
@@ -134,7 +146,15 @@ class StrategyGradient:
                 base = float(np.mean(rs[ok])) if self.baseline == "mean" else 0.0
                 pr = self.probs(r)
                 grad = np.zeros_like(pr)
-                for (_, _, choice, _), rv, good in zip(jobs, rs, ok):
+                if self.natural:  # advantage of each sampled strategy: mean reward when played - baseline
+                    picks = np.array([choice[r] for (_, _, choice, _) in jobs])
+                    for a in range(len(pr)):
+                        m = ok & (picks == a)
+                        if m.any():
+                            grad[a] = float(np.mean(rs[m])) - base
+                    self.logits[r] = self.logits[r] + self.lr * grad
+                    continue
+                for (_, _, choice, _), rv, good in zip(jobs, rs, ok):  # REINFORCE: (r - b) grad log pi(a)
                     if not good:
                         continue
                     g = -pr.copy()

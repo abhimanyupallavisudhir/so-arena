@@ -6,7 +6,7 @@ should be. Given a finite set of strategies per role (sampled responses, prompts
 policies), the mechanism induces a normal-form game with payoff tensors $u_i(s_1,\\dots,s_n)$
 (mean rewards) and ground-truth tensors $g_i(s)$. This module estimates equilibria and the
 ground truth *at* equilibrium, deviation incentives (regret/exploitability) of any profile,
-and learning dynamics (replicator / multiplicative weights ≈ policy-gradient training).
+and learning dynamics (replicator / multiplicative weights ≈ natural-policy-gradient training).
 """
 
 from __future__ import annotations
@@ -75,8 +75,18 @@ class EmpiricalGame:
         gt_metrics: Sequence[str] = ("correct",),
         task: str | None = None,
         mechanism: str | None = None,
+        reward: Any = None,
     ) -> "EmpiricalGame":
+        """Estimate the game from episodes: cell = joint strategy labels of ``roles``; payoffs =
+        mean rewards; GT tensors = mean GT per ``gt_metrics`` scorer (keys ``"<scorer>:<role>"``).
+
+        ``reward``: evaluate payoffs under an alternative (non-batch) reward rule instead of the
+        recorded rewards — exact for programmatic/fixed-policy agents whose behaviour does not
+        depend on the stated incentives, and cheap (no episodes are re-run).
+        """
         recs = [r for r in (results.records if hasattr(results, "records") else results) if r.error is None]
+        if reward is not None:
+            recs = [r.model_copy(update={"rewards": {k: float(v) for k, v in reward(r).items()}}) for r in recs]
         if task is not None:
             recs = [r for r in recs if r.task_id == task]
         if mechanism is not None:
@@ -133,6 +143,24 @@ class EmpiricalGame:
 
     def uniform(self) -> Mix:
         return {r: np.full(len(self.strategies[r]), 1 / len(self.strategies[r])) for r in self.roles}
+
+    def mix(self, probs: "dict[str, float] | dict[str, dict[str, float]]") -> Mix:
+        """Build a mixed profile from strategy *names* (axis order is sorted, so never build mixes
+        by position). ``probs`` maps strategy → probability (applied to every role that has
+        those strategies) or role → {strategy: probability}; unnormalised weights are rescaled."""
+        out = {}
+        per_role = all(isinstance(v, dict) for v in probs.values())
+        for r in self.roles:
+            d = probs.get(r, {}) if per_role else probs
+            v = np.array([float(d.get(s, 0.0)) for s in self.strategies[r]])  # type: ignore[union-attr]
+            if v.sum() <= 0:
+                raise ValueError(f"no probability mass on {r}'s strategies {self.strategies[r]}")
+            out[r] = v / v.sum()
+        return out
+
+    def marginal(self, mix: Mix, role: str, strategies: Sequence[str]) -> float:
+        """Total probability ``role``'s mix puts on the named strategies."""
+        return float(sum(mix[role][self.strategies[role].index(s)] for s in strategies))
 
     def pure(self, profile: dict[str, str | int]) -> Mix:
         mix = {}
@@ -270,9 +298,10 @@ class EmpiricalGame:
     def replicator(self, x0: Mix | None = None, iters: int = 1000, lr: float = 0.1, record_every: int = 0) -> list[Mix]:
         """Discrete-time multiplicative-weights (exponential replicator) dynamics.
 
-        This is the mean-field limit of independent policy-gradient/REINFORCE learners with
-        softmax policies over the strategy sets — i.e. a cheap model of *training* under the
-        mechanism. Fixture roles (no payoffs) stay fixed at ``x0``.
+        This is the mean-field limit of independent softmax learners trained by *natural* policy
+        gradient / exponential weights (vanilla REINFORCE has the same rest points but slows
+        down rare strategies by a factor of their probability) — a cheap model of *training*
+        under the mechanism. Fixture roles (no payoffs) stay fixed at ``x0``.
         """
         x = {r: np.array(v, dtype=float) for r, v in (x0 or self.uniform()).items()}
         traj = [{r: v.copy() for r, v in x.items()}]
@@ -339,6 +368,29 @@ class EmpiricalGame:
             row.update({f"u[{r}]": P[idx] for r, P in self.payoffs.items()})
             row.update({f"gt[{k}]": T[idx] for k, T in self.gt.items()})
             rows.append(row)
+        return pd.DataFrame(rows)
+
+    def outcomes(self, eqs: Sequence[Equilibrium] | None = None, digits: int = 3,
+                 keys: Sequence[str] | None = None) -> pd.DataFrame:
+        """Distinct equilibrium *outcomes*: many games have families of payoff-equivalent equilibria
+        (e.g. whether an honest worker would report is irrelevant when nobody misbehaves); what
+        matters for oversight is the range of outcomes they induce. Equilibria are identified by
+        their payoffs and GT rounded to ``digits`` (or only by the GT metrics in ``keys``)."""
+        eqs = self.nash() if eqs is None else list(eqs)
+        rows, seen = [], set()
+        for e in eqs:
+            vals = [e.gt.get(k, float("nan")) for k in keys] if keys is not None else list(e.payoffs.values()) + list(e.gt.values())
+            key = tuple(round(v, digits) for v in vals)
+            if key in seen:
+                continue
+            seen.add(key)
+            sup = e.support(self)
+            rows.append({
+                "kind": e.kind,
+                "support": "; ".join(f"{r}: " + ", ".join(f"{s} {p:.2f}" for s, p in d.items()) for r, d in sup.items()),
+                **{f"u[{r}]": v for r, v in e.payoffs.items()},
+                **{f"gt[{k}]": v for k, v in e.gt.items()},
+            })
         return pd.DataFrame(rows)
 
     def summary(self, reference: dict[str, str] | None = None) -> dict[str, Any]:

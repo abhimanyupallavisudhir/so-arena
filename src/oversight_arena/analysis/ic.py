@@ -9,7 +9,8 @@ task) and averaged over tasks, with task-level bootstrap CIs.
   exactly $\\log p_\\top - \\log p_\\bot$.
 - :func:`alignment` — rank correlation, pairwise accuracy (AUC) and slope between reward and
   a (possibly continuous) GT across *any* sampled behaviours.
-- :func:`frontier` — best reward attainable within each GT class (optimiser's view of IC).
+- :func:`frontier` — best reward attainable within each GT class (optimiser's view of IC), and
+  the *GT regret* of the reward-maximising strategy (works for any GT, binary or continuous).
 - :func:`eas_ejs` — Expected Agent/Judge Score with softmax propensity.
 """
 
@@ -144,6 +145,11 @@ def alignment(
     return pd.DataFrame(rows)
 
 
+def is_binary(values) -> bool:
+    v = pd.Series(values).dropna().astype(float)
+    return len(v) > 0 and bool(v.isin([0.0, 1.0]).all())
+
+
 def frontier(
     results,
     roles: str | Sequence[str] | None = None,
@@ -156,7 +162,10 @@ def frontier(
 
     A strategy's class is decided by its mean GT across its episodes. The *frontier gap*
     ``best_good - best_bad`` is what a strong optimiser 'sees': if negative, optimisation
-    pressure favours bad behaviour even if the average ASD is positive.
+    pressure favours bad behaviour even if the average ASD is positive. ``gt_regret`` =
+    (best strategy-mean GT) − (GT of the reward-maximising strategy): how much ground truth a
+    perfect optimiser of the mechanism's reward gives up within the sampled strategy class
+    (0 = the mechanism's argmax is also the GT-best behaviour; meaningful for any GT scale).
     """
     d = _select(_as_df(results), roles, gt)
     rows = []
@@ -167,12 +176,14 @@ def frontier(
         row = dict(zip(by, keys if isinstance(keys, tuple) else (keys,)))
         bg = good["reward"].max() if len(good) else float("nan")
         bb = bad["reward"].max() if len(bad) else float("nan")
+        amax_gt = float(s.loc[s["reward"].idxmax(), "gt"]) if len(s) else float("nan")
         row.update(
             best_good=bg, best_good_strategy=good["reward"].idxmax() if len(good) else None,
             best_bad=bb, best_bad_strategy=bad["reward"].idxmax() if len(bad) else None,
             frontier_gap=bg - bb, n_good=len(good), n_bad=len(bad),
             argmax_strategy=s["reward"].idxmax() if len(s) else None,
-            argmax_gt=float(s.loc[s["reward"].idxmax(), "gt"]) if len(s) else float("nan"),
+            argmax_gt=amax_gt, best_gt=float(s["gt"].max()) if len(s) else float("nan"),
+            gt_regret=float(s["gt"].max()) - amax_gt if len(s) else float("nan"), n_strategies=len(s),
         )
         rows.append(row)
     return pd.DataFrame(rows)
@@ -216,10 +227,19 @@ def eas_ejs(
     return pd.DataFrame(rows)
 
 
-def ic_report(results, roles=None, gt: str = "correct", by: Sequence[str] = ("mechanism",)) -> pd.DataFrame:
-    """ASD + alignment + frontier in one table."""
-    a = asd(results, roles, gt, by)
-    b = alignment(results, roles, gt, by)
-    f = frontier(results, roles, gt, by=by)
-    out = a.merge(b.drop(columns=["n_tasks"]), on=list(by), how="outer")
-    return out.merge(f[list(by) + ["frontier_gap", "argmax_gt"]], on=list(by), how="outer")
+def ic_report(results, roles=None, gt: str = "correct", by: Sequence[str] = ("mechanism",),
+              strategy_col: str = "strategy_name") -> pd.DataFrame:
+    """ASD + alignment + frontier in one table. ASD and the frontier gap need a good/bad split, so
+    they are included only for binary GT; alignment and GT regret work for any GT."""
+    d = _as_df(results)
+    col = gt if gt.startswith("gt_") else f"gt_{gt}"
+    binary = col in d and is_binary(d[col])
+    b = alignment(d, roles, gt, by)
+    f = frontier(d, roles, gt, strategy_col=strategy_col, by=by)
+    fcols = ["frontier_gap", "argmax_gt", "gt_regret"] if binary else ["argmax_gt", "best_gt", "gt_regret"]
+    if binary:
+        a = asd(d, roles, gt, by)
+        out = a.merge(b.drop(columns=["n_tasks"]), on=list(by), how="outer")
+    else:
+        out = b
+    return out.merge(f[list(by) + fcols], on=list(by), how="outer")

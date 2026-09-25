@@ -122,26 +122,26 @@ def theory() -> None:
 
 
 @theory.command("swarm")
-@click.option("--n", default=5, help="Workers.")
-@click.option("--gain", "G", default=1.0, help="Illicit gain to the team score.")
+@click.option("--n", default=3, help="Workers.")
+@click.option("--stake", "g", default=0.3, help="Each worker's payoff gain if the violation goes undetected.")
 @click.option("--bounty", "b", default=0.1)
-@click.option("--penalty", "P", default=1.0)
-@click.option("--audit", "a", default=0.0)
+@click.option("--penalty", "P", default=0.3, help="Offender penalty on detection.")
+@click.option("--audit", "a", default=0.0, help="Random audit probability.")
 @click.option("--misprision", "c", default=0.0, help="Penalty for silent observers when detected.")
-@click.option("--observe", "o", default=0.8)
+@click.option("--observe", "o", default=0.8, help="Probability each other worker observes the violation.")
 @click.option("--plot", type=click.Path(), default=None, help="Save the phase diagram PNG here.")
-def theory_swarm(n: int, G: float, b: float, P: float, a: float, c: float, o: float, plot: str | None) -> None:
+def theory_swarm(n: int, g: float, b: float, P: float, a: float, c: float, o: float, plot: str | None) -> None:
     """Equilibria of the whistleblowing game."""
     from .theory import swarm_game as sg
 
-    p = sg.SwarmParams(n=n, G=G, b=b, P=P, a=a, c=c, o=o)
+    p = sg.SwarmParams(n=n, g=g, b=b, P=P, a=a, c=c, o=o)
     click.echo(json.dumps(sg.summary(p), indent=1))
     if plot:
         from .analysis import plots as P_
 
-        fig, _ = P_.regime_map(sg.phase_diagram(n=n, G=G, P=P, c=c, o=o), "bounty_over_share", "audit",
+        fig, _ = P_.regime_map(sg.phase_diagram(n=n, g=g, P=P, c=c, o=o), "bounty_over_stake", "audit",
                                contour="basin_report", title="When does reporting pay?",
-                               xlabel="bounty ÷ per-worker illicit share", ylabel="audit probability")
+                               xlabel="bounty ÷ each worker's stake", ylabel="audit probability")
         click.echo(str(P_.save(fig, plot)))
 
 

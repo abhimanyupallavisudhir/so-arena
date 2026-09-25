@@ -1,8 +1,10 @@
 """Model backends.
 
-``get_model("openai/gpt-4o-mini")`` returns a cached Inspect-backed model. Special specs:
-``"mock"`` (constant), ``"random"`` (null baseline), ``"sim/<profile>"`` (simulated LLM, see
-:mod:`oversight_arena.sim`). Set ``OA_CACHE=0`` to disable the persistent cache.
+``get_model("openai/gpt-4o-mini")`` returns a cached Inspect-backed model (any provider Inspect
+supports, including ``mockllm/model`` for smoke tests). Special specs: ``"mock"`` (constant) and
+``"random"`` (null baseline); wrap any Python function with :class:`FunctionModel`. For
+LLM-free experiments use the programmatic agents in :mod:`oversight_arena.sim`. Set
+``OA_CACHE=0`` to disable the persistent cache (``OA_CACHE_DIR`` moves it).
 """
 
 from __future__ import annotations
@@ -29,11 +31,6 @@ def get_model(spec: "str | Model", cache: bool | None = None, **model_args: Any)
         m = MockModel()
     elif spec == "random":
         m = RandomChoiceModel()
-    elif spec.startswith("sim/"):
-        from ..sim.simllm import SimLLM
-
-        m = SimLLM.from_spec(spec)
-        use_cache = False  # deterministic already
     else:
         from .inspect_model import InspectModel
 

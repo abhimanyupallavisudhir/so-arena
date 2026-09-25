@@ -40,15 +40,28 @@ def test_release_roundtrip(tmp_path):
 
 
 def test_swarm_theory():
-    p = sg.SwarmParams(n=5, G=1.0, b=0.1, o=0.8)
-    types = {e["type"] for e in sg.equilibria(3, p)}
-    assert types == {"all report", "all silent", "mixed"}
-    p2 = sg.SwarmParams(n=5, G=1.0, b=0.3, o=0.8)
-    assert {e["type"] for e in sg.equilibria(3, p2)} == {"all report"}
-    assert sg.basin_of_reporting(p2) == 1.0 and 0 < sg.basin_of_reporting(p) < 1
-    assert sg.offender_gain(1.0, p) < 0 < sg.offender_gain(0.0, p)
-    shared = sg.SwarmParams(n=5, G=1.0, b=0.0, o=0.8)
-    assert sg.basin_of_reporting(shared) == 0.0 or {e["type"] for e in sg.equilibria(3, shared)} >= {"all silent"}
+    g = 0.3
+    lo, hi, zero = (sg.SwarmParams(n=3, g=g, b=b, P=0.3, o=0.8) for b in (0.1, 0.45, 0.0))
+    assert sg.regime(lo) == "coordination" and sg.regime(hi) == "report dominant" and sg.regime(zero) == "silent dominant"
+    assert {e["type"] for e in sg.equilibria(2, lo)} == {"all report", "all silent", "mixed"}
+    assert sg.basin_of_reporting(hi) == 1.0 and 0 < sg.basin_of_reporting(lo) < 1 and sg.basin_of_reporting(zero) == 0.0
+    # risk dominance with m = 2 observers: report selected iff 1.5 b + (1 + a) c > (1 - a) g
+    assert sg.selected(2, sg.SwarmParams(g=g, b=0.21)) == "all report" and sg.selected(2, sg.SwarmParams(g=g, b=0.19)) == "all silent"
+    assert sg.offender_gain(1.0, lo) < 0 < sg.offender_gain(0.0, lo)
+    assert sg.SwarmParams.pooled(3, 0.9).g == pytest.approx(0.3)
+    # full-game learning dynamics: coordination below the stake, deterrence from any start above it
+    assert sg.mean_field(0.5, 0.1, lo)["x"].iloc[-1] > 0.99 and sg.mean_field(0.5, 0.9, lo)["x"].iloc[-1] < 0.01
+    assert sg.mean_field(0.5, 0.1, hi)["x"].iloc[-1] < 0.01
+    assert sg.basin_of_deterrence(hi) == 1.0 and 0 < sg.basin_of_deterrence(lo) < 1
+    # the 2-observer matrix game agrees with the empirical-game solver
+    from oversight_arena.analysis import EmpiricalGame
+
+    for p, expect in ((lo, {("R", "R"), ("S", "S")}), (hi, {("R", "R")})):
+        A, B = sg.payoff_matrix_2(p)
+        game = EmpiricalGame.from_matrices(A, B, row_strats=["R", "S"], col_strats=["R", "S"])
+        pure = {(game.strategies["row"][int(e.mix["row"].argmax())], game.strategies["col"][int(e.mix["col"].argmax())])
+                for e in game.pure_nash()}
+        assert pure == expect
 
 
 def test_disclosure_theory():

@@ -21,7 +21,7 @@ from typing import Any
 
 from ..agents.base import Action, Agent, Observation
 from ..core.util import rng_for
-from ..domains.chess import MATE, Engine, apply_line, material
+from ..domains.chess import MATE, Engine, apply_line, judge_leaf_value
 
 
 def _opt_san(obs: Observation, oid: str) -> str:
@@ -133,10 +133,7 @@ class EngineJudge(Agent):
         if key in self._leaf_cache and key not in cache:
             cache[key] = self._leaf_cache[key]
         if key not in cache:
-            if self.depth <= 0:
-                cache[key] = material(board, mover)
-            else:
-                cache[key] = Engine.get(self.engine_path, "judge").score(board, self.depth, pov=mover, fresh=True)
+            cache[key] = judge_leaf_value(board, mover, self.depth, self.engine_path)
             self._leaf_cache[key] = cache[key]
         return cache[key]
 

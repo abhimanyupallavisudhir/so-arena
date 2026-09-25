@@ -200,8 +200,10 @@ def _mix(p: float, k: int) -> np.ndarray:
 def regime_map(df: pd.DataFrame, x: str, y: str, regime: str = "regime", contour: str | None = None,
                title: str = "", xlabel: str | None = None, ylabel: str | None = None,
                order: Sequence[str] | None = None, contour_in: str | None = None,
-               contour_label: str = "{:.0%}") -> tuple[Any, Any]:
-    """Categorical regime map over a 2-D parameter grid (e.g. bounty × audit rate)."""
+               contour_label: str = "{:.0%}", points: Sequence[tuple[float, float, str]] | None = None) -> tuple[Any, Any]:
+    """Categorical regime map over a 2-D parameter grid (e.g. bounty × audit rate).
+
+    ``points``: (x, y, label) markers, e.g. the configurations an experiment ran."""
     from matplotlib.colors import ListedColormap
 
     cats = list(order or dict.fromkeys(df[regime]))
@@ -227,6 +229,9 @@ def regime_map(df: pd.DataFrame, x: str, y: str, regime: str = "regime", contour
     from matplotlib.patches import Patch
 
     ax.legend(handles=[Patch(facecolor=cmap[c], alpha=alpha, label=c) for c in cats], loc="upper right")
+    for px, py, lab in points or []:
+        ax.scatter([px], [py], s=36, color=INK, zorder=4, clip_on=False)
+        ax.annotate(lab, (px, py), xytext=(4, 6), textcoords="offset points", fontsize=8, color=INK)
     ax.set_xlabel(xlabel or x)
     ax.set_ylabel(ylabel or y)
     ax.grid(False)
@@ -252,15 +257,16 @@ def learning_curves(df: pd.DataFrame, prefix: str = "p[", x: str = "iteration", 
 
 
 def line_compare(df: pd.DataFrame, x: str, y: str, group: str, title: str = "", xlabel: str | None = None,
-                 ylabel: str | None = None, band: tuple[str, str] | None = None) -> tuple[Any, Any]:
-    """Simple multi-series line chart (one y-axis) with end labels and a legend."""
+                 ylabel: str | None = None, band: tuple[str, str] | None = None, markers: bool = True) -> tuple[Any, Any]:
+    """Simple multi-series line chart (one y-axis) with a legend."""
     fig, ax = plt.subplots(figsize=(6.2, 3.8))
     groups = list(dict.fromkeys(df[group]))
     cmap = color_map([str(g) for g in groups])
     for g in groups:
         d = df[df[group] == g].sort_values(x)
         ax.plot(d[x], d[y], color=cmap[str(g)], lw=2, label=str(g))
-        ax.scatter(d[x], d[y], s=22, color=cmap[str(g)], edgecolor=SURFACE, linewidth=1.4, zorder=3)
+        if markers:
+            ax.scatter(d[x], d[y], s=22, color=cmap[str(g)], edgecolor=SURFACE, linewidth=1.4, zorder=3)
         if band and band[0] in d:
             ax.fill_between(d[x], d[band[0]], d[band[1]], color=cmap[str(g)], alpha=0.10, lw=0)
     ax.set_xlabel(xlabel or x)
