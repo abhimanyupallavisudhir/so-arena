@@ -36,6 +36,9 @@ class ModelSpec(BaseModel):
     notes: str | None = None
 
     def cost(self, usage: Usage) -> float | None:
+        """Price of ``usage`` in the library's (and Inspect's) convention: ``input_tokens`` are the input
+        tokens not read from the provider's prompt cache (those are ``cached_input_tokens``), and
+        ``output_tokens`` include reasoning tokens (``reasoning_tokens`` is the part of them spent reasoning)."""
         if self.price_input_per_mtok is None or self.price_output_per_mtok is None:
             return None
         cached_price = (
@@ -43,11 +46,10 @@ class ModelSpec(BaseModel):
             if self.price_cached_input_per_mtok is not None
             else self.price_input_per_mtok
         )
-        uncached_in = max(0, usage.input_tokens - usage.cached_input_tokens)
         return (
-            uncached_in * self.price_input_per_mtok
+            usage.input_tokens * self.price_input_per_mtok
             + usage.cached_input_tokens * cached_price
-            + (usage.output_tokens + usage.reasoning_tokens) * self.price_output_per_mtok
+            + usage.output_tokens * self.price_output_per_mtok
         ) / 1e6
 
     def rating(self, key: str) -> float | None:
@@ -89,6 +91,20 @@ def get_spec(name: str) -> ModelSpec | None:
         if k.split("/")[-1] == tail:
             return spec
     return None
+
+
+# providers whose APIs return token logprobs (OpenAI-compatible APIs and local inference servers)
+LOGPROB_PROVIDERS = ("openai/", "together/", "vllm/", "hf/", "mockllm/", "openrouter/", "fireworks/")
+
+
+def supports_logprobs(name: str) -> bool:
+    """Whether calls to model ``name`` return token logprobs: the registry's ``supports_logprobs`` where it
+    says, else by provider. Real and simulated models both use this, so a dry run makes the calls the real
+    run would (a logprob judgment is one call; without logprobs it falls back to votes)."""
+    spec = get_spec(name)
+    if spec is not None and spec.supports_logprobs is not None:
+        return spec.supports_logprobs
+    return name.removeprefix("sim/").startswith(LOGPROB_PROVIDERS)
 
 
 def all_specs() -> list[ModelSpec]:

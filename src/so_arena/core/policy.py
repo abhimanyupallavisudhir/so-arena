@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import contextlib
+import enum
 import hashlib
 import math
 import random
+import types
 from collections import Counter
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any
@@ -27,6 +30,7 @@ from so_arena.core.parsing import (
     parse_probabilities,
     parse_score,
     probs_from_logprobs,
+    probs_from_mapping,
     split_reasoning,
     truncate_words,
 )
@@ -43,8 +47,45 @@ def stable_hash(*parts: Any) -> int:
     return int(hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12], 16)
 
 
+def _plain(v: Any) -> bool:
+    if v is None or isinstance(v, (bool, int, float, str, enum.Enum, types.FunctionType, type)):
+        return True
+    return isinstance(v, (tuple, frozenset)) and all(_plain(x) for x in v)
+
+
+def describe_callable(fn: Callable[..., Any]) -> Any:
+    """A process-independent description of a function: its qualified name, plus the plain values it
+    closes over or defaults to (so ``synthetic_arguer(sd=1)`` and ``synthetic_arguer(sd=2)`` differ).
+
+    Only scalars, functions, classes and tuples of them count: mutable closure values (a list of calls, a
+    cache) are usually run state, which must not change episode ids between a run and its resumption.
+    """
+    from so_arena.core.mechanism import describe_config
+
+    desc = describe_config(fn)
+    if not isinstance(fn, types.FunctionType):
+        return desc
+    code = fn.__code__
+    values: dict[str, Any] = {}
+    for name, cell in zip(code.co_freevars, fn.__closure__ or ()):
+        try:
+            values[name] = cell.cell_contents
+        except ValueError:  # an empty cell (a local assigned after the function was defined)
+            continue
+    positional = code.co_varnames[: code.co_argcount]
+    values.update(zip(positional[len(positional) - len(fn.__defaults__ or ()):], fn.__defaults__ or ()))
+    values.update(fn.__kwdefaults__ or {})
+    params = {k: describe_config(v) for k, v in sorted(values.items()) if _plain(v)}
+    return {"function": desc, "params": params} if params else desc
+
+
 class ActContext:
-    """Per-call context the game hands to a policy."""
+    """Per-call context the game hands to a policy.
+
+    ``seed`` identifies the decision (the game derives it from the run seed, the item and the decision's
+    node); ``rng`` is seeded from it, the role and ``sample_index``. Wrappers that act several times per
+    decision (e.g. :class:`BestOfNPolicy`) derive their sub-contexts' seeds from it.
+    """
 
     def __init__(
         self,
@@ -60,6 +101,7 @@ class ActContext:
         self.sample_index = sample_index
         self.game = game
         self.tools = tools or {}
+        self.seed = seed
         self.rng = random.Random(stable_hash(seed, role, sample_index))
         self.usage = Usage()
         from so_arena.core.state import Workspace as _Workspace, WorkspaceSlot as _Slot
@@ -176,6 +218,13 @@ def neutral_action(request: ActionRequest, text: str = "") -> Action:
     return Action(text=text, parse_ok=bool(text))
 
 
+def option_texts(request: ActionRequest) -> dict[str, str]:
+    """Answer texts of the request's options (from the item the role sees, overridden by ``option_texts``)."""
+    item = request.view.item if request.view is not None else None
+    texts = {a.label: a.text for a in (item.answers or [])} if item is not None else {}
+    return {**texts, **(request.option_texts or {})}
+
+
 def finalize_from_text(request: ActionRequest, text: str, *, reasoning: str | None = None) -> Action:
     """Turn raw text into a typed action according to ``request.kind``."""
     opts = request.options or []
@@ -188,7 +237,7 @@ def finalize_from_text(request: ActionRequest, text: str, *, reasoning: str | No
         else:
             a = Action(text=text, choice=c)
     elif request.kind == "probabilities":
-        p = parse_probabilities(text, opts)
+        p = parse_probabilities(text, opts, option_texts(request))
         a = neutral_action(request, text) if p is None else Action(text=text, probs=p)
     elif request.kind == "score":
         lo, hi = request.score_range or (0, 10)
@@ -273,8 +322,14 @@ class LLMPolicy(Policy):
             "strategy": self.strategy,
             "system_prompt": self.system_prompt,
             "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
             "elicitation": self.elicitation,
+            "n_votes": self.n_votes,
             "cot": self.cot,
+            "use_tools": self.use_tools,
+            "max_tool_calls": self.max_tool_calls,
+            "reasoning_effort": self.reasoning_effort,
+            "seed": self.seed,
         }
 
     def _options(self, **kw: Any) -> GenerateOptions:
@@ -364,11 +419,19 @@ class LLMPolicy(Policy):
             ctx.generate(self.model, m, self._options(temperature=max(self.temperature or 0.0, 0.7)), sample_offset=i)
             for i in range(n)
         ])
-        votes = Counter(parse_choice(o.text, opts) for o in outs)
+        # each vote's private reasoning (<thinking>, native reasoning) stays private, as on the "ask" path:
+        # only the public part is parsed and becomes the turn's text
+        publics, reasoning = [], []
+        for o in outs:
+            public, cot = split_reasoning(o.text) if self.cot else (o.text, None)
+            publics.append(public)
+            reasoning += [r for r in (o.reasoning, cot) if r]
+        votes = Counter(parse_choice(p, opts) for p in publics)
         alpha = 0.5
         total = sum(votes[o] for o in opts) + alpha * len(opts)
         probs = {o: (votes[o] + alpha) / total for o in opts}
-        return Action(text=outs[0].text, probs=probs, parse_ok=votes.get(None, 0) < n,
+        return Action(text=publics[0], reasoning="\n\n".join(dict.fromkeys(reasoning)) or None, probs=probs,
+                      parse_ok=votes.get(None, 0) < n,
                       metadata={"elicitation": "vote", "votes": {str(k): v for k, v in votes.items()}})
 
 
@@ -387,6 +450,12 @@ class ScriptedPolicy(Policy):
         super().__init__(label=label, id=id)
         self.script = script
         self._counters: dict[Any, int] = {}
+
+    def describe(self) -> dict[str, Any]:
+        from so_arena.core.mechanism import describe_config
+
+        s = self.script
+        return {**super().describe(), "script": describe_callable(s) if callable(s) else describe_config(s)}
 
     def _next(self, key: Any, seq: Sequence[Any]) -> Any:
         i = self._counters.get(key, 0)
@@ -412,14 +481,24 @@ class ScriptedPolicy(Policy):
 
 
 def coerce_action(request: ActionRequest, out: Any) -> Action:
+    """Turn a policy's output (an :class:`Action`, a dict, a number or text) into an action for ``request``.
+
+    A dict means what the same JSON would mean as text: ``{"A": 0.8}`` for a probabilities request over
+    A, B is A: 0.8, B: 0.2; ``{"choice": "B"}`` / ``{"score": 7}`` answer choice / score requests (and
+    a dict without the field is a parse failure, not an action without a choice).
+    """
     if isinstance(out, Action):
         return out
     if isinstance(out, dict):
         if request.kind == "probabilities":
-            from so_arena.core.parsing import normalize_probs
-
-            p = normalize_probs({str(k): float(v) for k, v in out.items()}, request.options or list(out))
+            p = probs_from_mapping(out, request.options or [str(k) for k in out])
             return Action(text=str(out), probs=p) if p else neutral_action(request, str(out))
+        if request.kind in ("choice", "score"):
+            keys = ("choice", "answer") if request.kind == "choice" else ("score",)
+            val = next((out[k] for k in keys if k in out), None)
+            a = finalize_from_text(request, "" if val is None else f"{keys[0]}: {val}")
+            a.text, a.data = str(out.get("text", "")), out
+            return a
         return Action(text=str(out.get("text", "")), data=out)
     if isinstance(out, (int, float)) and request.kind == "score":
         return Action(text=str(out), score=float(out))
@@ -441,6 +520,11 @@ class FixedPolicy(Policy):
     def __init__(self, output: Any, *, label: str | None = None, id: str | None = None):
         super().__init__(label=label, id=id)
         self.output = output
+
+    def describe(self) -> dict[str, Any]:
+        from so_arena.core.mechanism import describe_config
+
+        return {**super().describe(), "output": describe_config(self.output)}
 
     async def act(self, request, ctx):
         return coerce_action(request, self.output)
@@ -478,23 +562,53 @@ class BestOfNPolicy(Policy):
         self.n = n
         self.scorer = scorer
 
+    def describe(self) -> dict[str, Any]:
+        return {**super().describe(), "base": self.base.describe(), "n": self.n, "scorer": describe_callable(self.scorer)}
+
     async def act(self, request, ctx):
-        cands = []
-        for i in range(self.n):
-            sub = ActContext(role=ctx.role, sample_index=ctx.sample_index * self.n + i, game=ctx.game, tools=ctx.tools)
-            a = await self.base.act(request, sub)
-            s = self.scorer(request, a, sub)
-            if asyncio.iscoroutine(s):
-                s = await s
-            ctx.usage = ctx.usage + sub.usage
-            cands.append((float(s), i, a))
-        best = max(cands, key=lambda t: (t[0], -t[1]))
+        from so_arena.core.state import WorkspaceSlot, using_workspace
+
+        # Candidates are seeded from the decision (independent draws across items and episodes). With state
+        # access each works on its own copy of the decision's starting state, and the chosen candidate's
+        # copy becomes the decision's - as for the sampled candidates of a game tree.
+        slot = ctx._slot
+        fork = slot is not None and slot.ws is None and bool(slot.parent)
+        cands, slots = [], []
+        try:
+            for i in range(self.n):
+                sub_slot = WorkspaceSlot(slot.store, slot.parent, slot.access) if fork else slot
+                slots.append(sub_slot)
+                sub = ActContext(role=ctx.role, sample_index=ctx.sample_index * self.n + i, game=ctx.game,
+                                 tools=ctx.tools, seed=stable_hash(ctx.seed, i), workspace=sub_slot)
+                with using_workspace(sub_slot) if fork else contextlib.nullcontext():
+                    a = await self.base.act(request, sub)
+                    s = self.scorer(request, a, sub)
+                    if asyncio.iscoroutine(s):
+                        s = await s
+                ctx.usage = ctx.usage + sub.usage
+                cands.append((float(s), i, a))
+            best = max(cands, key=lambda t: (t[0], -t[1]))
+        except BaseException:
+            for s_ in slots if fork else ():
+                s_.close(keep=False)
+            raise
+        if fork:
+            for j, s_ in enumerate(slots):
+                if j != best[1]:
+                    s_.close(keep=False)
+            slot.close(keep=False)
+            slot.ws = slots[best[1]].ws
         best[2].metadata["bon_scores"] = [c[0] for c in cands]
         return best[2]
 
 
 class MixturePolicy(Policy):
-    """A mixed strategy: draws one component policy per episode (a meta-strategy in EGTA/PSRO)."""
+    """A mixed strategy: draws one component policy per episode (a meta-strategy in EGTA/PSRO).
+
+    The draw depends only on the run seed, the item, the repeat and the role - not on the episode id - so
+    every path of a game tree plays one component, and every candidate strategy evaluated against the
+    mixture on an item (e.g. in a PSRO best-response search) faces the same draw: comparisons are paired.
+    """
 
     def __init__(self, policies: Sequence[Policy], weights: Sequence[float] | None = None, *, label: str | None = None, id: str | None = None):
         super().__init__(label=label or "mixture", id=id)
@@ -502,6 +616,9 @@ class MixturePolicy(Policy):
         w = list(weights) if weights is not None else [1.0] * len(self.policies)
         s = sum(w)
         self.weights = [x / s for x in w]
+
+    def describe(self) -> dict[str, Any]:
+        return {**super().describe(), "components": [p.describe() for p in self.policies], "weights": self.weights}
 
     def pick(self, key: Any) -> Policy:
         r = (stable_hash(key) % 10**9) / 10**9
@@ -513,7 +630,8 @@ class MixturePolicy(Policy):
         return self.policies[-1]
 
     async def act(self, request, ctx):
-        key = (ctx.game.episode_id if ctx.game is not None else "", ctx.role)
+        g = ctx.game
+        key = (g.seed, g.item.id, g.repeat, ctx.role) if g is not None else (ctx.seed, ctx.role)
         chosen = self.pick(key)
         a = await chosen.act(request, ctx)
         a.metadata["mixture_component"] = chosen.id

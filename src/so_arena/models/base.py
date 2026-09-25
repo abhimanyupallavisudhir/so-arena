@@ -2,7 +2,8 @@
 
 Everything that produces text in the library goes through :class:`Model`. Backends:
 
-* :class:`~so_arena.models.inspect_backend.InspectModel` - any provider Inspect supports (default).
+* :class:`~so_arena.models.inspect_backend.InspectModel` - any provider Inspect supports (default; model
+  names resolve to a :class:`ProviderModel`, which applies the simulate / cache settings at call time).
 * :class:`MockModel` / :class:`FunctionModel` - deterministic scripted models for tests and fixtures.
 * :class:`~so_arena.models.simulated.SimulatedModel` - dry runs for cost estimation.
 * :class:`~so_arena.models.human.HumanModel` - a human at the terminal (human judges).
@@ -131,6 +132,56 @@ class MockModel(FunctionModel):
         super().__init__(fn, name=name, supports_logprobs=logprobs is not None)
 
 
+class ProviderModel(Model):
+    """A provider model resolved by name (what :func:`get_model` returns for e.g. ``"openai/gpt-4o-mini"``).
+
+    It follows the global settings *at call time*: while ``settings.simulate`` is on, calls go to a
+    :class:`~so_arena.models.simulated.SimulatedModel` (no API call), otherwise to the Inspect backend,
+    through the response cache when ``settings.cache_dir`` is set. So :func:`so_arena.configure` also
+    applies to policies and fixtures built before it: a dry run never reaches an API.
+    """
+
+    def __init__(self, name: str, **model_args: Any):
+        from so_arena.models.registry import get_spec, supports_logprobs
+
+        self.name = name
+        self.spec = get_spec(name)
+        self.supports_logprobs = supports_logprobs(name)  # the same for the real and the simulated backend
+        self._args = model_args
+        self._real: Model | None = None
+        self._simulated: Model | None = None
+        self._cached: dict[str, Model] = {}
+
+    def backend(self) -> Model:
+        """The model serving calls under the current settings."""
+        from so_arena.config import settings
+
+        if settings.simulate:
+            if self._simulated is None:
+                import inspect
+
+                from so_arena.models.simulated import SimulatedModel
+
+                accepted = inspect.signature(SimulatedModel).parameters
+                self._simulated = SimulatedModel(self.name, **{k: v for k, v in self._args.items() if k in accepted})
+            return self._simulated
+        if self._real is None:
+            from so_arena.models.inspect_backend import InspectModel
+
+            self._real = InspectModel(self.name, **self._args)
+        if settings.cache_dir is None:
+            return self._real
+        key = str(settings.cache_dir)
+        if key not in self._cached:
+            from so_arena.models.cache import CachedModel, ResponseCache
+
+            self._cached[key] = CachedModel(self._real, ResponseCache.at(settings.cache_dir))
+        return self._cached[key]
+
+    async def generate(self, messages, options=None, *, sample_index=0):
+        return await self.backend().generate(messages, options, sample_index=sample_index)
+
+
 # ---------------------------------------------------------------------------------------------
 # Resolution of model names
 # ---------------------------------------------------------------------------------------------
@@ -153,20 +204,17 @@ def get_model(model: "str | Model", **model_args: Any) -> Model:
     * ``"sim/<provider/model>"`` -> :class:`SimulatedModel` (cost dry-run).
     * ``"human"`` -> :class:`HumanModel`.
     * ``"llamacpp/<path.gguf>"`` -> in-process llama.cpp model (:mod:`so_arena.models.local`).
-    * anything else -> :class:`InspectModel` (e.g. ``"openai/gpt-4o-mini"``,
+    * anything else -> :class:`ProviderModel` over the Inspect backend (e.g. ``"openai/gpt-4o-mini"``,
       ``"anthropic/claude-haiku-4-5"``, ``"openrouter/qwen/qwen3-8b"``, ``"vllm/..."``).
 
-    If :func:`so_arena.configure` enabled ``simulate``, real models are replaced by simulated ones;
-    if it set a ``cache_dir``, real models are wrapped in a response cache.
+    Provider models follow :func:`so_arena.configure` at call time, also when resolved before it:
+    ``simulate`` replaces their calls by simulated ones, ``cache_dir`` routes them through a response cache.
     """
-    from so_arena.config import settings
-
     if isinstance(model, Model):
         return model
     if model in _NAMED:
         return _NAMED[model]
-    key = (model, tuple(sorted((k, repr(v)) for k, v in model_args.items())), settings.simulate,
-           str(settings.cache_dir))
+    key = (model, tuple(sorted((k, repr(v)) for k, v in model_args.items())))
     if key in _MODEL_CACHE:
         return _MODEL_CACHE[key]
 
@@ -185,17 +233,7 @@ def get_model(model: "str | Model", **model_args: Any) -> Model:
         from so_arena.models.simulated import SimulatedModel
 
         resolved = SimulatedModel(model.removeprefix("sim/"), **model_args)
-    elif settings.simulate:
-        from so_arena.models.simulated import SimulatedModel
-
-        resolved = SimulatedModel(model, **model_args)
     else:
-        from so_arena.models.inspect_backend import InspectModel
-
-        resolved = InspectModel(model, **model_args)
-        if settings.cache_dir is not None:
-            from so_arena.models.cache import CachedModel, ResponseCache
-
-            resolved = CachedModel(resolved, ResponseCache.at(settings.cache_dir))
+        resolved = ProviderModel(model, **model_args)
     _MODEL_CACHE[key] = resolved
     return resolved

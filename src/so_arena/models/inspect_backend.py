@@ -11,7 +11,7 @@ from typing import Any
 
 from so_arena.core.types import Completion, GenerateOptions, TokenLogprob, TopLogprob, Usage
 from so_arena.models.base import Model
-from so_arena.models.registry import get_spec
+from so_arena.models.registry import get_spec, supports_logprobs
 
 
 class InspectModel(Model):
@@ -20,11 +20,8 @@ class InspectModel(Model):
         self._model_args = model_args
         self._max_connections = max_connections
         self._model = None
-        spec = get_spec(name)
-        self.spec = spec
-        self.supports_logprobs = bool(spec and spec.supports_logprobs) or name.startswith(
-            ("openai/", "together/", "vllm/", "hf/", "mockllm/", "openrouter/", "fireworks/")
-        )
+        self.spec = get_spec(name)
+        self.supports_logprobs = supports_logprobs(name)
 
     def _get(self):
         if self._model is None:
@@ -87,8 +84,10 @@ class InspectModel(Model):
         u = out.usage
         usage = Usage(calls=1)
         if u is not None:
+            # Inspect's input_tokens exclude cache reads and writes, and its output_tokens include reasoning
+            # (see ModelSpec.cost); cache writes are fresh input, billed at least at the input price
             usage = Usage(
-                input_tokens=u.input_tokens or 0,
+                input_tokens=(u.input_tokens or 0) + (u.input_tokens_cache_write or 0),
                 output_tokens=u.output_tokens or 0,
                 cached_input_tokens=u.input_tokens_cache_read or 0,
                 reasoning_tokens=u.reasoning_tokens or 0,

@@ -20,7 +20,7 @@ import random
 
 from so_arena.core.types import Completion, Usage
 from so_arena.models.base import Model, messages_tokens
-from so_arena.models.registry import get_spec
+from so_arena.models.registry import get_spec, supports_logprobs
 
 _WORDS = (
     "the argument evidence shows that answer claim supports because therefore we see clearly "
@@ -35,7 +35,7 @@ class SimulatedModel(Model):
         self.mean_output_tokens = output_tokens
         self.output_tokens_sd = output_tokens_sd
         self.seed = seed
-        self.supports_logprobs = bool(self.spec and self.spec.supports_logprobs)
+        self.supports_logprobs = supports_logprobs(name)  # as the real model, so the dry run's calls match
 
     async def generate(self, messages, options=None, *, sample_index=0):
         key = f"{self.seed}|{sample_index}|{len(messages)}|{messages[-1].content[:256] if messages else ''}"

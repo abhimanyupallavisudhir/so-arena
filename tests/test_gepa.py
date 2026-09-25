@@ -58,8 +58,9 @@ def test_gepa_search_climbs_the_mechanism_reward():
     result, records = gepa_search(search, max_metric_calls=40, reflection_minibatch_size=2)
     best = result.best_candidate["strategy"]
     assert re.search(r"level (\d+)", best) and int(re.search(r"level (\d+)", best).group(1)) >= 1
-    by = records.groupby("strategy")["reward"].mean()
-    assert by[best] > by["Play your role well."]
+    # on the same validation items, GEPA's pick earns more mechanism reward than the seed strategy
+    assert result.val_aggregate_scores[result.best_idx] > result.val_aggregate_scores[0]
+    assert set(records["strategy"]) >= {best, "Play your role well."}
     # the reflection prompt knew the mechanism and the directive, not the truth
     assert seen and "Propaganda" in seen[0] or "propaganda" in seen[0].lower()
     assert "deceptive" in seen[0].lower()
