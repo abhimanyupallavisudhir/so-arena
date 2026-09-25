@@ -9,56 +9,70 @@ import sys
 from pathlib import Path
 
 
+ESTIMATE_MARKER = ".so-arena-estimate"  # marks directories `estimate` created (and may therefore replace)
+
+
 def _cmd_run(a: argparse.Namespace) -> int:
     from so_arena.config import configure
-    from so_arena.spec import load_spec, run_spec, usage_summary
+    from so_arena.spec import SpecError, load_spec, run_counts, run_spec, run_usage
 
     if a.simulate:
         configure(simulate=True)
-    spec = load_spec(a.spec)
-    run_dir = run_spec(spec, out=a.out, limit=a.limit)
-    from so_arena.core.store import RunStore
-
-    eps = RunStore(run_dir).episodes()
-    trees = run_dir / "trees.jsonl"
-    if trees.exists():
-        n = sum(1 for line in trees.read_text().splitlines() if line.strip())
-        print(f"{n} sampled game trees -> {run_dir} (grid_*.csv holds the optimization curves)")
-    else:
-        print(f"{len(eps)} episodes -> {run_dir}")
+    try:
+        spec = load_spec(a.spec)
+        run_dir = run_spec(spec, out=a.out, limit=a.limit, force=a.force)
+    except SpecError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    counts = run_counts(run_dir)
+    note = " (grid_*.csv holds the optimization curves)" if "trees" in counts else ""
+    print(f"{counts} -> {run_dir}{note}")
     if (run_dir / "report.html").exists():
         print(f"report: {run_dir / 'report.html'}")
     if a.simulate:
-        print(usage_summary(eps).to_string(index=False))
+        print(run_usage(run_dir).to_string(index=False))
     return 0
 
 
 def _cmd_estimate(a: argparse.Namespace) -> int:
     """Dry run with simulated models: estimates tokens and cost without calling any API."""
+    import shutil
+
     from so_arena.config import configure
-    from so_arena.core.store import RunStore
-    from so_arena.spec import load_spec, run_spec, usage_summary
+    from so_arena.spec import SpecError, load_spec, run_counts, run_spec, run_usage
 
     configure(simulate=True)
-    spec = load_spec(a.spec)
+    try:
+        spec = load_spec(a.spec)
+    except SpecError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     spec.report = False
     out = Path(a.out or f"runs/_estimate_{spec.name}")
     if out.exists():
-        import shutil
-
-        shutil.rmtree(out)
-    run_dir = run_spec(spec, out=out, limit=a.limit)
-    eps = RunStore(run_dir).episodes()
-    summary = usage_summary(eps)
-    print(f"Simulated {len(eps)} episodes (no API calls). Estimated usage:")
+        if (out / ESTIMATE_MARKER).is_file():
+            shutil.rmtree(out)  # an earlier estimate's scratch directory
+        elif not out.is_dir() or any(out.iterdir()):
+            print(f"error: {out} exists and was not created by `so-arena estimate` (no {ESTIMATE_MARKER} file); "
+                  "refusing to replace it - pass a new or empty --out directory", file=sys.stderr)
+            return 2
+    out.mkdir(parents=True, exist_ok=True)
+    (out / ESTIMATE_MARKER).write_text("created by `so-arena estimate`; the next estimate into this directory replaces it\n")
+    try:
+        run_dir = run_spec(spec, out=out, limit=a.limit)
+    except SpecError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    summary = run_usage(run_dir)
+    print(f"Simulated {run_counts(run_dir)} (no API calls). Estimated usage:")
     print(summary.to_string(index=False))
-    unpriced = [m for m in summary["model"].dropna().unique() if m and m.startswith("sim/")]
-    if unpriced:
+    models = [m for m in summary["model"].dropna().unique() if isinstance(m, str) and m]
+    if models:
         from so_arena.models.registry import get_spec
 
-        missing = [m for m in unpriced if get_spec(m.removeprefix("sim/")) is None]
+        missing = [m for m in models if get_spec(m.removeprefix("sim/")) is None]
         if missing:
-            print(f"(no price known for: {', '.join(missing)} - add them to the model registry)")
+            print(f"(no price known for: {', '.join(missing)} - add them to the model registry; they count as $0)")
     return 0
 
 
@@ -76,18 +90,39 @@ def _cmd_report(a: argparse.Namespace) -> int:
 def _cmd_release(a: argparse.Namespace) -> int:
     from so_arena.release import release_run
 
-    man = release_run(a.run_dir, a.out, title=a.title or Path(a.run_dir).name, notes=a.notes or "")
+    try:
+        man = release_run(a.run_dir, a.out, title=a.title or Path(a.run_dir).name, notes=a.notes or "",
+                          private_keys=a.keep_private or (), public_labels=a.public_labels,
+                          exclude_restricted=a.exclude_restricted)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     print(f"released {man.n_episodes} episodes on {man.n_items} items -> {a.out}")
-    print(f"commitment digest: {man.digest}")
+    print(f"commitment digest: {man.digest}  (publish it: `so-arena verify {a.out} --digest <digest>` checks against it)")
     return 0
 
 
 def _cmd_verify(a: argparse.Namespace) -> int:
-    from so_arena.release import verify
+    from so_arena.release import Manifest, release_digest, uncovered_files, verify
 
-    ok = verify(a.release_dir)
-    print("OK: release matches its manifest" if ok else "MISMATCH: release files were modified")
-    return 0 if ok else 1
+    d = Path(a.release_dir)
+    man = Manifest.model_validate_json((d / "MANIFEST.json").read_text())
+    now = release_digest(d)
+    print(f"digest: {now}" + ("" if now == man.digest else f"  (MANIFEST.json says {man.digest})"))
+    for name in uncovered_files(d):
+        print(f"note: {name} is not covered by the manifest - nothing vouches for it")
+    if not verify(d):
+        print("MISMATCH: release files were modified (they do not match MANIFEST.json)")
+        return 1
+    if a.digest is None:
+        print("OK: the files match MANIFEST.json - to rule out a rewritten manifest, compare the digest with the "
+              "one published at release time (--digest)")
+        return 0
+    if not verify(d, a.digest):
+        print("MISMATCH: the release is not the one the published digest commits to")
+        return 1
+    print("OK: the files match the published digest")
+    return 0
 
 
 def _cmd_resolve(a: argparse.Namespace) -> int:
@@ -98,6 +133,11 @@ def _cmd_resolve(a: argparse.Namespace) -> int:
         from so_arena.mechanisms import MarketScoringReward
 
         reward = MarketScoringReward()
+    dom = None
+    if a.domain:
+        from so_arena.domains import get_domain
+
+        dom = get_domain(a.domain)
     if a.truth:
         p = Path(a.truth)
         if p.suffix == ".jsonl":
@@ -108,10 +148,7 @@ def _cmd_resolve(a: argparse.Namespace) -> int:
                     truth[r["item_id"]] = r.get("answer", r.get("resolution"))
         else:
             truth = json.loads(p.read_text())
-    elif a.domain:
-        from so_arena.domains import get_domain
-
-        dom = get_domain(a.domain)
+    elif dom is not None:
         if not hasattr(dom, "resolve"):
             print(f"domain {a.domain} cannot fetch resolutions", file=sys.stderr)
             return 2
@@ -119,7 +156,13 @@ def _cmd_resolve(a: argparse.Namespace) -> int:
     else:
         print("pass --truth FILE or --domain NAME", file=sys.stderr)
         return 2
-    res = resolve(a.release_dir, truth, out_dir=a.out, reward_rule=reward)
+    # the domain's own scorers measure what matters there (e.g. forecast scores), not just the defaults
+    scorers = dom.ground_truth_scorers() if dom is not None else None
+    try:
+        res = resolve(a.release_dir, truth, out_dir=a.out, reward_rule=reward, ground_truth=scorers, digest=a.digest)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
     print(f"resolved {res.n_resolved} episodes ({res.n_unresolved} still unresolved) for release {res.release_digest[:12]}")
     return 0
 
@@ -166,11 +209,14 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--out")
     r.add_argument("--limit", type=int)
     r.add_argument("--simulate", action="store_true", help="replace models by simulated ones (no API calls)")
+    r.add_argument("--force", action="store_true",
+                   help="resume even if the output directory holds a run of a different spec")
     r.set_defaults(fn=_cmd_run)
 
     e = sub.add_parser("estimate", help="estimate tokens and cost of a spec with a simulated dry run")
     e.add_argument("spec")
-    e.add_argument("--out")
+    e.add_argument("--out", help=f"scratch directory (default runs/_estimate_<name>); must be new, empty or an "
+                                 f"earlier estimate's (it holds a {ESTIMATE_MARKER} file) - it is replaced")
     e.add_argument("--limit", type=int)
     e.set_defaults(fn=_cmd_estimate)
 
@@ -186,17 +232,26 @@ def main(argv: list[str] | None = None) -> int:
     rl.add_argument("out")
     rl.add_argument("--title")
     rl.add_argument("--notes")
+    rl.add_argument("--keep-private", action="append", metavar="KEY",
+                    help="publish this key of the items' private information (repeatable; default: none)")
+    rl.add_argument("--public-labels", action="store_true",
+                    help="publish profile names, tags and behaviour labels (only if not defined relative to the truth)")
+    rl.add_argument("--exclude-restricted", action="store_true",
+                    help="leave out items whose licence forbids publication instead of refusing")
     rl.set_defaults(fn=_cmd_release)
 
-    v = sub.add_parser("verify", help="check a release against its manifest")
+    v = sub.add_parser("verify", help="check a release against its manifest and the published digest")
     v.add_argument("release_dir")
+    v.add_argument("--digest", help="the commitment digest published at release time")
     v.set_defaults(fn=_cmd_verify)
 
     rs = sub.add_parser("resolve", help="score a release once ground truth is known")
     rs.add_argument("release_dir")
     rs.add_argument("--truth", help="JSON {item_id: label} or JSONL rows {item_id, answer}")
-    rs.add_argument("--domain", help="fetch resolutions from a domain (e.g. forecasting)")
+    rs.add_argument("--domain", help="score with a domain's ground-truth scorers; without --truth, also fetch "
+                                     "its resolutions (e.g. forecasting)")
     rs.add_argument("--market", action="store_true", help="recompute market-scoring-rule rewards")
+    rs.add_argument("--digest", help="refuse unless the release matches this published digest")
     rs.add_argument("--out")
     rs.set_defaults(fn=_cmd_resolve)
 

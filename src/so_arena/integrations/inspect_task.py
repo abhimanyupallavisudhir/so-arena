@@ -4,10 +4,15 @@
 (item, profile) pairs; the solver runs the mechanism and the scorer reports every role's reward and
 ground-truth value. You get Inspect's runner, logging, retries, sandboxes and the ``inspect view``
 log viewer; :func:`episodes_from_inspect_logs` reads the episodes back for SO-arena analysis.
+
+Every sample reports the same score keys (:func:`score_keys`), as Inspect's metrics require: a key a
+sample lacks - a pending reward, ground truth that has not arrived, a skipped sample - is NaN, which
+Inspect counts as unscored rather than averaging it in; ``Score.metadata["missing"]`` lists them.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -16,6 +21,22 @@ from so_arena.core.ground_truth import GroundTruthScorer, default_scorers
 from so_arena.core.items import TaskItem
 from so_arena.core.mechanism import Episode, Mechanism
 from so_arena.core.runner import Profile, build_players, score_episode
+
+
+OUTCOME_KEYS = ("judge_correct", "judge_p_true", "outcome_value")
+
+
+def score_keys(mechanism: Mechanism) -> list[str]:
+    """The score keys of every sample: rewards of trainable roles, values of agent and trainable roles,
+    and outcome-level ground truth."""
+    specs = mechanism.role_specs()
+    rewarded = [r for r, s in specs.items() if s.trainable]
+    valued = [r for r, s in specs.items() if s.trainable or s.kind == "agent"]
+    return [f"reward_{r}" for r in rewarded] + [f"value_{r}" for r in valued] + list(OUTCOME_KEYS)
+
+
+def _number(v: object) -> float:
+    return float(v) if isinstance(v, (int, float)) else math.nan  # None (pending), absent -> NaN
 
 
 def inspect_task(mechanism: Mechanism, items: Sequence[TaskItem], profiles: Sequence[Profile], *,
@@ -60,23 +81,23 @@ def inspect_task(mechanism: Mechanism, items: Sequence[TaskItem], profiles: Sequ
 
         return solve
 
+    keys = score_keys(mechanism)
+
     @scorer(metrics={"*": [mean(), stderr()]})
     def mechanism_scorer():
         async def score(state: TaskState, target: Target) -> Score:
+            value = dict.fromkeys(keys, math.nan)
             if "episode" not in state.metadata:
-                return Score(value={}, explanation=state.metadata.get("skipped", "not run"))
+                return Score(value=value, explanation=state.metadata.get("skipped", "not run"),
+                             metadata={"skipped": True, "missing": keys})
             ep = Episode.model_validate(state.metadata["episode"])
-            value: dict[str, float] = {}
-            for r, v in ep.rewards.items():
-                if v is not None:
-                    value[f"reward_{r}"] = float(v)
-            for r, v in (ep.ground_truth.get("role_values") or {}).items():
-                value[f"value_{r}"] = float(v)
-            for k in ("judge_correct", "judge_p_true", "outcome_value"):
-                if isinstance(ep.ground_truth.get(k), (int, float)):
-                    value[k] = float(ep.ground_truth[k])
+            found = {f"reward_{r}": v for r, v in ep.rewards.items()}
+            found |= {f"value_{r}": v for r, v in (ep.ground_truth.get("role_values") or {}).items()}
+            found |= {k: ep.ground_truth.get(k) for k in OUTCOME_KEYS}
+            for k in keys:
+                value[k] = _number(found.get(k))
             return Score(value=value, answer=str(ep.outcome.decision), explanation=ep.error or "",
-                         metadata={"episode_id": ep.id})
+                         metadata={"episode_id": ep.id, "missing": [k for k in keys if math.isnan(value[k])]})
 
         return score
 
