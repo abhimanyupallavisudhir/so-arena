@@ -41,7 +41,12 @@ class TokenLogprob(BaseModel):
 
 
 class Usage(BaseModel):
-    """Token and cost accounting. Addable, so it can be accumulated per role / per run."""
+    """Token and cost accounting. Addable, so it can be accumulated per role / per run.
+
+    Token convention (Inspect's): ``input_tokens`` are fresh (uncached) input tokens,
+    ``cached_input_tokens`` those read from a provider's prompt cache, and ``output_tokens`` include
+    any reasoning tokens (``reasoning_tokens`` breaks them out; it is not added again).
+    """
 
     input_tokens: int = 0
     output_tokens: int = 0
