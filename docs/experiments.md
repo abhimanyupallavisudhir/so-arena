@@ -291,6 +291,12 @@ exp.run()
 game = exp.game(); game.strict_nash(); game.outcome_range("outcome_value")
 ```
 
+The same game on a **shared repository**: `get_domain("repo", kind="team")` gives each worker a module in
+one repository (workers write in turn; the grader runs the visible tests on the repository), workers
+report after inspecting their teammates' code (read-only), the audit runs the maintainers' hidden tests on
+the accused's module, and `regrade_on_report=True` reverts the violator's changes to the repository before
+regrading (`repo_team_worker`, `dom.grader()`; LLM teams get shell and file tools through their state access).
+
 Compare with the analytic model (`so_arena.theory.whistleblower`: equilibria, the threshold $p^*$,
 sweeps over the bounty ratio) and with training dynamics from different initial report propensities
 (`games.learning`). `elicit_beliefs=True` records each agent's stated probability that a teammate
