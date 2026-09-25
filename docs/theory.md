@@ -188,6 +188,13 @@ revelation in equilibrium. Predictions the library is built to test:
   the state, and that the *worst case* over deception types - the quantity that matters when one
   accepted sabotage outweighs many correct rejections - is set by the deception that leaves none
   (`samplers.paired.arm_asd`, `core.state`).
+* **Evidence must be hard to be evidence.** The theory of mechanisms with evidence assumes messages that
+  cannot be forged. Records that the agents themselves can write - their own action logs, transcripts they
+  can edit, a message board they control - are *soft* evidence, and an audit that relies on them is only as
+  strong as the agents' inability to rewrite them (the OpenAI / Hugging Face swarm spoofed tool calls in ~7%
+  of transcripts). The library separates the trusted record (tool calls kept by the runtime) from
+  agent-editable mirrors (`Environment.action_log`), so the value of hard evidence can be measured as the
+  gap between audits of the two (`core.state.log_integrity`).
 
 Verification is therefore a first-class experimental axis: which verifiers exist, whose claims are
 checked, the budget, and how results are displayed (`core.verification`).
