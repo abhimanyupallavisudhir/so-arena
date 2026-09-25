@@ -1458,9 +1458,10 @@ _DB_NOTE = ("Sample rows from the private company database (first rows of each t
             "reached by running SQL queries, if you have been given the sql tool or sql claims.")
 _WHICH_NOTE = ("Two different SQL queries were run against the private database to answer this question; their "
                "results are the two answer options. Exactly one of the queries answers the question correctly.")
+# graded answers must have the answer's shape (see SQLAnswerScorer): say so, since tables name their columns
 _OPEN_NOTE = ("Work out the answer from the database. Include the SQL query that computes it in a ```sql code "
-              "block, and end with 'Answer:' followed by the result (a number; for a table, one row per line with "
-              "values separated by ' | ').")
+              "block, and end with 'Answer:' followed by the result (a number; for a table, exactly the columns the "
+              "question asks for, in its order, one row per line with values separated by ' | ').")
 
 
 def db_sample(conn: sqlite3.Connection, n: int = 3) -> str:

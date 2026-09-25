@@ -17,7 +17,7 @@ dataset order), because dataset order is often not random (MMLU is grouped by su
 Questions with an option that refers to other options ("All of the above", "Both A and B", "None of
 these", ...) are dropped (:func:`refers_to_options`): once options are shuffled or reduced to a pair
 such an option means something else (a true option becomes "wrong" next to "All of the above"; "A and
-B only" can point at itself). That is 684 of the 14,042 MMLU test questions and 11 of the 2,086
+B only" can point at itself). That is 683 of the 14,042 MMLU test questions and 11 of the 2,086
 QuALITY dev questions (2 of 2,523 train); ``QADomain.dropped_option_references`` counts them per load.
 
 Data is downloaded on demand into :func:`so_arena.datasets.cache_dir`. GSM8K (MIT) ships a 50-item
@@ -72,7 +72,8 @@ _VERDICT = r"(?:correct|true|right|false|incorrect|wrong)"
 _LETTER = r"\(?[a-e]\)?"
 OPTION_REFERENCE = re.compile("|".join([
     _QUANTIFIER + r"\s+(?:\d+\s+)?of\s+(?:the\s+)?(?:above|below|foregoing)\b",  # "none of the above"
-    r"\bthe\s+(?:above|foregoing)\b(?!-)",  # "... all the above" (not "the above-mentioned")
+    # "... all the above", "the above." - at the end (not "the above-mentioned", "the above average income")
+    r"\bthe\s+(?:above|foregoing)\b(?=\s*(?:[.,;:!?)]|$))",
     _QUANTIFIER + r"\s+of\s+the\s+(?:options|choices|answers|alternatives)\b",
     # "these"/"those" refer to the options at the start or end of an option ("All of these", "... either
     # of these"), not in the middle ("each of these families")
@@ -495,7 +496,7 @@ MMLU_SUBJECTS = (
 class MMLU(QADomain):
     """MMLU (Hendrycks et al. 2021) from ``cais/mmlu``; ``subjects`` selects a subset of the 57 subjects.
 
-    Questions with options such as "All of the above" or "Both A and B" are dropped (684 of the 14,042
+    Questions with options such as "All of the above" or "Both A and B" are dropped (683 of the 14,042
     test questions), see :func:`refers_to_options`.
     """
 

@@ -74,15 +74,19 @@ _RESOLUTION_NOTE = re.compile(
     r"(?!\s+(?:earlier|later|sooner|more|less|longer|fewer|than)\b)", re.I)
 _CRITERIA_BEFORE = re.compile(
     r"\b(?:if|unless|when|whenever|once|until|provided|should|would|will|shall|may|might|could|must|can)\b", re.I)
-_CRITERIA_AFTER = re.compile(r"\b(?:if|unless|when|whenever|once|until|provided|otherwise|in case|in the event)\b",
-                             re.I)
+_CRITERIA_AFTER = re.compile(r"\b(?:if|unless|when|whenever|once|until|provided|otherwise|in case|in the event|"
+                             r"requires?|required|requirements?|means|criteria|conditions?)\b", re.I)
+# "Resolution YES: <condition>" is a criteria header, not an announcement ("Resolved: YES" is one)
+_HEADER_COLON = re.compile(r"\s*:\s*\w")
 _SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|\n")
 # Resolved markets only: paragraphs (or the rest of a paragraph) that the author marked as a later update
 # ("Update:", "EDIT 2 -", "UPD (Sep 4):", Manifold's "Update 2026-09-04 (PST) (AI summary of creator
 # comment): ..."), and links (they often point at the resolution source; a link's text is kept).
 _UPDATE_START = re.compile(r"^\W*(?:updates?|updated|edits?|edited|upd|addendum)\b", re.I)
-_UPDATE_MARK = re.compile(r"\b(?:updates?|updated|edits?|edited|upd|addendum)\b[^:\n]{0,40}?(?::|\s[-\u2013\u2014]\s)",
-                          re.I)
+# a marker starts a sentence or line ("Resolves YES if X. EDIT: X happened."), never mid-sentence ("an iOS update -
+# version 18 or later -", "the updated guidance: ...")
+_UPDATE_MARK = re.compile(r"(?:^|(?<=[.!?])\s+|\n)[^\w\n]*(?:updates?|updated|edits?|edited|upd|addendum)\b[^:.\n]{0,40}?"
+                          r"(?::|\s[-\u2013\u2014]\s)", re.I | re.M)
 _MD_LINK = re.compile(r"\[([^\]]*)\]\((?:https?://|www\.)[^)\s]*\)")
 _URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
 _RELATIVE_TIME = re.compile(r"^(created|close|resolution)\s*([+-])\s*(\d+(?:\.\d+)?)\s*([dh])$")
@@ -199,7 +203,8 @@ def announces_resolution(text: str) -> bool:
     to stating resolution criteria ("Resolution: YES if ...", "will be resolved NO when ...")."""
     for sentence in _SENTENCE_END.split(text):
         for m in _RESOLUTION_NOTE.finditer(sentence):
-            if not (_CRITERIA_BEFORE.search(sentence, 0, m.start()) or _CRITERIA_AFTER.search(sentence, m.end())):
+            header = m.group(0).lower().startswith("resolution") and _HEADER_COLON.match(sentence, m.end())
+            if not (header or _CRITERIA_BEFORE.search(sentence, 0, m.start()) or _CRITERIA_AFTER.search(sentence, m.end())):
                 return True
     return False
 

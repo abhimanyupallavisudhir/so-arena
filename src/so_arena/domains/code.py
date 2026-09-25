@@ -919,33 +919,101 @@ def _defines_function(code: str) -> bool:
         return False
 
 
-def _defines(code: str) -> bool:
-    """Whether ``code`` binds a module-level name (a definition, import or assignment, possibly under
-    if/try/with), i.e. is part of a program rather than a usage example or a check."""
-    try:
-        todo = list(ast.parse(code).body)
-    except (SyntaxError, ValueError):
-        return False
+# Module-level statements of a reply that are usage rather than program: they do I/O, check, or exit
+_USAGE_CALLS = frozenset({"input", "print", "open", "exit", "quit", "help", "breakpoint", "pprint"})
+_BUILTIN_NAMES = frozenset(dir(builtins)) | {"__name__", "__file__", "__doc__", "__builtins__"}
+
+
+def _bound_by(node: ast.AST) -> set[str]:
+    """Module-level names a statement binds (definitions, imports, assignment and loop targets, ...)."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {node.name}
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return {(a.asname or a.name).split(".")[0] for a in node.names if a.name != "*"}
+    out: set[str] = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+            out.add(n.id)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            out.add(n.name)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            out |= {(a.asname or a.name).split(".")[0] for a in n.names if a.name != "*"}
+    return out
+
+
+def _is_main_guard(node: ast.AST) -> bool:
+    t = getattr(node, "test", None)
+    return (isinstance(node, ast.If) and isinstance(t, ast.Compare) and isinstance(t.left, ast.Name)
+            and t.left.id == "__name__")
+
+
+def _load_time_nodes(node: ast.AST):
+    """The nodes of a module-level statement that are evaluated when it runs: everything except the bodies
+    of the functions and lambdas it defines (only their decorators and default values run)."""
+    todo = [node]
     while todo:
         n = todo.pop()
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom,
-                          ast.Assign, ast.AnnAssign, ast.AugAssign)):
+        yield n
+        if isinstance(n, (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef)):
+            todo.extend([*getattr(n, "decorator_list", []), *n.args.defaults, *(d for d in n.args.kw_defaults if d)])
+        else:
+            todo.extend(ast.iter_child_nodes(n))
+
+
+def _is_usage(node: ast.stmt, bound: set[str]) -> bool:
+    """Whether a module-level statement is a usage example or check rather than part of the program: an
+    ``if __name__ == "__main__"`` block, a bare expression, an assert, I/O or exit, or anything that
+    reads a name not bound yet (placeholders, or calling a function before its definition). Definitions
+    and imports are always program: their bodies do not run when the module loads."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom)):
+        return False
+    if isinstance(node, ast.Expr) or _is_main_guard(node):
+        return True
+    local = _bound_by(node)
+    for n in _load_time_nodes(node):
+        if isinstance(n, ast.Assert):
             return True
-        for field in ("body", "orelse", "finalbody", "handlers"):
-            todo.extend(getattr(n, field, None) or [])
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in _USAGE_CALLS:
+            return True
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id not in bound | local | _BUILTIN_NAMES:
+            return True
     return False
 
 
+def _program(blocks: Sequence[str]) -> str | None:
+    """The module-level program in ``blocks``: every statement that is not usage (:func:`_is_usage`), in
+    order; a block with nothing left out is kept verbatim. None if the program defines no function or class."""
+    parts, bound, defines = [], set(), False
+    for block in blocks:
+        try:
+            body = ast.parse(block).body
+        except (SyntaxError, ValueError):
+            continue
+        kept = []
+        for node in body:
+            if not _is_usage(node, bound):
+                kept.append(node)
+                bound |= _bound_by(node)
+                defines = defines or any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                                         for n in ast.walk(node))
+        if kept:
+            parts.append(block if len(kept) == len(body) else "\n".join(ast.unparse(n) for n in kept))
+    return "\n\n".join(parts) if defines else None
+
+
 def extract_code(text: str | None) -> str | None:
-    """The submitted program in a reply: every code block that defines something (functions, classes,
-    imports, assignments), joined in order - so a helper in its own block counts and later definitions
-    override earlier ones - leaving out blocks that only use the code (examples, checks) and blocks
-    that do not parse. Without such blocks the last block; a reply without fences counts if it parses
-    as Python defining a function."""
+    """The submitted program in a reply: the module-level statements of all its code blocks, in order - so
+    a helper in its own block counts and later definitions override earlier ones - leaving out usage
+    (examples, self-checks, I/O, ``__main__`` blocks, statements that read names not yet defined, e.g.
+    placeholders), which would otherwise run when the program loads and could fail correct code. Blocks
+    that do not parse are skipped. Without a function or class the last block; a reply without fences
+    counts if it parses as Python defining a function."""
     blocks = code_blocks(text)
-    program = [b for b in blocks if _defines(b)]
+    program = _program(blocks)
     if program:
-        return "\n\n".join(program)
+        return program
     if blocks:
         return blocks[-1]
     if text and _defines_function(text):
