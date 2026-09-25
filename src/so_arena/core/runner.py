@@ -180,6 +180,8 @@ async def run_episodes(
     ctx = ctx or RunContext()
     scorers = list(ground_truth) if ground_truth is not None else default_scorers()
     sem = asyncio.Semaphore(concurrency or settings.concurrency)
+    if store is not None:
+        store.save_items(list(items))
     existing: dict[str, Episode] = {}
     if store is not None and resume:
         existing = {e.id: e for e in store.episodes() if e.error is None}

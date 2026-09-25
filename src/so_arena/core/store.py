@@ -17,6 +17,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from so_arena.core.items import TaskItem
 from so_arena.core.mechanism import Episode
 
 
@@ -69,6 +70,23 @@ class RunStore:
             for ep in episodes:
                 f.write(ep.model_dump_json() + "\n")
         tmp.replace(self.episodes_path)
+
+    def save_items(self, items: list[TaskItem]) -> Path:
+        """Store the (uncensored) items; merges with items already stored."""
+        path = self.path / "items.jsonl"
+        existing = {it.id: it for it in self.items()}
+        for it in items:
+            existing[it.id] = it
+        with self._lock, open(path, "w") as f:
+            for it in existing.values():
+                f.write(it.model_dump_json() + "\n")
+        return path
+
+    def items(self) -> list[TaskItem]:
+        path = self.path / "items.jsonl"
+        if not path.exists():
+            return []
+        return [TaskItem.model_validate_json(line) for line in path.read_text().splitlines() if line.strip()]
 
     def save_json(self, name: str, obj: Any) -> Path:
         p = self.path / name
