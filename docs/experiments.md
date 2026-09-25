@@ -248,6 +248,16 @@ cot_monitor = MonitoredWork(monitor_sees=("output", "reasoning"), penalty="suspi
 soa.LabelValue({"honest": 1, "attack": -1})
 ```
 
+Interpretability signals: `integrations.probes` trains a linear probe on any featurizer (activations or
+embeddings from a local model, an embedding API, or lexical features) and turns it into a monitor;
+white-box backends can instead attach `probe_scores` to completions, which monitors read directly:
+
+```python
+from so_arena.integrations.probes import fit_linear_probe, llamacpp_featurizer, probe_monitor
+probe = fit_linear_probe(train_texts, train_labels, llamacpp_featurizer("model.gguf"))
+MonitoredWork(penalty="suspicion")   # with players {"worker": ..., "monitor": probe_monitor(probe), "grader": ...}
+```
+
 ControlArena logs to ASD, and SO-arena mechanisms as ControlArena monitors:
 
 ```python
