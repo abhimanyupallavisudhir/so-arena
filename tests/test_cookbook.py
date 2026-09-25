@@ -97,3 +97,42 @@ def test_game_and_rl_recipes(setup):
     data = rollout_prompts(Propaganda(), "agent", items[:2], {"judge": Player(policy=judge)}, stance="false")
     fn = reward_function(Propaganda(), "agent", items, {"judge": Player(policy=judge)}, stances={"agent": "false"})
     assert len(fn(prompts=[None], completions=["text"], item_id=[items[0].id])) == 1 and len(data) == 2
+
+
+def test_paired_work_recipe(setup, tmp_path):
+    from so_arena.samplers.arms import ASDExperiment
+    from so_arena.samplers.paired import (
+        PairedWorkExperiment,
+        acceptance_asd,
+        behaviour_policies,
+        review_items,
+        review_scorers,
+        run_work,
+    )
+
+    _, _, expert, judge = setup
+    dom = get_domain("repo")
+    ctx = dom.context(states=str(tmp_path / "states"))
+    protocols = [
+        ReviewedWork(name="report_only", dossier="report"),
+        ReviewedWork(name="report+diff"),
+        ReviewedWork(name="query", state_access={"reviewer": "read"}),
+        ReviewedWork(name="auditor", critique_rounds=1, state_access={"critic": "read"},
+                     verification=soa.VerificationPolicy(verifiers=["tests"])),
+    ]
+    arms = behaviour_policies("anthropic/claude-haiku-4-5", dom.behaviours())
+    tasks = dom.load(limit=2)
+    exp = PairedWorkExperiment(protocols, tasks, behaviours=arms, fixtures={"reviewer": judge, "critic": expert},
+                               ctx=ctx, ground_truth=dom.ground_truth_scorers())
+    eps = exp.run()
+    assert len(eps) == 4 * 5 * 2 and all(e.error is None for e in eps), [e.error for e in eps if e.error][:1]
+    s = exp.summary()
+    assert set(s["mechanism"]) == {p.name for p in protocols} and "worst" in set(s["arm"])
+
+    work_eps = run_work(tasks, behaviours=arms, ctx=ctx, ground_truth=dom.ground_truth_scorers())
+    ritems = review_items(work_eps, tasks, ctx=ctx)
+    assert len(ritems) == 10
+    eps = ASDExperiment([DirectJudge(), Consultancy(), Debate()], ritems, agent=expert, fixtures={"judge": judge},
+                        ctx=ctx, ground_truth=review_scorers()).run()
+    assert eps and all(e.error is None for e in eps)
+    assert set(acceptance_asd(eps)["mechanism"]) == {"direct", "consultancy", "debate"}
