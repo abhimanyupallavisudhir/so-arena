@@ -417,10 +417,17 @@ $$\Delta(K) = \begin{cases} b + ac - (1-a)g, & K = 0,\\[2pt] \dfrac{b}{1+K} + c,
    opportunity commits the violation whenever $(1-a)g + \beta > 0$, with no offender penalty under
    a purely shared reward. Every worker is a stakeholder in undetected misconduct.
 
-*Proof.* (1)–(2): $\Delta(K)$ for $K \ge 1$ is positive whenever $b > 0$ or $c > 0$. $\Delta(0)$ has
-the sign of $b - [(1-a)g - ac]$. The expected advantage is continuous in $q$ and monotone between
-the endpoints. (3): the Laplacian-belief criterion for symmetric binary-action global games
-(Morris, Rob & Shin, 1995). (4): substitute $b = c = 0$. $\square$
+*Proof.* (1)–(2): $\Delta(K)$ for $K \ge 1$ is positive whenever $b > 0$ or $c > 0$, and
+$\Delta(0)$ has the sign of $b - [(1-a)g - ac]$. For the mixed equilibrium, write $u = 1-q$ and use
+$\mathbb E[1/(1+K)] = \frac{1-(1-q)^m}{mq}$ for $K \sim \mathrm{Bin}(m-1, q)$. Then
+$$\mathbb E_q\,\Delta(K) = c + \frac bm\,(1 + u + \dots + u^{m-1}) - (1-a)(g+c)\,u^{m-1}.$$
+This is a polynomial in $u$ whose coefficients change sign exactly once: in the coordination region
+the leading coefficient $b/m - (1-a)(g+c)$ is negative and the others are nonnegative. By
+Descartes' rule of signs it has at most one positive root. It is positive at $u = 0$ ($q = 1$) and
+negative at $u = 1$ ($q = 0$), so the root in $(0,1)$ is unique, even though the expected advantage
+need not be monotone in $q$. (3): the Laplacian-belief criterion for symmetric binary-action global
+games (Morris & Shin, 2003; see Morris, Rob & Shin, 1995 for the related p-dominance).
+(4): substitute $b = c = 0$. $\square$
 
 So bounties must exceed each agent's *stake* in the undetected violation, not merely be positive.
 The stake is the full team score when everyone is paid the team score. Audits and misprision
