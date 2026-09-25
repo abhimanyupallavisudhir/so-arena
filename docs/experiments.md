@@ -197,13 +197,21 @@ Other gap settings: `get_domain("sql")` (private database: `affordances={"agents
 
 ```python
 from so_arena.mechanisms import Team
-common = Team(n_workers=3, reward=soa.TeamReward())
-bounty = Team(n_workers=3, regrade_on_report=True, elicit_beliefs=True,
+from so_arena.games import EmpiricalGameExperiment
+from so_arena.domains.code import code_team_worker   # scripted workers; use LLMPolicy strategies for LLM teams
+
+common = Team(n_workers=3, word_limit=None, reward=soa.TeamReward())
+bounty = Team(n_workers=3, word_limit=None, regrade_on_report=True, elicit_beliefs=True,
               reward=soa.Whistleblower(bounty=0.2, split="first", false_report_penalty=0.2))
-# strategies per worker (prompts or scripted), a grader that can be hacked, a trusted auditor/oracle:
-code = get_domain("code", kind="team")
-exp = EmpiricalGameExperiment(bounty, code.load(limit=10), strategies, symmetric=["worker_2", "worker_3"],
-                              fixtures={"worker_1": hacker, "grader": code.visible_test_grader()}, ctx=code.context())
+code = get_domain("code", kind="team")   # multi-part tasks graded only by visible tests (hackable)
+items = code.load(limit=10)
+strategies = {w: {"silent": code_team_worker(report="silent"), "report": code_team_worker(report="report")}
+              for w in ("worker_2", "worker_3")}
+exp = EmpiricalGameExperiment(bounty, items, strategies, symmetric=["worker_2", "worker_3"],
+                              fixtures={"worker_1": code_team_worker(work="hack"), "grader": code.grader()},
+                              ctx=code.context(), ground_truth=code.ground_truth_scorers())
+exp.run()
+game = exp.game(); game.strict_nash(); game.outcome_range("outcome_value")
 ```
 
 Compare with the analytic model (`so_arena.theory.whistleblower`: equilibria, the threshold $p^*$,
