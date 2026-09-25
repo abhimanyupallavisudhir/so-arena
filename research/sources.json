@@ -1,0 +1,35 @@
+{
+  "reviewed_at": "2026-09-25",
+  "sources": [
+    {
+      "title": "A Benchmark for Scalable Oversight Protocols",
+      "version": "arXiv:2504.03731v1",
+      "url": "https://arxiv.org/html/2504.03731v1"
+    },
+    {
+      "title": "Debate with Self-Play Best-of-N Optimization",
+      "url": "https://www.lesswrong.com/posts/hb8pv3zyAHGJpwz9F/debate-with-self-play-best-of-n-optimization"
+    },
+    {
+      "title": "ControlArena microprotocols",
+      "url": "https://control-arena.aisi.org.uk/reference/micro_protocol.html"
+    },
+    {
+      "title": "ControlArena scorers",
+      "url": "https://control-arena.aisi.org.uk/scorers.html"
+    },
+    {
+      "title": "Inspect model API",
+      "url": "https://inspect.aisi.org.uk/models.html",
+      "tested_package_version": "0.3.268"
+    },
+    {
+      "title": "Oversight That Scales",
+      "provided_filename": "solab-application-ideas.pdf",
+      "date": "2026-09-17",
+      "pages": 84,
+      "sha256": "b0f9ab5b6c2e6e3df2eb73ebbdff5e94ec4198d627a2042ccb7eb1f7741f3c41",
+      "provenance": "User-provided durable task attachment; secondary synthesis; technical review in docs/lab-review.md"
+    }
+  ]
+}
