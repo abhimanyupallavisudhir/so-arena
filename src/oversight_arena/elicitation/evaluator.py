@@ -58,8 +58,10 @@ class Evaluator:
         concurrency: int = 8,
         position: str | None = None,
         gt: Sequence[Any] | None = None,
+        seed_offset: int = 0,
     ):
         self.domain = domain
+        self.seed_offset = seed_offset  # sample indices seed_offset .. seed_offset + seeds - 1 (fresh samples)
         self.gt = list(gt) if gt is not None else None
         self.mechanism = mechanism
         self.agents = agents if isinstance(agents, AgentTable) else AgentTable(agents)
@@ -98,7 +100,7 @@ class Evaluator:
 
     async def evaluate(self, strategy: Strategy, tasks: Sequence[Task] | None = None) -> Evaluation:
         tasks = list(tasks) if tasks is not None else self.tasks
-        jobs = [(t, s) for t in tasks for s in range(self.seeds)]
+        jobs = [(t, s) for t in tasks for s in range(self.seed_offset, self.seed_offset + self.seeds)]
 
         def make(t: Task, s: int):
             return lambda: run_episode(

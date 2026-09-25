@@ -4,8 +4,6 @@ failure mode, numbered as in the review (H = high, M = medium, L = low)."""
 import asyncio
 import json
 import math
-import os
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -569,3 +567,199 @@ def test_audits_and_probes_use_common_random_numbers():
     for r in res.records:
         alarms.setdefault(r.profile.label, {})[r.task_id] = r.outcome["alarm"]
     assert alarms["v1"] == alarms["v2"]
+
+
+# M23. Inspect bridge: batch rewards are computed, and re-runs into one log directory are not double-counted.
+
+def test_inspect_logs_dedupe_and_batch_rewards(tmp_path):
+    pytest.importorskip("inspect_ai")
+    import logging
+
+    from inspect_ai import eval as ieval
+
+    from oversight_arena.domains.synthetic import HiddenBits
+    from oversight_arena.integrations.inspect import oversight_task, results_from_logs
+    from oversight_arena.mechanisms.peer_prediction import CorrelatedAgreement, Reporters
+
+    logging.disable(logging.WARNING)
+    try:
+        dom = HiddenBits(n_tasks=4)
+        agent = oa.ScriptedAgent(lambda obs: {"choice": obs.task.option_ids[0]}, id="first")
+        mech = Reporters(n=3, reward=CorrelatedAgreement())
+        task = oversight_task(dom, mech, agents={"*": agent})
+        for _ in range(2):  # e.g. the user re-runs the eval
+            ieval(task, model="mockllm/model", log_dir=str(tmp_path), display="none")
+    finally:
+        logging.disable(logging.NOTSET)
+    res = results_from_logs(str(tmp_path))
+    assert len(res) == 4 == len({r.key for r in res.records})
+    assert all(set(r.rewards) == {"reporter_1", "reporter_2", "reporter_3"} for r in res.records)
+    direct = oa.Experiment(dom, mech, {"*": agent}, progress=False).run()
+    assert sorted(r.rewards["reporter_1"] for r in res.records) == sorted(r.rewards["reporter_1"] for r in direct.records)
+
+
+# L1. A prover that ignores its mode is always paid less than one that plays it.
+
+def test_prover_misaligned_penalty_is_below_every_aligned_score():
+    from oversight_arena.mechanisms.preference import ProverReward
+
+    roles = [oa.RoleSpec(name="prover", kind="expert"), oa.RoleSpec(name="verifier", kind="judge")]
+    rec = lambda answer, p: oa.EpisodeRecord(id="x", key="x", mechanism="pv", task_id="t", domain="d", roles=roles,  # noqa: E731
+                                             outcome={"accept_prob": p, "mode": "sneaky", "label": ["A"],
+                                                      "answers": {"prover": answer}})
+    for transform in ("log", "brier", "linear", "logit"):
+        R = ProverReward(transform=transform)
+        worst_aligned = R(rec("B", 0.0))["prover"]
+        assert R(rec("A", 0.99))["prover"] < worst_aligned, transform  # the review: -3 beat log(0.01)
+
+
+# L3. Quotes must match whole words.
+
+def test_quote_verifier_matches_whole_words():
+    from oversight_arena.domains.quality import quoted_in
+
+    src = "Hendricks was not innocent. The crew had not abandoned ship; he found it notable."
+    assert quoted_in("Hendricks was not innocent", src) and quoted_in("the crew had not abandoned", src)
+    for bad in ["found it not", "cks was not innocent", "he crew had", "Hendricks was innocent"]:
+        assert not quoted_in(bad, src), bad
+
+
+# L4. SQL ground truth compares whole results, numbers by value, and only a top-level ORDER BY orders.
+
+def test_sql_ground_truth_compares_whole_results(tmp_path):
+    import sqlite3
+
+    from oversight_arena.domains.sql import SQLArtifactGT, is_ordered, same_result
+
+    db = tmp_path / "db.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE t (i INTEGER, x REAL)")
+    con.executemany("INSERT INTO t VALUES (?, ?)", [(i, i / 2) for i in range(2500)])
+    con.commit()
+    con.close()
+    task = oa.Task(id="q", domain="sql", question="?", resources={"db_path": str(db)},
+                   gt={"gold_sql": "SELECT i FROM t WHERE i < 2000"})
+
+    def gt(sql):
+        rec = oa.EpisodeRecord(id="e", key="e", mechanism="m", task_id="q", domain="d",
+                               outcome={"artifacts": {"p": f"```sql\n{sql}\n```"}})
+        return SQLArtifactGT().score(task, rec)["p"]
+
+    assert gt("SELECT i FROM t WHERE i < 2000") == 1.0
+    assert gt("SELECT i FROM t") == 0.0  # a superset with the same first 1001 rows
+    assert gt("SELECT i FROM t WHERE i < 1500") == 0.0
+    assert same_result([(310,)], [(310.0,)], False) and not same_result([(40,)], [(40.88,)], False)
+    assert is_ordered("SELECT a FROM t ORDER BY a")
+    assert not is_ordered("SELECT * FROM (SELECT a FROM t ORDER BY a LIMIT 5)")
+    assert not is_ordered("SELECT rank() OVER (ORDER BY x) FROM t")
+
+
+# L5. Releases: duplicated items fail verification and count once; resolve_release uses records/scorers;
+# strategy names with ground-truth tags are withheld too.
+
+def test_release_duplicates_records_and_tagged_names(tmp_path):
+    from oversight_arena.domains.base import TaskListDomain
+    from oversight_arena.domains.forecasting import forecast_task
+    from oversight_arena.ground_truth.common import FunctionGT
+    from oversight_arena.mechanisms import Forecast, JudgeRating
+    from oversight_arena.release import create_release, resolve_release, verify_release
+
+    pending = [forecast_task(f"q{i}", f"q{i}?", None) for i in range(4)]
+    agents = {"*": oa.ScriptedAgent(lambda o: {"probability": 0.8}, id="f"),
+              "kind:judge": oa.ScriptedAgent(lambda o: {"probability": 0.5, "rating": 6}, id="j")}
+    res = oa.Experiment(TaskListDomain(task_list=pending), Forecast(judge=True, reward=JudgeRating()), agents,
+                        progress=False).run()
+    d = tmp_path / "rel"
+    create_release(res, d)
+    resolved = [forecast_task(f"q{i}", f"q{i}?", 1.0 if i == 0 else 0.0) for i in range(4)]
+    honest = resolve_release(d, resolved)
+    items = json.loads((d / "items.json").read_text())
+    (d / "items.json").write_text(json.dumps(items + [items[0]] * 20))
+    rep = verify_release(d)
+    assert not rep["ok"] and rep["duplicates"] == [items[0]["episode"]]
+    assert resolve_release(d, resolved)["n_resolved_rows"] == honest["n_resolved_rows"]
+    (d / "items.json").write_text(json.dumps(items))
+    scorer = FunctionGT(name="calibrated", fn=lambda task, rec: {"forecaster": 1.0})
+    rep = resolve_release(d, resolved, records=res, scorers=[scorer])
+    assert "gt_calibrated" in pd.read_csv(d / "resolution_rows.csv").columns
+
+    tagged = [oa.Profile.of(forecaster=oa.Strategy(name="sandbagger", tags={"honest": False}))]
+    res2 = oa.Experiment(TaskListDomain(task_list=pending), Forecast(judge=True, reward=JudgeRating()), agents, tagged,
+                         progress=False).run()
+    items2 = json.loads((create_release(res2, tmp_path / "rel2").path / "items.json").read_text())
+    assert all(not it["strategies"] and it["profile"] is None for it in items2)
+
+
+# L6. Items cannot be answered from the form of the options or the statement alone.
+
+def test_no_blind_tells_in_gsm8k_minif2f_and_code_mutants():
+    from oversight_arena.data import data_dir
+    from oversight_arena.domains.code import mutants
+    from oversight_arena.domains.lean import perturb_statement, renumber_hypotheses
+    from oversight_arena.domains.math import GSM8K, _form
+
+    if (data_dir() / "solib_gsm8k_test_expanded.json").exists():
+        for t in GSM8K().tasks():
+            a, b = (o.text for o in t.options)
+            assert _form(a) == _form(b)
+    stmt = "theorem t (x : ℕ) (h₀ : x > 1)\n  (h₁ : x < 5)\n  (h₂ : x ≠ 3) : x = 2 ∨ x = 4 := sorry"
+    for seed in range(40):
+        p = perturb_statement(stmt, seed)
+        if p and p[1] == "hypothesis dropped":
+            shown = renumber_hypotheses(p[0])
+            assert "h₀" in shown and "h₁" in shown and "h₂" not in shown
+    assert renumber_hypotheses("theorem t (h₁ : a) (h₃ : b h₁) : c := sorry") == "theorem t (h₀ : a) (h₁ : b h₀) : c := sorry"
+    src = "def f(xs):\n    m = sum(xs) / len(xs)\n    return sum(abs(x - m) for x in xs)\n"
+    assert all("lambda" not in code for _, code in mutants(src, max_n=50))
+    assert any(d == "absolute value removed" for d, _ in mutants(src, max_n=50))
+
+
+# L7. outcome_metrics resamples tasks, not episodes.
+
+def test_outcome_metric_cis_are_clustered_by_task():
+    from oversight_arena.analysis.diagnostics import outcome_metrics
+
+    rows = [{"mechanism": "m", "task": f"t{t}", "gt_decision_correct[_outcome]": float(t % 2)}
+            for t in range(4) for _ in range(50)]  # correctness is fully determined by the task
+    r = outcome_metrics(pd.DataFrame(rows)).iloc[0]
+    assert r["accuracy"] == 0.5 and r["accuracy_hi"] - r["accuracy_lo"] > 0.5  # the review: [0.41, 0.545]
+
+
+# L9. PSRO measures a best response's gain on samples it was not selected on.
+
+def test_psro_best_response_gain_is_measured_out_of_sample():
+    import random
+
+    from oversight_arena.domains.base import TaskListDomain
+    from oversight_arena.elicitation.multiagent import PSRO, pool_oracle
+    from oversight_arena.mechanisms import Propaganda
+    from conftest import make_tasks
+
+    # every strategy behaves identically; rewards are pure noise that depends on (strategy, sample)
+    def judge(obs):
+        if obs.response.kind != "distribution":
+            return "ok"
+        noise = random.Random(f"{obs.transcript_text}|{obs.task.id}|{obs.seed}").random()
+        return {"probs": {o: (noise if i == 0 else 1 - noise) for i, o in enumerate(obs.response.options)}}
+
+    def agent(obs):
+        return f"argument {obs.params.get('k')}" if obs.response.kind != "distribution" else {}
+
+    pool = [oa.Strategy(name=f"s{k}", stance=oa.Stance.OPTION, option="A", params={"k": k}) for k in range(8)]
+    dom = TaskListDomain(task_list=make_tasks(4))
+    ps = PSRO(dom, Propaganda(), {"kind:judge": oa.ScriptedAgent(judge, id="j"), "*": oa.ScriptedAgent(agent, id="a")},
+              initial={"agent": [pool[0]]}, oracles={"agent": pool_oracle(pool[1:])}, iterations=1, tasks=dom.tasks(), seeds=2)
+    it0 = asyncio.run(ps.run()).iterations[0]
+    assert it0.br_gain_in_sample["agent"] > 0  # the best of 7 noisy estimates looks better than it is...
+    assert it0.br_gain["agent"] < it0.br_gain_in_sample["agent"]  # ...and the fresh measurement corrects it
+
+
+# Resolved forecasting questions do not show their (moved) close time.
+
+def test_resolved_questions_hide_their_close_time():
+    from oversight_arena.domains.forecasting import forecast_task
+
+    done = forecast_task("q", "Will X happen?", 1.0, close="2025-01-01T13:24:41+00:00").view()
+    assert "2025-01-01" not in json.dumps(done.model_dump(), default=str)
+    open_q = forecast_task("q", "Will X happen?", None, close="2027-01-01T00:00:00+00:00").view()
+    assert "2027-01-01" in json.dumps(open_q.model_dump(), default=str)

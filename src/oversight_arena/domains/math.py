@@ -12,7 +12,7 @@ import json
 import math
 import operator
 import re
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from ..channels.evidence import Claim, Verifier, VerifyEnv, perturb_output
 from ..core.task import Answer, InfoBlock, Task
@@ -137,12 +137,26 @@ class CalcVerifier(Verifier):
             return shown.model_copy(update={"result": "error: could not evaluate"})
 
 
+def _form(x: Any) -> tuple[bool, bool]:
+    """(integer?, negative?) of an answer: options that differ in form can be told apart blind."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return (False, False)
+    return (v.is_integer(), v < 0)
+
+
 class GSM8K(Domain):
-    """GSM8K questions with one correct and one plausible incorrect answer (+ worked solutions)."""
+    """GSM8K questions with one correct and one plausible incorrect answer (+ worked solutions).
+
+    ``match_form`` (default): keep only items whose two answers have the same form (integer or
+    not, sign); otherwise "pick the integer, non-negative one" is right 60% of the time without
+    reading the question."""
 
     name: ClassVar[str] = "gsm8k"
     split: str = "test"
     show_solutions: bool = False  # if True, experts also see both worked solutions (privileged)
+    match_form: bool = True
     expert_clearance: list[str] = ["private", "tools"]
     judge_clearance: list[str] = []
 
@@ -159,6 +173,8 @@ class GSM8K(Domain):
             cor = r["answer_correct"]
             if inc.get("numeric") == cor.get("numeric"):
                 continue
+            if self.match_form and _form(inc.get("numeric")) != _form(cor.get("numeric")):
+                continue  # e.g. an integer answer against a fractional or negative distractor: guessable blind
             rng = rng_for("gsm8k", i)
             ids = ["A", "B"]
             rng.shuffle(ids)

@@ -191,9 +191,17 @@ def oversight_task(
     )
 
 
-def results_from_logs(logs: Any, tasks: Sequence[OATask] | None = None) -> Results:
-    """Load OversightArena records from Inspect logs (EvalLog objects, log files or directories)."""
+def results_from_logs(logs: Any, tasks: Sequence[OATask] | None = None, mechanisms: Sequence[Any] | None = None) -> Results:
+    """Load OversightArena records from Inspect logs (EvalLog objects, log files or directories).
+
+    Episodes are de-duplicated by key (re-running an eval into the same log directory, or
+    ``eval-retry``, keeps the latest copy). Batch reward rules (multi-task peer prediction), which
+    need all of a population's episodes, are computed here: from ``mechanisms`` if given (the
+    objects passed to :func:`oversight_task`), else from the rule stored with the episodes.
+    """
     from inspect_ai.log import list_eval_logs, read_eval_log
+
+    from ..experiment.runner import rule_from_spec
 
     items = logs if isinstance(logs, (list, tuple)) else [logs]
     evals: list[Any] = []
@@ -204,13 +212,23 @@ def results_from_logs(logs: Any, tasks: Sequence[OATask] | None = None) -> Resul
             evals.append(read_eval_log(str(it)))
         else:
             evals.append(it)
-    recs = []
+    latest: dict[str, EpisodeRecord] = {}
     for log in evals:
         for s in log.samples or []:
             data = (s.store or {}).get(RECORD_KEY)
             if data:
-                recs.append(EpisodeRecord.model_validate(data))
-    return Results(recs, {t.id: t for t in tasks or []})
+                rec = EpisodeRecord.model_validate(data)
+                old = latest.get(rec.key)
+                if old is None or (old.error is not None and rec.error is None) or (
+                        (old.error is None) == (rec.error is None) and rec.created_at >= old.created_at):
+                    latest[rec.key] = rec
+    res = Results(list(latest.values()), {t.id: t for t in tasks or []})
+    rules = {m.config_hash(): m.reward for m in mechanisms or []}
+    for h in sorted({r.mechanism_hash for r in res.records}):
+        rule = rules.get(h) or rule_from_spec(next((r.meta.get("reward_spec") for r in res.records if r.mechanism_hash == h), None))
+        if rule is not None and type(rule).batch:
+            res = res.rescore(rule, mechanism_hash=h)
+    return res
 
 
 __all__ = ["oversight_task", "results_from_logs", "default_inspect_agents", "record_messages", "score_values", "RECORD_KEY"]

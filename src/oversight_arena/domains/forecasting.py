@@ -32,12 +32,16 @@ def _iso(ms: float | None) -> str | None:
 
 def forecast_task(qid: str, question: str, outcome: float | None, *, description: str = "", close: str | None = None,
                   resolved_at: str | None = None, market_p: float | None = None, url: str | None = None,
-                  source: str = "custom", show_market: bool = False) -> Task:
+                  source: str = "custom", show_market: bool = False, show_close: bool | None = None) -> Task:
+    """A binary forecasting question. ``show_close`` (default: only for unresolved questions):
+    platforms move a resolved question's close time to when it resolved, and early closes
+    correlate with the outcome, so a backtest must not show it."""
     pending = outcome is None
+    show_close = pending if show_close is None else show_close
     info = []
     if description:
         info.append(InfoBlock(key="background", title="Background", content=description[:4000]))
-    meta = f"Question closes: {close or 'unknown'}."
+    meta = f"Question closes: {close or 'unknown'}." if show_close else "Resolution date: not shown."
     if show_market and market_p is not None:
         meta += f" Current market probability: {market_p:.2f}."
     info.append(InfoBlock(key="meta", title="Details", content=meta))
@@ -48,7 +52,7 @@ def forecast_task(qid: str, question: str, outcome: float | None, *, description
     gt: dict[str, Any] = {"pending": True} if pending else {"outcome": float(outcome)}  # type: ignore[arg-type]
     # the market price of a resolved question (and its resolution time) nearly reveal the
     # outcome: keep them harness-private ("_" keys are stripped from task views) unless shown
-    meta: dict[str, Any] = {"close": close, "url": url, "source": source, "qid": qid,
+    meta: dict[str, Any] = {("close" if show_close else "_close"): close, "url": url, "source": source, "qid": qid,
                             "_resolved_at": resolved_at, "_market_p": market_p}
     if show_market:
         meta["market_p"] = market_p
@@ -127,7 +131,7 @@ class ManifoldForecasting(Domain):
             m = get_json(f"{MANIFOLD}/market/{t.metadata['qid']}")
             res = m.get("resolution") if m.get("isResolved") else None
             outcome = None if res not in ("YES", "NO") else (1.0 if res == "YES" else 0.0)
-            nt = forecast_task(t.metadata["qid"], t.question, outcome, close=t.metadata.get("close"),
+            nt = forecast_task(t.metadata["qid"], t.question, outcome, close=t.metadata.get("close", t.metadata.get("_close")),
                                resolved_at=_iso(m.get("resolutionTime")), market_p=m.get("probability"),
                                url=t.metadata.get("url"), source="manifold")
             nt = nt.model_copy(update={"info": t.info})

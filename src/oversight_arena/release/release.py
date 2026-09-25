@@ -33,11 +33,13 @@ from .commit import leaf_hash, merkle_proof, merkle_root, new_salt, verify_proof
 
 
 def _names_safe(rec: EpisodeRecord) -> bool:
-    """Strategy names and profile labels may encode ground truth (``argue_incorrect``,
-    ``debater_a=correct``) when strategies have stances; publish them only if none does."""
+    """Strategy names and profile labels may encode ground truth: through stances
+    (``argue_incorrect``, ``debater_a=correct``) or through tags that ground-truth scorers read
+    (``honest``, as in :class:`~oversight_arena.ground_truth.common.StrategyTag`), whatever the
+    name says. Publish them only if no strategy has either."""
     from ..core.strategy import Stance
 
-    return all(b.stance == Stance.FREE for b in rec.bound.values())
+    return all(b.stance == Stance.FREE and not (b.tags or {}) for b in rec.bound.values())
 
 
 def _names(rec: EpisodeRecord) -> dict[str, Any]:
@@ -206,11 +208,15 @@ def verify_release(release_dir: str | Path) -> dict[str, Any]:
         lh = leaf_hash(it, salts.get(it["episode"], ""))
         if man["leaves"].get(it["episode"]) != lh:
             bad.append(it["episode"])
-    present = {it["episode"] for it in items}
+    counts: dict[str, int] = {}
+    for it in items:
+        counts[it["episode"]] = counts.get(it["episode"], 0) + 1
+    present = set(counts)
     missing = sorted(set(man["leaves"]) - present)
     extra = sorted(present - set(man["leaves"]))
+    duplicates = sorted(e for e, n in counts.items() if n > 1)  # a replayed item would be counted twice
     return {"root_ok": root_ok, "n_items": len(items), "tampered": bad, "missing": missing, "extra": extra,
-            "ok": root_ok and not bad and not missing and not extra}
+            "duplicates": duplicates, "ok": root_ok and not bad and not missing and not extra and not duplicates}
 
 
 def inclusion_proof(release_dir: str | Path, episode: str) -> dict[str, Any]:
@@ -250,18 +256,31 @@ def resolve_release(
 ) -> dict[str, Any]:
     """Attach ground truth to a release and compute retroactive metrics.
 
-    ``tasks`` must include ground truth (e.g. refreshed forecasting questions). If the full
-    ``records`` (Results) are given, per-role GT scorers are run on them; otherwise the item
-    positions/decisions/forecasts are scored directly. Strategy names withheld at creation are
-    verified against their commitments and published for the resolved tasks only.
+    ``tasks`` must include ground truth (e.g. refreshed forecasting questions). The item
+    positions, decisions and forecasts are scored directly. If the full ``records`` (Results or a
+    list of episodes) are given too, their per-role ground truth is added (``gt_<scorer>``
+    columns), after recomputing it with ``scorers`` (default: keep the records' own values) now
+    that the tasks have resolved. Strategy names withheld at creation are verified against their
+    commitments and published for the resolved tasks only. Duplicated items count once.
     """
     from ..analysis.ic import alignment, asd
+    from ..core.util import run_sync
+    from ..ground_truth.base import compute_gt
     from ..mechanisms.forecasting import proper_score
 
     d = Path(release_dir)
     ver = verify_release(d)
-    items = load_items(d)
+    items = list({it["episode"]: it for it in load_items(d)}.values())
     tmap = tasks if isinstance(tasks, dict) else {t.id: t for t in tasks}
+    rec_map: dict[str, EpisodeRecord] = {}
+    if records is not None:
+        for r in (records.records if hasattr(records, "records") else records):
+            rec_map[r.id] = r.model_copy(deep=True)
+        if scorers:
+            for r in rec_map.values():
+                t = tmap.get(r.task_id)
+                if t is not None and t.resolved and r.error is None:
+                    run_sync(compute_gt(t, r, list(scorers)))
     resolved = {tid for tid, t in tmap.items() if t.resolved}
     revealed = _reveal_names(d, items, resolved, private_dir)
     withheld = [it for it in items if "names_commitment" in it and it["task"] in resolved]
@@ -293,6 +312,11 @@ def resolve_release(
             probs = it.get("probs") or {}
             if probs and correct:
                 row["gt_judge_p_correct"] = sum(float(probs.get(o, 0)) for o in correct)
+            rec = rec_map.get(it["episode"])
+            if rec is not None:
+                for name, vals in rec.gt.items():
+                    if vals.get(role) is not None:
+                        row[f"gt_{name}"] = float(vals[role])
             rows.append(row)
     df = pd.DataFrame(rows)
     report: dict[str, Any] = {"resolved_at": now_iso(), "verification": ver, "n_resolved_rows": len(df),
@@ -301,10 +325,10 @@ def resolve_release(
         if "gt_correct" in df:
             report["asd"] = asd(df.dropna(subset=["gt_correct"]), gt="correct").to_dict("records")
             report["alignment_correct"] = alignment(df.dropna(subset=["gt_correct"]), gt="correct").to_dict("records")
-        for g in ("forecast_log", "forecast_brier"):
-            col = f"gt_{g}"
-            if col in df and df[col].notna().any():
-                report[f"alignment_{g}"] = alignment(df.dropna(subset=[col]), gt=g).to_dict("records")
+        for col in [c for c in df.columns if c.startswith("gt_") and c not in ("gt_correct", "gt_decision_correct",
+                                                                             "gt_judge_p_correct")]:
+            if df[col].notna().any() and df["reward"].notna().any():
+                report[f"alignment_{col[3:]}"] = alignment(df.dropna(subset=[col, "reward"]), gt=col[3:]).to_dict("records")
         acc = {}
         for col in ("gt_decision_correct", "gt_judge_p_correct"):
             if col in df:

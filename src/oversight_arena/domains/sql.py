@@ -11,10 +11,11 @@ Chinook database with 36 hand-written questions, each paired with a plausible wr
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 from ..channels.evidence import Claim, Verifier, VerifyEnv, perturb_output
 from ..core.episode import EpisodeRecord
@@ -54,19 +55,53 @@ def run_query(path: str, query: str, max_rows: int = 20, timeout: float = 10.0) 
         return False, f"{type(e).__name__}: {e}", []
 
 
+GT_MAX_ROWS = 200_000  # ground truth compares whole results (never a prefix); larger results are "unknown"
+
+
+def _cell(x: Any) -> Any:
+    """Canonical cell: numbers compare by value (310 == 310.0, float noise below 1e-9 ignored)."""
+    if isinstance(x, bool) or x is None or isinstance(x, (str, bytes)):
+        return x
+    if isinstance(x, (int, float)):
+        v = float(x)
+        return float(f"{v:.10g}") if math.isfinite(v) else v
+    return x
+
+
 def same_result(a: list[tuple], b: list[tuple], ordered: bool) -> bool:
-    """Result equality: as sequences if the reference query orders rows, else as multisets."""
+    """Result equality: as sequences if the reference query orders rows, else as multisets.
+    Numbers compare by value (int vs float, float noise)."""
+    ca, cb = [tuple(_cell(x) for x in r) for r in a], [tuple(_cell(x) for x in r) for r in b]
     if ordered:
-        return a == b
+        return ca == cb
     key = lambda r: tuple((x is None, str(type(x)), x) for x in r)  # noqa: E731  (None-safe, mixed types)
     try:
-        return sorted(a, key=key) == sorted(b, key=key)
+        return sorted(ca, key=key) == sorted(cb, key=key)
     except TypeError:
-        return sorted(map(repr, a)) == sorted(map(repr, b))
+        return sorted(map(repr, ca)) == sorted(map(repr, cb))
 
 
 def is_ordered(query: str) -> bool:
-    return re.search(r"(?is)\border\s+by\b", query) is not None
+    """Whether the query orders its *result*: an ORDER BY at the top level (not inside a
+    subquery or a window specification)."""
+    depth, q = 0, re.sub(r"'(?:[^']|'')*'", "''", query)  # ignore string literals
+    for m in re.finditer(r"\(|\)|\border\s+by\b", q, re.I | re.S):
+        tok = m.group(0)
+        if tok == "(":
+            depth += 1
+        elif tok == ")":
+            depth -= 1
+        elif depth == 0:
+            return True
+    return False
+
+
+def full_result(path: str, query: str) -> tuple[bool, list[tuple] | None]:
+    """(ok, all rows) for ground truth; rows is None if the result exceeds ``GT_MAX_ROWS``."""
+    ok, rows, _ = run_query(path, query, max_rows=GT_MAX_ROWS, timeout=30.0)
+    if not ok:
+        return False, None
+    return True, (rows if len(rows) <= GT_MAX_ROWS else None)  # type: ignore[arg-type]
 
 
 def fmt_rows(rows: list[tuple], cols: list[str], max_rows: int = 20) -> str:
@@ -139,14 +174,19 @@ class SQLArtifactGT(GTScorer):
 
     def score(self, task: Task, record: EpisodeRecord) -> dict[str, float | None]:
         out: dict[str, float | None] = {}
-        gold_ok, gold, _ = run_query(task.resources["db_path"], task.gt["gold_sql"], max_rows=1000)
+        gold_ok, gold = full_result(task.resources["db_path"], task.gt["gold_sql"])
         for role, art in (record.outcome.get("artifacts") or {}).items():
             if not art:
                 continue
             m = re.search(r"```(?:sql)?\n(.*?)```", str(art), re.S)
             q = m.group(1) if m else str(art)
-            ok, rows, _ = run_query(task.resources["db_path"], q, max_rows=1000)
-            out[role] = float(ok and gold_ok and same_result(rows, gold, is_ordered(task.gt["gold_sql"])))  # type: ignore[arg-type]
+            ok, rows = full_result(task.resources["db_path"], q)
+            if not (ok and gold_ok):
+                out[role] = 0.0 if gold_ok else None
+            elif rows is None or gold is None:  # too large to compare in full
+                out[role] = 0.0 if (rows is None) != (gold is None) else None
+            else:
+                out[role] = float(same_result(rows, gold, is_ordered(task.gt["gold_sql"])))
         return out
 
 
@@ -181,9 +221,9 @@ class PrivateSQL(Domain):
         schema = schema_text(db)
         tasks = []
         for q in qs:
-            ok_g, g, _ = run_query(db, q["gold"], 1000)
-            ok_d, d, _ = run_query(db, q["distractor"], 1000)
-            if not (ok_g and ok_d) or same_result(g, d, is_ordered(q["gold"])):  # type: ignore[arg-type]
+            ok_g, g = full_result(db, q["gold"])
+            ok_d, d = full_result(db, q["distractor"])
+            if not (ok_g and ok_d) or g is None or d is None or same_result(g, d, is_ordered(q["gold"])):
                 continue
             rng = rng_for("sql", q["id"])
             ids = ["A", "B"]

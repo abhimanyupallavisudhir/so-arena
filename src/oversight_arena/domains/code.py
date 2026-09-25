@@ -64,6 +64,21 @@ def _sites(tree: ast.AST) -> list[tuple[ast.AST, str]]:
     return sites
 
 
+def _replace_child(tree: ast.AST, old: ast.AST, new: ast.AST) -> bool:
+    """Replace node ``old`` by ``new`` wherever it hangs in ``tree``."""
+    for parent in ast.walk(tree):
+        for field, value in ast.iter_fields(parent):
+            if value is old:
+                setattr(parent, field, new)
+                return True
+            if isinstance(value, list):
+                for i, v in enumerate(value):
+                    if v is old:
+                        value[i] = new
+                        return True
+    return False
+
+
 def mutants(src: str, max_n: int = 30, seed: int = 0) -> list[tuple[str, str]]:
     """Single-site mutants of ``src`` as (description, source)."""
     try:
@@ -102,11 +117,10 @@ def mutants(src: str, max_n: int = 30, seed: int = 0) -> list[tuple[str, str]]:
         elif kind == "sorted_rev":
             node.keywords = [k for k in node.keywords if k.arg != "reverse"] + [ast.keyword(arg="reverse", value=ast.Constant(True))]  # type: ignore[attr-defined]
             desc = "sort order changed"
-        elif kind == "noabs":
-            parent_replace = node.args[0]  # type: ignore[attr-defined]
-            node.func = ast.Name(id="(lambda _x: _x)", ctx=ast.Load())  # type: ignore[attr-defined]
+        elif kind == "noabs":  # abs(x) -> x, in place (a wrapper would give the mutant away)
+            if not _replace_child(tree, node, node.args[0]):  # type: ignore[attr-defined]
+                continue
             desc = "absolute value removed"
-            _ = parent_replace
         else:
             node.value = node.value + (1 if kind == "const+" else -1)  # type: ignore[attr-defined]
             desc = "constant changed"
@@ -351,13 +365,13 @@ class HiddenTestsCode(Domain):
     def _mutant_cache(self) -> dict[str, Any]:
         from ..data import data_dir
 
-        p = data_dir() / f"code_mutants_v2_{self.dataset}.json"
+        p = data_dir() / f"code_mutants_v3_{self.dataset}.json"
         return json.loads(p.read_text()) if p.exists() else {}
 
     def _save_cache(self, cache: dict[str, Any]) -> None:
         from ..data import data_dir
 
-        (data_dir() / f"code_mutants_v2_{self.dataset}.json").write_text(json.dumps(cache))
+        (data_dir() / f"code_mutants_v3_{self.dataset}.json").write_text(json.dumps(cache))
 
     def find_mutant(self, row: dict, cache: dict[str, Any]) -> dict | None:
         key = row["id"]

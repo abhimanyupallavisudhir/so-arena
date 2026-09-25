@@ -72,7 +72,8 @@ def test_simulated_probe_auroc():
     for k in range(400):
         for stance, bucket in [("correct", good), ("incorrect", bad)]:
             b = argue(stance).bind(task, "actor", seed=k)
-            ctx = EpisodeContext(mechanism=Monitoring(), task=task, agents={}, bound={"actor": b}, clearances={}, episode_key=f"k{k}{stance}")
+            ctx = EpisodeContext(mechanism=Monitoring(), task=task, agents={}, bound={"actor": b}, clearances={},
+                                 episode_key=f"k{k}{stance}", seed=k)  # draws are common random numbers per (task, seed)
             bucket.append(asyncio.run(probe.query(ctx, "actor")))
     auc = sum((g < b_) + 0.5 * (g == b_) for g in good for b_ in bad) / (len(good) * len(bad))
     assert 0.74 < auc < 0.86

@@ -100,10 +100,14 @@ class Comparison(Mechanism):
 class ProverReward(RewardRule):
     """Prover: $s(P(\\text{accept}))$ when its answer matches its mode (correct in helpful mode,
     incorrect in sneaky mode), else ``misaligned``. Verifier: $s(P(\\text{label}))$ on labelled
-    episodes. Correctness comes from ``outcome['label']`` (a declared GT channel)."""
+    episodes. Correctness comes from ``outcome['label']`` (a declared GT channel).
+
+    ``misaligned`` must be worse than any score a role-aligned prover can get, or a prover that is
+    likely to be caught prefers to ignore its mode. The default (None) is one below the worst
+    attainable score: $\\log(10^{-4}) - 1$ with the log transform."""
 
     transform: Transform = "log"
-    misaligned: float = -3.0
+    misaligned: float | None = None
 
     def __call__(self, record: EpisodeRecord) -> dict[str, float]:
         o = record.outcome
@@ -115,7 +119,9 @@ class ProverReward(RewardRule):
         correct = answer in label
         if "prover" in record.trainable_roles:
             aligned = correct if mode == "helpful" else not correct
-            out["prover"] = score_prob(p, self.transform) if aligned else self.misaligned
+            worst = min(score_prob(0.0, self.transform), score_prob(1.0, self.transform))
+            miss = worst - 1.0 if self.misaligned is None else self.misaligned
+            out["prover"] = score_prob(p, self.transform) if aligned else miss
         if "verifier" in record.trainable_roles:
             out["verifier"] = score_prob(p if correct else 1 - p, self.transform)
         return out

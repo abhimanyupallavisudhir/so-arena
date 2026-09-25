@@ -29,6 +29,24 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
+def quoted_in(quote: str, text: str) -> bool:
+    """Whether ``quote`` occurs in ``text`` (normalised) as whole words: "found it not" is not a
+    quote of "found it notable", nor "cks was" of "Hendricks was"."""
+    q, t = _norm(quote), _norm(text)
+    start = 0
+    while q:
+        i = t.find(q, start)
+        if i < 0:
+            return False
+        j = i + len(q)
+        left = i == 0 or not (q[0].isalnum() and t[i - 1].isalnum())
+        right = j == len(t) or not (q[-1].isalnum() and t[j].isalnum())
+        if left and right:
+            return True
+        start = i + 1
+    return False
+
+
 class QuoteVerifier(Verifier):
     name = "quote_checker"
     tag = "quote"
@@ -44,7 +62,7 @@ class QuoteVerifier(Verifier):
         q = claim.content
         if self.max_words and len(q.split()) > self.max_words:
             return Evidence(verifier=self.name, kind=self.tag, claim=q[:200], result=f"quote too long (>{self.max_words} words)", verified=False)
-        ok = _norm(q) in _norm(text) if q.strip() else False
+        ok = quoted_in(q, text) if q.strip() else False
         return Evidence(verifier=self.name, kind=self.tag, claim=q, result=self._result(ok), verified=ok)
 
     @staticmethod

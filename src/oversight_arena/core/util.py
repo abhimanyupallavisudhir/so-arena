@@ -86,7 +86,7 @@ def code_hash(fn: Any, *, _seen: set[int] | None = None, _depth: int = 0) -> str
                            f"<{type(owner).__qualname__}>", _value_key(getattr(owner, "__dict__", {}), seen, _depth), length=10)
     code = getattr(fn, "__code__", None)
     if code is None:  # a callable object
-        call = getattr(type(fn), "__call__", None)
+        call = type(fn).__call__ if callable(fn) else None
         return stable_hash(f"<{type(fn).__module__}.{type(fn).__qualname__}>",
                            code_hash(call, _seen=seen, _depth=_depth) if hasattr(call, "__code__") else "",
                            _value_key(getattr(fn, "__dict__", {}), seen, _depth), length=10)

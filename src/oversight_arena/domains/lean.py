@@ -110,6 +110,21 @@ class LeanVerifier(Verifier):
                                         "rejected: error: unsolved goals"})
 
 
+_SUB = "₀₁₂₃₄₅₆₇₈₉"
+_HYP = re.compile(r"(?<![\w'.])h([₀-₉]+)(?![\w'])")
+
+
+def renumber_hypotheses(stmt: str) -> str:
+    """Hypotheses renamed h₀, h₁, ... in order of appearance, everywhere in the statement, so a
+    gap in the numbering (e.g. left by a dropped hypothesis) cannot give an item away."""
+    names = []
+    for m in re.finditer(r"\(\s*h([₀-₉]+)\s*:", stmt):
+        if m.group(1) not in names:
+            names.append(m.group(1))
+    new = {old: "".join(_SUB[int(c)] for c in str(i)) for i, old in enumerate(names)}
+    return _HYP.sub(lambda m: "h" + new.get(m.group(1), m.group(1)), stmt) if new else stmt
+
+
 def perturb_statement(stmt: str, seed: int) -> tuple[str, str] | None:
     """A meaning-changing perturbation of a Lean statement: (new statement, description).
 
@@ -300,6 +315,7 @@ class MiniF2F(Domain):
                         faithful = True
                     else:
                         shown, desc = p
+                shown = renumber_hypotheses(shown)  # faithful and perturbed alike: numbering is no tell
                 opts = [Answer(id="YES", text="The formal statement is a faithful formalisation", value=1.0 if faithful else -1.0),
                         Answer(id="NO", text="The formal statement does not match the informal problem", value=-1.0 if faithful else 1.0)]
                 tasks.append(Task(

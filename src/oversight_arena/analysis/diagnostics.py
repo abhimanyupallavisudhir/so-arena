@@ -15,8 +15,22 @@ def _df(results) -> pd.DataFrame:
     return results if isinstance(results, pd.DataFrame) else results.df()
 
 
+def _task_mean_ci(d: pd.DataFrame, col: str, n_boot: int = 2000, alpha: float = 0.05, seed: int = 0) -> tuple[float, float, float]:
+    """Mean of ``col`` over episodes with a CI from resampling whole tasks (vectorised)."""
+    agg = d.groupby("task")[col].agg(["sum", "count"])
+    sums, counts = agg["sum"].to_numpy(float), agg["count"].to_numpy(float)
+    est = float(sums.sum() / counts.sum())
+    if len(agg) < 2:
+        return est, float("nan"), float("nan")
+    idx = np.random.default_rng(seed).integers(0, len(agg), size=(n_boot, len(agg)))
+    boots = sums[idx].sum(1) / counts[idx].sum(1)
+    lo, hi = np.percentile(boots, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    return est, float(lo), float(hi)
+
+
 def outcome_metrics(results, by: Sequence[str] = ("mechanism",)) -> pd.DataFrame:
-    """Principal-level quality: decision accuracy, judge P(correct), log score, calibration (ECE)."""
+    """Principal-level quality: decision accuracy, judge P(correct), log score, calibration (ECE).
+    Confidence intervals resample *tasks* (episodes of one task are not independent)."""
     ep = results.episodes_df() if hasattr(results, "episodes_df") else results
     rows = []
     for keys, g in ep.groupby(list(by)):
@@ -24,7 +38,8 @@ def outcome_metrics(results, by: Sequence[str] = ("mechanism",)) -> pd.DataFrame
         for col, name in [("gt_decision_correct[_outcome]", "accuracy"), ("gt_judge_p_correct[_outcome]", "p_correct"),
                           ("gt_judge_p_correct[_outcome_log]", "log_score")]:
             if col in g and g[col].notna().any():
-                est, lo, hi = bootstrap_ci(g[col].dropna().to_numpy())
+                sub = g.dropna(subset=[col])
+                est, lo, hi = _task_mean_ci(sub, col) if "task" in sub else bootstrap_ci(sub[col].to_numpy())
                 row.update({name: est, f"{name}_lo": lo, f"{name}_hi": hi})
         if "gt_judge_p_correct[_outcome]" in g and g["gt_judge_p_correct[_outcome]"].notna().any():
             row["ece"] = ece(g)

@@ -75,7 +75,8 @@ class PSROIteration:
     meta_gt: dict[str, float]
     exploitability: float
     new: dict[str, str | None] = field(default_factory=dict)
-    br_gain: dict[str, float] = field(default_factory=dict)
+    br_gain: dict[str, float] = field(default_factory=dict)  # on fresh samples (unbiased)
+    br_gain_in_sample: dict[str, float] = field(default_factory=dict)  # on the samples that selected it (optimistic)
 
 
 class PSRO:
@@ -184,10 +185,18 @@ class PSRO:
                                concurrency=self.concurrency)
                 br = await self.oracles[r](ev, self.pop[r])
                 if br is not None and all(br.id != s.id for s in self.pop[r]):
+                    incumbents = [(self._by_id(r, sid), p) for sid, p in meta[r].items() if p > 1e-6]
                     self.pop[r].append(br)
                     rec.new[r] = br.name
                     bre = await ev.evaluate(br)
-                    rec.br_gain[r] = bre.reward - rec.meta_payoffs.get(r, float("nan"))
+                    rec.br_gain_in_sample[r] = bre.reward - rec.meta_payoffs.get(r, float("nan"))
+                    # the gain that selected the best response is biased upwards (winner's curse):
+                    # re-measure it, and the incumbent mixture, on samples not used for selection
+                    fresh = Evaluator(self.domain, self.mechanism, self.agents, r, self.tasks, others=others,
+                                      seeds=self.seeds, gt_keys=self.gt_keys, clearances=self.clearances,
+                                      concurrency=self.concurrency, seed_offset=10_000 * (it + 1))
+                    inc = [(await fresh.evaluate(s)).reward * p for s, p in incumbents]
+                    rec.br_gain[r] = (await fresh.evaluate(br)).reward - float(sum(inc)) / max(1e-12, sum(p for _, p in incumbents))
                 else:
                     rec.new[r] = None
             self.history.append(rec)
@@ -215,5 +224,6 @@ class PSROTrace:
             row.update({f"gt[{k}]": v for k, v in it.meta_gt.items()})
             row.update({f"new[{k}]": v for k, v in it.new.items()})
             row.update({f"br_gain[{k}]": v for k, v in it.br_gain.items()})
+            row.update({f"br_gain_in_sample[{k}]": v for k, v in it.br_gain_in_sample.items()})
             rows.append(row)
         return pd.DataFrame(rows)

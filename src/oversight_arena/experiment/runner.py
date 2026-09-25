@@ -172,6 +172,9 @@ async def run_episode(
         elapsed_s=round(time.time() - t0, 3),
         meta=ctx.meta,
     )
+    spec = reward_spec(mechanism.reward)
+    if spec is not None:
+        rec.meta["reward_spec"] = spec  # lets readers of stored episodes (e.g. Inspect logs) rebuild the rule
     if error is None and not type(mechanism.reward).batch:
         try:
             if type(mechanism.reward).delayed:
@@ -187,6 +190,32 @@ async def run_episode(
     if error is None:
         await compute_gt(task, rec, scorers)
     return rec
+
+
+def reward_spec(rule: Any) -> dict[str, Any] | None:
+    """A JSON description of a reward rule from which :func:`rule_from_spec` rebuilds it."""
+    try:
+        return {"class": f"{type(rule).__module__}:{type(rule).__qualname__}", "params": rule.model_dump(mode="json")}
+    except Exception:
+        return None
+
+
+def rule_from_spec(spec: dict[str, Any] | None) -> Any:
+    """Rebuild a reward rule from :func:`reward_spec` (None if it cannot be)."""
+    import importlib
+
+    if not spec or ":" not in str(spec.get("class", "")):
+        return None
+    mod, _, name = spec["class"].partition(":")
+    if not mod.startswith("oversight_arena."):  # only the library's own classes are imported from stored data
+        return None
+    try:
+        cls: Any = importlib.import_module(mod)
+        for part in name.split("."):
+            cls = getattr(cls, part)
+        return cls.model_validate(spec.get("params") or {})
+    except Exception:
+        return None
 
 
 class Experiment:
