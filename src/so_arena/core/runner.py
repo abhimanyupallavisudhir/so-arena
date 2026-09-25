@@ -117,7 +117,8 @@ def build_players(profile: Profile, item: TaskItem, seed: int = 0) -> dict[str, 
 
 
 def episode_id(run_id: str, mechanism: Mechanism, item: TaskItem, profile: str, repeat: int) -> str:
-    raw = f"{run_id}|{mechanism.name}|{mechanism.config_hash()}|{item.id}|{profile}|{repeat}"
+    # the item fingerprint makes resumed runs re-run items whose content changed under the same id
+    raw = f"{run_id}|{mechanism.name}|{mechanism.config_hash()}|{item.id}|{item.fingerprint()}|{profile}|{repeat}"
     slug = re.sub(r"[^A-Za-z0-9_.:-]", "_", f"{mechanism.name}:{item.id}:{profile}:{repeat}")
     return f"{slug}#{hashlib.sha256(raw.encode()).hexdigest()[:8]}"
 
@@ -135,8 +136,10 @@ async def score_episode(ep: Episode, item: TaskItem, scorers: Sequence[GroundTru
         except Exception as e:  # a failing scorer should not lose the episode
             parts.append({f"error_{s.name}": repr(e)})
     ep.ground_truth = merge_gt([ep.ground_truth] + parts)
-    if ep.gt_status == "unscored":
-        ep.gt_status = "known"
+    if item.has_ground_truth:
+        ep.gt_status = "known"  # also when re-scoring an episode that was pending
+    elif ep.gt_status == "unscored":
+        ep.gt_status = "unknown"
     return ep
 
 

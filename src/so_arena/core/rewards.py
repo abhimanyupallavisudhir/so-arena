@@ -412,18 +412,32 @@ class ResolutionScore(RewardRule):
 
     def compute(self, ep):
         forecasts = ep.outcome.data.get(self.forecast_key) or {}
-        y = ep.outcome.data.get("resolution", ep.tags.get("resolution"))
+        y = _binary_resolution(ep.outcome.data.get("resolution", ep.tags.get("resolution")))
         out: Rewards = {}
         for r, p in forecasts.items():
             if y is None or p is None:
                 out[r] = None
             else:
                 probs = {"yes": float(p), "no": 1 - float(p)}
-                out[r] = score_probability(probs, "yes" if float(y) >= 0.5 else "no", self.transform, self.eps)
+                out[r] = score_probability(probs, "yes" if y else "no", self.transform, self.eps)
         return out
 
     def describe(self):
         return f"each forecaster receives the {self.transform} score of its forecast once the question resolves"
+
+
+def _binary_resolution(y: Any) -> bool | None:
+    """Accept 1/0, True/False, "yes"/"no" (any case) as a binary resolution."""
+    if y is None:
+        return None
+    if isinstance(y, str):
+        t = y.strip().lower()
+        if t in ("yes", "y", "true", "1"):
+            return True
+        if t in ("no", "n", "false", "0"):
+            return False
+        return None
+    return float(y) >= 0.5
 
 
 def rescore(episodes: Sequence["Episode"], rule: RewardRule) -> list["Episode"]:

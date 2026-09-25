@@ -90,8 +90,18 @@ def _digest(files: dict[str, str]) -> str:
 
 
 def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str | Path, *, title: str = "Release",
-            notes: str = "", html: bool = True) -> Manifest:
-    """Write a ground-truth-free release bundle and return its manifest (``manifest.digest`` is the commitment)."""
+            notes: str = "", html: bool = True, exclude_restricted: bool = False) -> Manifest:
+    """Write a ground-truth-free release bundle and return its manifest (``manifest.digest`` is the commitment).
+
+    Items whose licence forbids publication (``metadata["do_not_publish"]``, e.g. GPQA) are refused
+    unless ``exclude_restricted=True``, which drops them and their episodes from the bundle.
+    """
+    restricted = {it.id for it in items if it.metadata.get("do_not_publish")}
+    if restricted and not exclude_restricted:
+        raise ValueError(f"{len(restricted)} items are marked do_not_publish (e.g. {sorted(restricted)[:3]}); "
+                         "pass exclude_restricted=True to leave them out of the release")
+    items = [it for it in items if it.id not in restricted]
+    episodes = [e for e in episodes if e.item_id not in restricted]
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     eps = [_strip(e) for e in episodes]
@@ -186,7 +196,6 @@ def resolve(release_dir: str | Path, truth: Truth, *, out_dir: str | Path | None
             if reward_rule is not None:
                 e.rewards = await reward_rule.acompute(e, None)
                 e.reward_status = "pending" if any(v is None for r, v in e.rewards.items() if r in e.trainable_roles) else "final"
-            e.gt_status = "unscored"
             out.append(await score_episode(e, it, scorers))
         return out
 
