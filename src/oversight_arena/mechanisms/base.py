@@ -145,6 +145,7 @@ class EpisodeContext:
         self._verifiers = {v.tag: v for v in (verifiers or [])}
         self._evidence_spent: dict[str, float] = {}
         self._assigned: dict[str, str] = {}
+        self._chosen: dict[str, str] = {}
 
     # --------------------------------------------------------------- roles / positions
     @property
@@ -158,9 +159,17 @@ class EpisodeContext:
         return self._roles[role].display if role in self._roles else role
 
     def position(self, role: str) -> str | None:
-        """The option ``role`` argues for: assigned by the profile, else by :meth:`positions`."""
+        """The option ``role`` argues for: chosen in-protocol (:meth:`assign`), else assigned by
+        the profile, else by :meth:`positions`."""
+        if role in self._chosen:
+            return self._chosen[role]
         b = self._bound.get(role)
         return (b.target if b else None) or self._assigned.get(role)
+
+    def assign(self, role: str, option: str) -> None:
+        """Fix ``role``'s position in-protocol (e.g. the side a debater *chose* in open debate);
+        takes precedence over profile targets from then on."""
+        self._chosen[role] = option
 
     def positions(self, roles: list[str], distinct: bool = True) -> dict[str, str]:
         """Positions for ``roles``: profile-assigned where given, remaining options otherwise.
@@ -169,7 +178,7 @@ class EpisodeContext:
         used: set[str] = set()
         for r in roles:
             b = self._bound.get(r)
-            p = b.target if b else None
+            p = self._chosen.get(r) or (b.target if b else None)
             if p is not None:
                 out[r] = p
                 used.add(p)
@@ -309,8 +318,10 @@ class EpisodeContext:
         data: dict[str, Any] | None = None,
         extra_brief: str = "",
         observation: Observation | None = None,
+        verify: bool = True,
     ) -> Entry:
-        """Ask ``role`` to act; verify its claims; append (and return) the transcript entry."""
+        """Ask ``role`` to act; verify its claims (unless ``verify=False``); append (and return)
+        the transcript entry."""
         agent = self.agents[role]
         obs = observation or self.observe(role, prompt, response, step=step, turn=turn, tools=tools, extra_brief=extra_brief)
         action = await agent.act(obs)
@@ -333,7 +344,7 @@ class EpisodeContext:
         self.usage[role] = self.usage.get(role, Usage()) + action.usage
         pol = self.mechanism.evidence
         if pol is not None:
-            if pol.auto_verify and pol.applies_to(role):
+            if verify and pol.auto_verify and pol.applies_to(role):
                 await self._verify_inline(role, entry, pol)
             if pol.share_tool_results and entry.tool_trace:
                 entry.data["_share_tools"] = True

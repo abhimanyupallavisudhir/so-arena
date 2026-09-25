@@ -133,6 +133,7 @@ class ProposalContext:
     steering: str | None = None
     examples: list[str] = field(default_factory=list)
     evaluations: dict[str, Evaluation] = field(default_factory=dict)
+    opponents: dict[str, list[tuple[str, float]]] = field(default_factory=dict)  # role -> [(instructions, weight)]
 
 
 class Proposer(ABC):
@@ -162,7 +163,7 @@ OPRO_TEMPLATE = """You are optimising the private instructions given to an AI ag
 {history}
 
 {examples}
-{steering}
+{opponents}{steering}
 Propose {n} new instructions that are likely to earn a HIGHER average reward than all of the above. Make them diverse and concrete. Placeholders {{target}} (the option id the agent argues for) and {{target_text}} are available.
 Return ONLY a JSON object: {{"instructions": ["...", "..."]}}"""
 
@@ -179,17 +180,33 @@ REFLECT_TEMPLATE = """You are improving the private instructions given to an AI 
 
 # Other instructions tried so far (reward)
 {history}
-{steering}
+{opponents}{steering}
 Reflect on why the agent earned high or low reward in these episodes, then write {n} improved version(s) of the instructions. Placeholders {{target}} and {{target_text}} are available.
 Return ONLY a JSON object: {{"reflection": "...", "instructions": ["..."]}}"""
 
 
+def _opponents_text(ops: dict[str, list[tuple[str, float]]]) -> str:
+    if not ops:
+        return ""
+    lines = ["# What the other agents currently do (their private instructions, with probabilities)"]
+    for role, mix in ops.items():
+        for ins, w in sorted(mix, key=lambda x: -x[1])[:5]:
+            lines.append(f"- {role} ({w:.0%}): {truncate(ins, 400)!r}")
+    return "\n".join(lines) + "\n"
+
+
 class LLMProposer(Proposer):
-    def __init__(self, model: str | Model, style: str = "opro", top_k: int = 12, temperature: float = 1.0):
+    """LLM-driven prompt search. ``show_opponents``: tell the optimiser the other roles' current
+    (meta-)strategies — opponent-aware best response, as in level-k reasoning; otherwise it must
+    infer them from the example transcripts."""
+
+    def __init__(self, model: str | Model, style: str = "opro", top_k: int = 12, temperature: float = 1.0,
+                 show_opponents: bool = False):
         self.model = get_model(model) if isinstance(model, str) else model
         self.style = style
         self.top_k = top_k
         self.temperature = temperature
+        self.show_opponents = show_opponents
 
     def _history(self, hist: list[Candidate]) -> str:
         hs = sorted([c for c in hist if c.accepted and not math.isnan(c.reward)], key=lambda c: c.reward)[-self.top_k:]
@@ -197,6 +214,7 @@ class LLMProposer(Proposer):
 
     async def propose(self, ctx: ProposalContext, n: int) -> list[Strategy]:
         steer = f"\n{ctx.steering}\n" if ctx.steering else ""
+        opp = _opponents_text(ctx.opponents) if self.show_opponents else ""
         parent = None
         if self.style == "reflective" and ctx.history:
             parent = pareto_parent(ctx.history, ctx.iteration)
@@ -204,7 +222,7 @@ class LLMProposer(Proposer):
             examples = "\n\n".join(_render_example(ev, ctx.role)) if ev else "(none)"
             prompt = REFLECT_TEMPLATE.format(
                 role=ctx.role, brief=ctx.brief, reward=parent.reward, parent=parent.strategy.instructions,
-                examples=examples, history=self._history(ctx.history), steering=steer, n=n,
+                examples=examples, history=self._history(ctx.history), steering=steer, n=n, opponents=opp,
             )
         else:
             ex = ""
@@ -212,7 +230,7 @@ class LLMProposer(Proposer):
                 ex = "# Example episodes\n" + "\n\n".join(ctx.examples) + "\n"
             prompt = OPRO_TEMPLATE.format(
                 role=ctx.role, brief=ctx.brief, domain=ctx.domain, history=self._history(ctx.history),
-                examples=ex, steering=steer, n=n,
+                examples=ex, steering=steer, n=n, opponents=opp,
             )
         out = await self.model.generate(
             [ChatMessage.user(prompt)], GenConfig(temperature=self.temperature), None, sample=ctx.iteration
@@ -405,7 +423,7 @@ class PromptOptimizer:
                 role=self.ev.role, brief=brief, domain=self.ev.domain.name, history=visible,
                 iteration=it, base=self.base, steering=self.steering,
                 examples=_render_example(self.evaluations[max(visible, key=lambda c: c.reward).id], self.ev.role) if visible else [],
-                evaluations=self.evaluations,
+                evaluations=self.evaluations, opponents=self.ev.opponent_instructions(),
             )
             new = await self.proposer.propose(ctx, self.per_iter)
             batch = self._batch(it)

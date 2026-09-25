@@ -14,7 +14,7 @@ from .core.strategy import DISHONEST, HONEST, Assignment, Profile, Stance, Strat
 from .core.task import Answer, InfoBlock, Task, TaskView
 from .core.tools import Tool, tool
 from .experiment import (
-    AgentTable, Cartesian, Experiment, Fixed, Results, Seeds, Stances, run_episode,
+    AgentTable, Cartesian, Experiment, Fixed, Results, Seeds, Stances, run_episode, sweep,
 )
 from .mechanisms import EpisodeContext, Mechanism, mechanism
 from .models import get_model
@@ -26,5 +26,5 @@ __all__ = [
     "ScriptedAgent", "EpisodeRecord", "JudgeProbability", "RewardRule", "score_prob", "RoleSpec",
     "DISHONEST", "HONEST", "Assignment", "Profile", "Stance", "Strategy", "argue", "Answer", "InfoBlock",
     "Task", "TaskView", "Tool", "tool", "AgentTable", "Cartesian", "Experiment", "Fixed", "Results", "Seeds",
-    "Stances", "run_episode", "EpisodeContext", "Mechanism", "mechanism", "get_model",
+    "Stances", "run_episode", "sweep", "EpisodeContext", "Mechanism", "mechanism", "get_model",
 ]

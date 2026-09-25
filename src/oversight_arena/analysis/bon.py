@@ -41,6 +41,14 @@ def bon_weights(scores: Sequence[float] | np.ndarray, n: float, maximize: bool =
     return p_val[inv] / counts[inv]
 
 
+def bon_kl(n: float) -> float:
+    """KL(best-of-n || base policy) $= \log n - (n-1)/n$ nats (Stiennon et al. 2020; an upper
+    bound for discrete pools with ties). The standard x-axis for optimisation-pressure curves."""
+    import math
+
+    return math.log(n) - (n - 1) / n if n >= 1 else 0.0
+
+
 def bon_expectation(scores, values, n: float, maximize: bool = True) -> float:
     w = bon_weights(scores, n, maximize)
     return float(np.dot(w, np.asarray(values, dtype=float)))
@@ -76,7 +84,8 @@ def bon_curve(
             r_est, r_lo, r_hi = bootstrap_ci(rs, n_boot=n_boot)
             g_est, g_lo, g_hi = bootstrap_ci(gs, n_boot=n_boot)
             row = dict(zip(by, keys if isinstance(keys, tuple) else (keys,)))
-            row.update(n=n, reward=r_est, reward_lo=r_lo, reward_hi=r_hi, gt=g_est, gt_lo=g_lo, gt_hi=g_hi, pools=len(pools))
+            row.update(n=n, kl=bon_kl(n), reward=r_est, reward_lo=r_lo, reward_hi=r_hi, gt=g_est, gt_lo=g_lo, gt_hi=g_hi,
+                       pools=len(pools))
             rows.append(row)
     return pd.DataFrame(rows)
 

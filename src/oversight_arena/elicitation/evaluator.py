@@ -70,6 +70,15 @@ class Evaluator:
         self.position = position
         self.n_episodes = 0
 
+    def opponent_instructions(self) -> dict[str, list[tuple[str, float]]]:
+        """The other roles' strategies as (instructions, probability) — for opponent-aware optimisers."""
+        out: dict[str, list[tuple[str, float]]] = {}
+        for r, spec in self.others.items():
+            mix = [(spec, 1.0)] if isinstance(spec, Strategy) else list(spec)
+            z = sum(w for _, w in mix) or 1.0
+            out[r] = [(s.instructions or f"<{s.name}: {s.params}>", w / z) for s, w in mix]
+        return out
+
     def _other(self, role: str, spec: "Strategy | Mixture", task: Task, seed: int) -> Strategy:
         if isinstance(spec, Strategy):
             return spec

@@ -133,11 +133,30 @@ class BayesianBitJudge(Agent):
         need = (L + 1) // 2
         return poisson_binomial_tail(ps, need)
 
+    def _answer_probs(self, obs: Observation, py: float) -> dict[str, float]:
+        """P(option is correct) for each task option."""
+        return {o.id: (py if o.data.get("claim") == 1 else 1 - py) for o in obs.task.options}
+
+    def _question_probs(self, obs: Observation, py: float) -> dict[str, float]:
+        """Distribution over the *requested* labels: task options directly; YES/NO about the
+        latest proposed answer (proposer–critic, prover–verifier); or candidate labels "k"
+        (comparison), each scored by P(candidate_k's answer is correct)."""
+        ans = self._answer_probs(obs, py)
+        opts = obs.response.options or []
+        if set(opts) <= set(ans):
+            return {o: ans[o] for o in opts}
+        choices = [(e.role or "", e.data.get("choice")) for e in obs.entries if e.data.get("choice") in ans]
+        if set(opts) == {"YES", "NO"} and choices:
+            p = ans[choices[-1][1]]
+            return {"YES": p, "NO": 1 - p}
+        by_role = {r: c for r, c in choices}
+        raw = {o: ans.get(by_role.get(f"candidate_{o}", ""), 0.5) for o in opts}
+        z = sum(raw.values()) or 1.0
+        return {o: v / z for o, v in raw.items()}
+
     async def act(self, obs: Observation) -> Action:
         py = min(max(self.posterior_yes(obs), 1e-4), 1 - 1e-4)
-        probs = {}
-        for o in obs.task.options:
-            probs[o.id] = py if o.data.get("claim") == 1 else 1 - py
+        probs = self._question_probs(obs, py) if obs.response.kind in ("distribution", "choice") else self._answer_probs(obs, py)
         if obs.response.kind == "distribution":
             return Action(text=f"P(yes)={py:.3f}", parsed={"probs": probs, "choice": max(probs, key=probs.get)})
         if obs.response.kind == "choice":

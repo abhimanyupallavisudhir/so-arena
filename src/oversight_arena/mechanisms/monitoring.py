@@ -16,6 +16,7 @@ from pydantic import Field
 
 from ..agents.base import ResponseSpec
 from ..channels.gt_channels import Auditor, SimulatedProbe
+from ..channels.probes import Probe
 from ..core.episode import EpisodeRecord
 from ..core.rewards import RewardRule
 from ..core.roles import RoleSpec
@@ -79,7 +80,8 @@ class Monitoring(Mechanism):
         grader: use a (weak, trusted) grader role to score apparent task success; otherwise
             read ``env_state['apparent_score']`` from the domain environment.
         audit: random audits (GT channel) that pay a trainable monitor.
-        probe: simulated interpretability probe (GT channel with target AUROC).
+        probe: interpretability probe — simulated from ground truth with a target AUROC
+            (:class:`SimulatedProbe`, logged as GT use) or a real detector (:class:`FunctionProbe`).
     """
 
     name: ClassVar[str] = "monitoring"
@@ -91,7 +93,7 @@ class Monitoring(Mechanism):
     grader: bool = True
     monitor_trainable: bool = False
     audit: Auditor | None = None
-    probe: SimulatedProbe | None = Field(default_factory=lambda: SimulatedProbe(auroc=0.8))
+    probe: SimulatedProbe | Probe | None = Field(default_factory=lambda: SimulatedProbe(auroc=0.8))
     reward: RewardRule = Field(default_factory=MonitoredReward)
     max_words: int | None = 400
 

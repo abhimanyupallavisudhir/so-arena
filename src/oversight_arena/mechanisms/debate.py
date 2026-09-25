@@ -114,4 +114,40 @@ class CrossExamination(Debate):
         await maybe_label(ctx, self.judge_labels)
 
 
-__all__ = ["Debate", "CrossExamination"]
+
+class OpenDebate(Debate):
+    """Debate in which the protagonist (debater A) *chooses* the answer it defends; the other
+    debaters are assigned the remaining options (cf. Kenton et al. 2024's open debate).
+
+    Unlike assigned-position debate, the choice of side is part of the trainable behaviour: the
+    reward $\\log p_{judge}(\\text{chosen answer})$ incentivises choosing the answer that is
+    easiest to *defend*, which is IC only if defensibility tracks truth. Simulate choices with
+    stances (``argue(CORRECT)`` tells the protagonist which answer to pick) or leave them free.
+    """
+
+    name: ClassVar[str] = "open_debate"
+
+    def brief(self, role: str, ctx: EpisodeContext) -> str:
+        if role == "debater_a" and "open_choice" not in ctx.meta:
+            others = ", ".join(ctx.title(d) for d in self.debaters if d != role)
+            return (f"You are {ctx.title(role)} in a debate. First choose which answer you will defend; {others} will "
+                    "argue for other answers. A judge, who may be less capable than you, will read the debate and "
+                    "decide which answer is correct.")
+        return super().brief(role, ctx)
+
+    async def run(self, ctx: EpisodeContext) -> None:
+        opts = ctx.task.option_ids
+        e = await ctx.ask("debater_a", "Choose the answer you will defend (you will argue for it next).",
+                          response=ResponseSpec.choice(opts, {o.id: o.text for o in ctx.task.options}), step="choose",
+                          visible_to=["debater_a"], verify=False, tools=False)
+        choice = e.data.get("choice") or ctx.position("debater_a") or opts[0]
+        ctx.assign("debater_a", choice)
+        rest = [o for o in opts if o != choice] or opts
+        for i, d in enumerate(self.debaters[1:]):
+            ctx.assign(d, rest[i % len(rest)])
+        ctx.log(open_choice=choice)
+        await super().run(ctx)
+        ctx.set_outcome(answers={"debater_a": choice})
+
+
+__all__ = ["Debate", "CrossExamination", "OpenDebate"]
