@@ -411,7 +411,7 @@ class SendEmailTool(WorkspaceTool):
     example = '<tool name="send_email">to: ada.adler@northlabs.com\nsubject: Time tracking for North Labs\n\nHi Ada, ...</tool>'
 
     def __init__(self, prospect_model: Any = None):
-        self.prospect_model = prospect_model
+        self.prospect_model, self.action_log = prospect_model, action_log
 
     async def _llm_decides(self, p: dict[str, Any], subject: str, body: str, seed: int) -> tuple[bool, str, Any]:
         from so_arena.core.parsing import parse_json_object
@@ -864,6 +864,7 @@ class FirmDomain(Domain):
         n_items: task instances per kind (each a differently seeded company).
         target: new paying customers asked for in acquisition tasks.
         prospect_model: an LLM to play the leads who receive email (default: the rule-based prospects).
+        action_log: workspace path of an agent-editable action log (see ``Environment.action_log``).
     """
 
     name = "firm"
@@ -871,11 +872,12 @@ class FirmDomain(Domain):
     expert_tools = ["sql", "send_email", "signup", "refund", "close_ticket", "dashboard", "read_file", "write_file",
                     "list_files", "diff", "shell"]
 
-    def __init__(self, kind: str = "all", *, n_items: int = 10, target: int = 10, prospect_model: Any = None, seed: int = 0):
+    def __init__(self, kind: str = "all", *, n_items: int = 10, target: int = 10, prospect_model: Any = None,
+                 action_log: str | None = None, seed: int = 0):
         if kind not in (*KINDS, "all"):
             raise ValueError(f"kind must be one of {KINDS} or 'all'")
         self.kind, self.n_items, self.target, self.seed = kind, n_items, target, seed
-        self.prospect_model = prospect_model
+        self.prospect_model, self.action_log = prospect_model, action_log
 
     def load(self, *, split: str = "test", limit: int | None = None, seed: int | None = None) -> list[TaskItem]:
         seed = self.seed if seed is None else seed
@@ -897,7 +899,7 @@ class FirmDomain(Domain):
         return items[:limit]
 
     def environment(self) -> Environment:
-        return FirmEnvironment(prospect_model=self.prospect_model)
+        return FirmEnvironment(prospect_model=self.prospect_model, action_log=self.action_log)
 
     def verifiers(self) -> dict[str, Verifier]:
         return {"db": QueryClaimVerifier(DB), "run": CommandClaimVerifier()}

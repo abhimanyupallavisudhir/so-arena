@@ -419,8 +419,11 @@ class RepoDomain(Domain):
 
     Args:
         source: ``"sample"`` (the bundled 60 MBPP problems, offline) or ``"mbpp"`` (downloaded).
+        kind: ``"work"`` (one worker, one task) or ``"team"`` (a shared repository for :class:`~so_arena.mechanisms.Team`).
         n_visible: visible tests per task (the rest are the maintainers' hidden tests).
+        n_parts: modules (workers) per team task.
         shell_timeout: time limit of each shell command.
+        action_log: workspace path of an agent-editable action log (see ``Environment.action_log``).
     """
 
     name = "repo"
@@ -429,10 +432,10 @@ class RepoDomain(Domain):
     expert_tools = ["shell", "read_file", "write_file", "list_files", "diff", "run_tests"]
 
     def __init__(self, kind: str = "work", *, source: str = "sample", n_visible: int = 1, n_parts: int = 3,
-                 shell_timeout: float = 30.0, seed: int = 0):
+                 shell_timeout: float = 30.0, action_log: str | None = None, seed: int = 0):
         if kind not in ("work", "team"):
             raise ValueError("kind must be 'work' or 'team'")
-        self.kind, self.n_parts = kind, n_parts
+        self.kind, self.n_parts, self.action_log = kind, n_parts, action_log
         self.code = CodeDomain(kind="implement", source=source, n_visible=n_visible, n_parts=n_parts, seed=seed)
         self.shell_timeout, self.seed = shell_timeout, seed
 
@@ -472,7 +475,7 @@ class RepoDomain(Domain):
         return repo_team_grader()
 
     def environment(self) -> Environment:
-        return FilesEnvironment(test_command=TEST_COMMAND, shell_timeout=self.shell_timeout)
+        return FilesEnvironment(test_command=TEST_COMMAND, shell_timeout=self.shell_timeout, action_log=self.action_log)
 
     def verifiers(self) -> dict[str, Verifier]:
         return {"tests": ProtectedCommandVerifier(TEST_COMMAND, protected=PROTECTED, name="tests"),
