@@ -27,7 +27,7 @@ chess = ["python-chess>=1.10"]
 data = ["datasets>=2.18", "zstandard>=0.22"]
 control-arena = ["control-arena>=19.0.0"]
 rl = ["trl>=0.20"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.200", "python-chess>=1.10"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.200", "python-chess>=1.10", "ruff>=0.6"]
 all = ["inspect-ai>=0.3.200", "python-chess>=1.10", "datasets>=2.18", "zstandard>=0.22"]
 
 [project.scripts]
@@ -48,3 +48,7 @@ markers = [
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = ["E9", "F", "B"]
+ignore = ["B008", "B905", "E402"]
