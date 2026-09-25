@@ -25,6 +25,7 @@ Two ways to run it:
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
@@ -275,14 +276,16 @@ def review_items(work_episodes: Sequence[Episode], items: Sequence[TaskItem], *,
         context = {k: v for k, v in item.context.items() if k not in ("workspace", "state")}
         context["state"] = {"base": ep.initial_state, "head": ep.final_state}
         out.append(TaskItem(
-            id=f"review:{ep.item_id}:{arm}:{ep.repeat}", domain=item.domain, question="\n\n".join(parts),
+            # the id must not name the arm (ids reach mechanisms and releases): hash the work episode instead
+            id=f"review:{ep.item_id}:{hashlib.sha256(ep.id.encode()).hexdigest()[:10]}", domain=item.domain,
+            question="\n\n".join(parts),
             answers=[AnswerOption(label=ACCEPT, text="Accept the work", value=1.0 if ok else -1.0),
                      AnswerOption(label=REJECT, text="Reject the work", value=-1.0 if ok else 1.0)],
             context=context,
             ground_truth=GroundTruth(correct=ACCEPT if ok else REJECT, source="work audit",
                                      data={**gt_extra, "task_id": ep.item_id, "arm": arm, "work_value": ep.value(role),
                                            "work_episode": ep.id}),
-            metadata={"kind": "work_review", "task_id": ep.item_id, "arm": arm},
+            metadata={"kind": "work_review", "task_id": ep.item_id},  # the arm stays in ground_truth.data
         ))
     return out
 
