@@ -32,6 +32,8 @@ REGISTRY: dict[str, dict[str, str | Callable[..., Any]]] = {
         "simops": f"{_P}.domains.swarm:SimOps",
         "abstract_monitoring": f"{_P}.domains.monitoring_sim:AbstractMonitoring",
         "tasklist": f"{_P}.domains.base:TaskListDomain",
+        "synthetic_forecasting": f"{_P}.domains.synthetic_forecasting:SyntheticForecasting",
+        "control_arena": f"{_P}.integrations.control_arena:ControlArenaDomain",
     },
     "mechanism": {
         "naive_judge": f"{_P}.mechanisms.judging:NaiveJudge",
@@ -89,6 +91,12 @@ REGISTRY: dict[str, dict[str, str | Callable[..., Any]]] = {
         "claim_accuracy": f"{_P}.ground_truth.common:ClaimAccuracy",
         "accept_correct": f"{_P}.ground_truth.common:AcceptCorrect",
         "env": f"{_P}.ground_truth.common:EnvGT",
+        "bit_honesty": f"{_P}.domains.synthetic:BitHonesty",
+        "code_correct": f"{_P}.domains.code:CodeArtifactGT",
+        "sql_correct": f"{_P}.domains.sql:SQLArtifactGT",
+        "proof_valid": f"{_P}.domains.lean:LeanProofGT",
+        "forecast_score": f"{_P}.domains.forecasting:ForecastScore",
+        "control_arena": f"{_P}.integrations.control_arena:ControlArenaGT",
         "llm_judge_gt": f"{_P}.ground_truth.llm:LLMGroundTruth",
         "llm_compliance": f"{_P}.ground_truth.llm:LLMCompliance",
     },
@@ -98,6 +106,8 @@ REGISTRY: dict[str, dict[str, str | Callable[..., Any]]] = {
         "seeds": f"{_P}.experiment.profiles:Seeds",
         "fixed": f"{_P}.experiment.profiles:Fixed",
         "map": f"{_P}.experiment.profiles:MapProfiles",
+        "product": f"{_P}.experiment.profiles:ProductProfiles",
+        "game_tree": f"{_P}.experiment.profiles:GameTree",
     },
     "agent": {
         "llm": f"{_P}.agents.llm:LLMAgent",
@@ -111,6 +121,8 @@ REGISTRY: dict[str, dict[str, str | Callable[..., Any]]] = {
         "swarm_worker": f"{_P}.sim.swarm_agents:SwarmWorker",
         "action_actor": f"{_P}.sim.monitoring_agents:ActionActor",
         "keyword_monitor": f"{_P}.sim.monitoring_agents:KeywordMonitor",
+        "signal_forecaster": f"{_P}.sim.forecast_agents:SignalForecaster",
+        "confidence_judge": f"{_P}.sim.forecast_agents:ConfidenceJudge",
     },
 }
 

@@ -98,3 +98,13 @@ def test_network_domains():
 
     assert len(PrivateSQL().tasks()) == 36
     assert ManifoldForecasting(n=3).tasks()
+
+
+def test_every_registered_component_resolves():
+    from oversight_arena.registry import REGISTRY, resolve
+
+    optional = {("domain", "control_arena"), ("gt", "control_arena")}  # need `control-arena`
+    for kind, table in REGISTRY.items():
+        for name in list(table):
+            if (kind, name) not in optional:
+                assert resolve(kind, name) is not None, (kind, name)
