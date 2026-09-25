@@ -69,9 +69,11 @@ def behaviour_profiles(mechanism: Mechanism, behaviours: Mapping[str, Any], *, f
 
 def behaviour_policies(model: Any, prompts: Mapping[str, str], **llm_kwargs: Any) -> dict[str, Any]:
     """LLM policies for behaviour arms: one :class:`~so_arena.LLMPolicy` per ``{label: strategy prompt}``
-    (e.g. a domain's :meth:`~so_arena.domains.base.Domain.behaviours`)."""
+    (e.g. a domain's :meth:`~so_arena.domains.base.Domain.behaviours`). Agentic work takes many tool
+    calls, so ``max_tool_calls`` defaults to 30 here."""
     from so_arena.core.policy import LLMPolicy
 
+    llm_kwargs.setdefault("max_tool_calls", 30)
     return {label: LLMPolicy(model, strategy=prompt, label=label, **llm_kwargs) for label, prompt in prompts.items()}
 
 
