@@ -101,7 +101,7 @@ simulated models that prices every call).
 | ![threshold](docs/figures/snitch_threshold.png) | ![training](docs/figures/snitch_training.png) |
 | when reporting a teammate's hack takes over | training selects the equilibrium by starting propensity |
 
-The demos use synthetic domains, so they illustrate the machinery, not findings about language models.
+Full demo reports (self-contained HTML): [ASD across protocols](docs/reports/asd.html) · [optimization pressure](docs/reports/optimization.html) · [swarms](docs/reports/swarm.html). The demos use synthetic domains, so they illustrate the machinery, not findings about language models.
 
 ## Tests
 
