@@ -264,6 +264,18 @@ mech = Debate(judge_trainable=True, judge_labels=Label(prob=0.2),          # lab
 
 Or `ProverVerifier(sneaky_rate=0.5)` for prover–verifier games.
 
+**Human judges.** `WebHumanAgent()` serves a small local page (http://127.0.0.1:8770). Each
+time the role is asked to act, the task, the visible transcript (verified claims highlighted) and a
+response form appear; several concurrent episodes queue up:
+
+```python
+from oversight_arena.agents.web import WebHumanAgent
+
+judge = WebHumanAgent()                      # open judge.url in a browser
+oa.Experiment(GSM8K(limit=20), Debate(rounds=2, evidence=EvidencePolicy()),
+              {"kind:judge": judge, "*": oa.llm_agents()["*"]}, oa.Stances(), concurrency=1).run()
+```
+
 ## 12. Swarms and equilibrium
 
 - **Theory, instantly.** `oversight-arena theory swarm --stake 0.3 --bounty 0.1 --plot regimes.png`

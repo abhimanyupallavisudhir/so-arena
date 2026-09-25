@@ -27,7 +27,7 @@ LLM agents: prompt rendering, tool-use loop, structured-response elicitation.
 Robust parsing of structured answers out of free-form LLM text.
 
 - **`parse_choice`**`(text: 'str', options: 'list[str]', option_texts: 'dict[str, str] | None' = None, strict: 'bool' = False) -> 'str | None'` — The option an answer commits to. Explicit forms first (``ANSWER: B``, "the answer is (B)", "(B)"), then an exact option-text mention. Unless ``strict``, fall back to the last standalone option token (weak: prefer asking again, see :class:`LLMAgent`).
-- **`parse_distribution`**`(text: 'str', options: 'list[str]') -> 'dict[str, float] | None'` — Parse a probability distribution over options. Accepts JSON (``{"A": 0.7}``, nested under "probabilities", keys like "Option A"/"(A)"), and lines such as ``A: 70%``, ``**A**: 0.7``, ``- A (Paris): 0.8``, ``P(A) = 0.7``. Returns None if nothing parseable is found.
+- **`parse_distribution`**`(text: 'str', options: 'list[str]') -> 'dict[str, float] | None'` — Parse a probability distribution over options. Accepts JSON (``{"A": 0.7}``, nested under "probabilities", keys like "Option A", "(A)" or "A (Paris)"), and lines such as ``A: 70%``, ``**A**: 0.7``, ``- A (Paris): 0.8``, ``A) 70%``, ``A - 70%``, ``P(A) = 0.7``, ``"A": .65``. Percentages are detected per distribution. Returns None if nothing parses.
 - **`parse_json`**`(text: 'str') -> 'dict[str, Any] | None'`
 - **`parse_scalar`**`(text: 'str', lo: 'float', hi: 'float', name: 'str' = 'value') -> 'float | None'`
 - **`split_thinking`**`(text: 'str') -> 'tuple[str, str | None]'` — Remove <thinking>...</thinking> (or scratchpad/think) blocks; return (public, private).
@@ -39,6 +39,12 @@ Programmatic agents (fixtures, simulated agents, engine-backed experts) and huma
 - **`ConstantAgent`** (class) — Always returns the same structured answer (e.g. a uniform judge baseline).
 - **`HumanAgent`** (class) — Interactive console agent — lets a human play any role (e.g. a human judge).
 - **`ScriptedAgent`** (class) — Wrap ``fn(obs) -> Action | str | dict`` (sync or async) as an agent.
+
+## `oversight_arena.agents.web`
+
+Human participants through a local web page (e.g. human judges for debate or consultancy).
+
+- **`WebHumanAgent`** (class) — A human playing a role through a local web page (see module docstring).
 
 ## `oversight_arena.analysis.bon`
 
@@ -109,7 +115,7 @@ Self-contained HTML report for a set of results (tables + figures + transcript b
 
 Statistics helpers: cluster (task-level) bootstrap and summaries.
 
-- **`bootstrap_ci`**`(values: 'Sequence[float] | np.ndarray', stat: 'Callable[[np.ndarray], float]' = <function mean at 0x7ff793688830>, n_boot: 'int' = 2000, alpha: 'float' = 0....)` — Point estimate and percentile CI of ``stat`` over i.i.d. units (e.g. per-task values).
+- **`bootstrap_ci`**`(values: 'Sequence[float] | np.ndarray', stat: 'Callable[[np.ndarray], float]' = <function mean at 0x7f41567dc8b0>, n_boot: 'int' = 2000, alpha: 'float' = 0....)` — Point estimate and percentile CI of ``stat`` over i.i.d. units (e.g. per-task values).
 - **`cluster_bootstrap`**`(df: 'pd.DataFrame', cluster: 'str', fn: 'Callable[[pd.DataFrame], float]', n_boot: 'int' = 1000, alpha: 'float' = 0.05, seed: 'int' = 0) -> 'tuple[float, fl...)` — Bootstrap resampling whole clusters (tasks) — the right unit for per-task correlation.
 - **`fmt_ci`**`(est: 'float', lo: 'float', hi: 'float', digits: 'int' = 3) -> 'str'`
 
@@ -239,7 +245,7 @@ Small shared utilities: stable hashing, deterministic RNG, JSON helpers, async h
 
 - **`canonical_json`**`(obj: 'Any') -> 'str'` — Deterministic JSON serialisation (sorted keys, no whitespace) used for hashing.
 - **`clamp`**`(x: 'float', lo: 'float', hi: 'float') -> 'float'`
-- **`code_hash`**`(fn: 'Any') -> 'str'` — Hash of a function's code (bytecode, constants, names), e.g. to key scripted agents.
+- **`code_hash`**`(fn: 'Any') -> 'str'` — Hash of what a function does: bytecode (nested code objects included, never memory addresses), names, defaults and closure contents — e.g. to key scripted agents, so that ``make(0.3)`` and ``make(0.7)`` from one factory hash differently. Stable across processes.
 - **`gather_limited`**`(coros: 'Iterable[Callable[[], Awaitable[T]]]', limit: 'int' = 8) -> 'list[T]'` — Run zero-arg coroutine factories with bounded concurrency, preserving order.
 - **`normalize`**`(d: 'dict[str, float]', eps: 'float' = 0.0) -> 'dict[str, float]'`
 - **`now_iso`**`() -> 'str'`
@@ -568,7 +574,7 @@ Mechanisms and the episode context they are written against.
 - **`Mechanism`** (class) — Base class for scalable-oversight mechanisms (protocol + reward rule).
 - **`mechanism`**`(fn: 'Callable[..., Awaitable[None]] | None' = None, *, roles: 'list[RoleSpec] | Callable[[Any], list[RoleSpec]]', reward: 'RewardRule | None' = None, name: ...)` — Define a mechanism from an async function ``fn(ctx, **params)``.
 - **`sample_index`**`(role: 'str', sample: 'int', episode_seed: 'int') -> 'int'` — Model sample index for a role's turn: distinct per (role, sample, episode seed), so roles with identical prompts (e.g. independent reporters) draw independent samples.
-- **`strip_status_marks`**`(text: 'str') -> 'str'` — Remove ``status="..."`` attributes from claim markup: only trusted code may mark claims.
+- **`strip_status_marks`**`(text: 'str') -> 'str'` — Only trusted code may mark claims as checked: remove ``status`` attributes from claim markup (any case or quoting) and defuse text imitating trusted verdict lines.
 
 ## `oversight_arena.mechanisms.common`
 
@@ -713,7 +719,7 @@ Hash commitments: leaf hashes, Merkle roots, inclusion proofs (tamper-evident re
 Releasing mechanism results *before* ground truth is known — and resolving them later.
 
 - **`Release`** (class)
-- **`create_release`**`(results: 'Any', out_dir: 'str | Path', *, title: 'str' = 'Mechanism results', description: 'str' = '', transcripts: 'bool' = True, sealed: 'bool' = False, p...)` — Publishable release of mechanism outputs (no ground truth). ``sealed``: publish only salted commitments; the items and salts go to ``private_dir`` (default ``<out_dir>.private``, *outside* the directory you publish) until :func:`reveal_release`.
+- **`create_release`**`(results: 'Any', out_dir: 'str | Path', *, title: 'str' = 'Mechanism results', description: 'str' = '', transcripts: 'bool' = True, sealed: 'bool' = False, p...)` — Publishable release of mechanism outputs (no ground truth). ``sealed``: publish only salted commitments; the items and salts go to ``private_dir`` (default ``<out_dir>.private``, *outside* the directory you publish) until :func:`reveal_release`. ``names``: publish strategy names and profile labels ``"always"``, ``"never"`` (hashed ids), or ``"auto"`` — only for episodes whose strategies have no stance, since names like ``argue_incorrect`` would reveal the answer.
 - **`inclusion_proof`**`(release_dir: 'str | Path', episode: 'str') -> 'dict[str, Any]'`
 - **`load_items`**`(release_dir: 'str | Path') -> 'list[dict[str, Any]]'`
 - **`render_html`**`(release_dir: 'str | Path') -> 'Path'`
@@ -783,7 +789,7 @@ Monitor-based rewards and obfuscation (docs/theory.md, Proposition 4).
 - **`best_response`**`(lam: 'float', p: 'MonitorParams') -> 'str'`
 - **`expected_rewards`**`(lam: 'float', p: 'MonitorParams') -> 'dict[str, float]'`
 - **`sweep`**`(lams: 'np.ndarray', p: 'MonitorParams') -> 'pd.DataFrame'`
-- **`thresholds`**`(p: 'MonitorParams') -> 'dict[str, float]'` — Penalty at which overt misbehaviour turns covert, and at which misbehaviour stops (inf if covert misbehaviour is no easier to detect than honest work).
+- **`thresholds`**`(p: 'MonitorParams') -> 'dict[str, float]'` — Penalties at which the best response changes. ``deterred``: honest beats both kinds of misbehaviour, $\max(\Delta/(d_o-d_h),\,(\Delta-\kappa)/(d_c-d_h))$ (inf if covert misbehaviour is no easier to detect than honest work). ``overt_to_covert``: overt turns covert, $\kappa/(d_o-d_c)$ — reported only if it happens before deterrence (else inf: covert misbehaviour is never optimal).
 
 ## `oversight_arena.theory.swarm_game`
 

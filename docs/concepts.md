@@ -118,7 +118,9 @@ Mechanisms and agents never see a `Task`. They see a `TaskView`, from which valu
 
 Each role's observation is sanitised for it. Other roles' private reasoning, unshared tool
 traces, evidence it may not see and harness-private data are removed. This applies to
-programmatic agents too.
+programmatic agents too. Mechanisms decide who sees what: `visible_to` for messages,
+`reasoning_visible_to` for chains of thought (e.g. a CoT monitor), and `tools_visible_to` for
+tool calls and outputs (e.g. an action monitor).
 
 **Built-in domains**, grouped by the kind of gap between experts and the judge:
 
@@ -147,7 +149,7 @@ A mechanism's `EvidencePolicy` decides:
 | `verifiers` | which domain verifiers are enabled |
 | `roles` | whose inline claims are checked |
 | `budget` | verification cost per role per episode |
-| `noise` | probability a verdict is flipped; agents see the erring verifier's output, and the truth is kept for ground-truth scoring |
+| `noise` | probability a verdict is flipped; agents see the erring verifier's output (each verifier's `forge()` makes it look genuine), and the truth is kept for ground-truth scoring |
 | `show_to` | who sees verdicts |
 | `requests` | roles that may call `verify_*` tools themselves, e.g. a judge |
 | `share_tool_results` | show a speaker's trusted tool outputs to others |
@@ -199,7 +201,9 @@ An `Agent` maps an `Observation` to an `Action`:
   token logprobs or sampling;
 - programmatic agents in `oversight_arena.sim`: exact Bayesian bit judges, engine-backed chess
   experts and judges, forecasters, swarm workers;
-- `ScriptedAgent`, `ConstantAgent`, and `HumanAgent` (console);
+- `ScriptedAgent`, `ConstantAgent`;
+- humans: `WebHumanAgent` (a local web page where a person plays any role, e.g. a human judge;
+  claims render as verified/refuted/unchecked chips) and `HumanAgent` (console);
 - inside Inspect, LLM agents bound to model roles.
 
 An `AgentTable` routes roles to agents by exact name, glob (`debater_*`), kind (`kind:judge`) or
@@ -261,6 +265,8 @@ persistence. `sweep` runs an experiment factory over a parameter grid. YAML conf
 probabilities, rewards, strategy labels, optionally transcripts) with no ground truth, as JSON plus
 a static `index.html`:
 - every item is hash-committed under a Merkle root (publish it to timestamp the release);
+- strategy names and profile labels that could reveal answers (e.g. `argue_incorrect`) are
+  replaced by hashed ids unless `names="always"`;
 - `sealed=True` publishes only salted commitments, keeping contents private until
   `reveal_release`;
 - `resolve_release(dir, resolved_tasks)` attaches ground truth once it exists (e.g. forecasting
