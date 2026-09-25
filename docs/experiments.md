@@ -91,6 +91,11 @@ surface = exp.grid({"worker": [1, 2, 4, 8], "critic": [1, 2, 4]})         # exac
 tilt = exp.grid({"worker": [0, 1, 3, 10]}, kind="tilt")                    # KL-regularized RL optimum
 ```
 
+Pool sizes and optimization levels accept `"role:phase"` keys to treat a role's decisions separately,
+e.g. `pool_sizes={"worker": 8, "worker:rebuttal1": 4, "critic": 4}` and
+`exp.grid({"worker:work": [1, 8], "worker:rebuttal1": [1, 4], "critic": [1, 4]})` to ask whether optimizing
+the rebuttal matters once there is a critique round.
+
 `surface` has the expected reward of each role and every ground-truth statistic (e.g. `value_worker`,
 `judge_correct`) with bootstrap CIs, per combination of optimization levels. Plot 1D curves with
 `analysis.plots.parametric_curves` (x = mechanism reward, y = ground truth) and 2D meshes with
@@ -131,9 +136,6 @@ from so_arena.samplers.psro import PSRO
 # (a) a fixed strategy set -> empirical game -> equilibria judged by ground truth
 strategies = {r: {"plain": soa.LLMPolicy(m), "aggressive": soa.LLMPolicy(m, strategy="Attack every claim.")}
               for r, m in (("debater_a", "openai/gpt-4o"), ("debater_b", "openai/gpt-4o"))}
-g = EmpiricalGameExperiment(Debate(zero_sum=True), items, strategies, fixtures={"judge": judge},
-                            stances={"debater_a": "true", "debater_b": "false"}).run_and_game() \
-    if False else None   # see below
 exp = EmpiricalGameExperiment(Debate(zero_sum=True), items, strategies, fixtures={"judge": judge},
                               stances={"debater_a": "true", "debater_b": "false"})
 exp.run(); game = exp.game()

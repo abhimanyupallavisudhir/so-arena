@@ -241,8 +241,9 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
     """
     policies = policies or {}
 
-    def sel(role: str) -> Selection:
-        return policies.get(role, Uniform())
+    def sel(role: str, phase: str = "") -> Selection:
+        # a "role:phase" policy (e.g. optimize only the rebuttal) overrides the role-level one
+        return policies.get(f"{role}:{phase}", policies.get(role, Uniform()))
 
     def ev(nid: str) -> TreeValue:
         if nid in tree.leaves:
@@ -257,7 +258,7 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
                 return _solve_stage(tree, members, sel, ev, fp_iters)
         kids = [ev(c) for c in node.children]
         w = np.array([k.rewards.get(node.role, math.nan) for k in kids], dtype=float)
-        return _combine(kids, sel(node.role).probs(w))
+        return _combine(kids, sel(node.role, node.phase).probs(w))
 
     return ev(tree.root)
 
@@ -310,7 +311,7 @@ def _solve_stage(tree: GameTree, members: list[TreeNode], sel, ev, fp_iters: int
                 R[r][idx] = x
     pis = [np.full(s, 1.0 / s) for s in sizes]
     for t in range(1, fp_iters + 1):
-        new = [sel(r).probs(_marginal(R[r], pis, a)) for a, r in enumerate(roles)]
+        new = [sel(r, m.phase).probs(_marginal(R[r], pis, a)) for a, (r, m) in enumerate(zip(roles, members))]
         step = 1.0 / (t + 1)
         pis = [(1 - step) * p + step * q for p, q in zip(pis, new)]
     weights, parts = [], []
@@ -324,7 +325,8 @@ def optimization_grid(trees: Sequence[GameTree], grid: dict[str, Sequence[int | 
                       kind: str = "bon", mode: str = "unbiased") -> pd.DataFrame:
     """Evaluate every combination of per-role optimization levels, averaged over trees (items).
 
-    ``grid`` maps role -> list of n (``kind="bon"``) or beta (``kind="tilt"``). Returns one row per
+    ``grid`` maps ``"role"`` or ``"role:phase"`` -> list of n (``kind="bon"``) or beta (``kind="tilt"``).
+    Returns one row per
     combination with ``level_<role>``, ``reward_<role>`` and every value key, plus bootstrap CIs over
     items for each value (``<key>_ci_low/high``).
     """

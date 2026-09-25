@@ -121,8 +121,9 @@ class _Produced(BaseModel):
 class BranchController:
     """Pools of candidate actions at decision nodes, and a plan selecting which candidate to follow.
 
-    ``pool_sizes`` maps role -> K (roles not listed get K=1). The memo is shared across replays, so
-    each node's pool is sampled exactly once; ``usage`` counts each sample once.
+    ``pool_sizes`` maps ``"role"`` or ``"role:phase"`` -> K (the phase-specific key wins; unlisted
+    decisions get K=1). The memo is shared across replays, so each node's pool is sampled exactly
+    once; ``usage`` counts each sample once.
     """
 
     def __init__(self, pool_sizes: dict[str, int] | None = None, plan: dict[str, int] | None = None,
@@ -138,15 +139,17 @@ class BranchController:
     def fork(self, plan: dict[str, int]) -> "BranchController":
         return BranchController(self.pool_sizes, plan, self.memo, self.locks, self.usage)
 
-    def pool_size(self, role: str) -> int:
-        return max(1, int(self.pool_sizes.get(role, 1)))
+    def pool_size(self, role: str, phase: str = "") -> int:
+        """Pool size for a decision: a ``"role:phase"`` key overrides a ``"role"`` key (default 1)."""
+        k = self.pool_sizes.get(f"{role}:{phase}", self.pool_sizes.get(role, 1))
+        return max(1, int(k))
 
     async def decide(self, key: str, role: str, phase: str, group: str | None, slot: int,
                      sampler: Callable[[int], Awaitable[_Produced]]) -> tuple[_Produced, int]:
         lock = self.locks.setdefault(key, asyncio.Lock())
         async with lock:
             if key not in self.memo:
-                k = self.pool_size(role)
+                k = self.pool_size(role, phase)
                 pool = list(await asyncio.gather(*[sampler(i) for i in range(k)]))
                 for p in pool:
                     self.usage[role] = self.usage[role] + p.usage
