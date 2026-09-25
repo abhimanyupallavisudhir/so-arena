@@ -164,7 +164,11 @@ and return it from `Domain.environment()`; `domain.context(states=...)` wires it
   `episode_store(ep, ctx).view(...)`), e.g. hidden tests run on a scratch copy
   (`store.scratch(ep.final_state)`), or the environment's hidden ledger.
 * **Scripted arms** for tests and demos edit `ctx.workspace` directly or call tools with
-  `await ctx.call_tool(name, args)`.
+  `await ctx.call_tool(name, args)`; expose them from `Domain.scripted_arms()` (label -> policy factory)
+  so specs can use them (`behaviours: {scripted: [honest, ...]}`).
+* **Records.** Every tool call is kept in the episode (the trusted record). Set `action_log` on the
+  environment to also mirror calls into an agent-editable workspace file, for experiments where
+  overseers read logs the agents could have rewritten (`core.state.log_integrity`).
 
 ## Mechanisms
 
