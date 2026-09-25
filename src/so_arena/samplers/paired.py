@@ -62,7 +62,7 @@ def behaviour_profiles(mechanism: Mechanism, behaviours: Mapping[str, Any], *, f
             if s.required:
                 raise ValueError(f"no policy for role {r!r} (kind {s.kind!r}); pass it in fixtures or others")
             continue
-        base[r] = PlayerSpec(policy=pol)
+        base[r] = pol if isinstance(pol, PlayerSpec) else PlayerSpec(policy=pol)
     return [Profile(name=f"arm={arm}", players={**base, role: PlayerSpec(policy=pol, label=arm)},
                     tags={"arm": arm, "arm_role": role})
             for arm, pol in behaviours.items()]

@@ -12,7 +12,9 @@ Policy entries::
 
 Experiment types (their keys: :data:`EXPERIMENT_KEYS`): ``asd`` (instructed arms), ``pools``
 (best-of-N game trees), ``prompt_search`` (directive-constrained searches), ``game`` (empirical game
-over strategies). Specs are checked before anything runs: a misspelled key is an error naming the
+over strategies), ``paired`` (behaviour arms on stateful tasks, reviewed by each mechanism; behaviours
+are ``{scripted: [labels]}``, ``{model: ..., arms: [labels]}`` for the domain's behaviour prompts, or
+``{label: policy}``). Specs are checked before anything runs: a misspelled key is an error naming the
 closest valid key, never a silently applied default.
 
 A run directory holds one spec: ``run.json`` records it with its hash, and :func:`run_spec` refuses
@@ -71,6 +73,7 @@ EXPERIMENT_KEYS: dict[str, dict[str, bool]] = {
                       "arms": False, "train_fraction": False, "iterations": False, "candidates_per_iter": False,
                       "algorithm": False},
     "game": {"strategies": True, "fixtures": False, "stances": False, "symmetric": False, "repeats": False},
+    "paired": {"behaviours": True, "fixtures": False, "honest": False, "repeats": False},
 }
 ITEMS_KEYS = ("split", "limit", "seed")
 POLICY_KINDS = ("model", "synthetic", "scripted")
@@ -177,6 +180,19 @@ def _reference_errors(spec: Spec, kind: str) -> list[str]:
                     errs.extend(_policy_errors(f"experiment.strategies.{r}.{name}", p))
                 else:
                     named(p, f"experiment.strategies.{r}.{name}")
+        for r, p in mapping("fixtures").items():
+            player(p, f"experiment.fixtures.{r}")
+    elif kind == "paired":
+        beh = mapping("behaviours")
+        if "scripted" in beh:
+            if not isinstance(beh["scripted"], list) or len(beh) != 1:
+                errs.append("experiment.behaviours: {scripted: [labels]} takes a list of the domain's scripted arms")
+        elif "model" in beh:
+            valid = (_params(LLMPolicy.__init__) or set()) | {"model", "arms"}
+            errs.extend(_unknown("key in experiment.behaviours", k, valid) for k in beh if k not in valid)
+        else:
+            for label, ref in beh.items():
+                player(ref, f"experiment.behaviours.{label}")
         for r, p in mapping("fixtures").items():
             player(p, f"experiment.fixtures.{r}")
     return errs
@@ -429,7 +445,8 @@ def run_spec(spec: Spec, *, out: str | Path | None = None, limit: int | None = N
     if limit is not None:
         load_kw["limit"] = limit
     items = dom.load(**load_kw)
-    ctx = dom.context(run_id=spec.name, seed=spec.seed)
+    stateful = dom.environment() is not None
+    ctx = dom.context(run_id=spec.name, seed=spec.seed, **({"states": run_dir / "states"} if stateful else {}))
     gt = dom.ground_truth_scorers()
     mechs = [build_mechanism(m) for m in spec.mechanisms]
     exp = dict(spec.experiment)
@@ -548,6 +565,37 @@ def run_spec(spec: Spec, *, out: str | Path | None = None, limit: int | None = N
             }
             extra_sections.append((f"{mech.name}: empirical game", (None, table, None)))
         store.save_json("metrics.json", games)
+    elif kind == "paired":
+        from so_arena.samplers.paired import PairedWorkExperiment, behaviour_policies
+
+        fixtures = _resolve_players(spec, exp.get("fixtures", {}))
+        beh = exp["behaviours"]
+        if "scripted" in beh:
+            arms = dom.scripted_arms()
+            unknown = [m for m in beh["scripted"] if m not in arms]
+            if unknown:
+                raise SpecError(f"domain {dom.name!r} has no scripted arms {unknown}; available: {sorted(arms)}")
+            behaviours = {m: arms[m]() for m in beh["scripted"]}
+        elif "model" in beh:
+            b = dict(beh)
+            model, only = b.pop("model"), b.pop("arms", None)
+            prompts = {k: v for k, v in dom.behaviours().items() if only is None or k in only}
+            behaviours = behaviour_policies(model, prompts, **b)
+        else:
+            behaviours = {label: build_policy(spec.policies[ref], label=label) if isinstance(ref, str) and ref in spec.policies
+                          else build_policy(ref, label=label) for label, ref in beh.items()}
+        e = PairedWorkExperiment(mechs, items, behaviours=behaviours, fixtures=fixtures, ctx=ctx, ground_truth=gt,
+                                 honest=exp.get("honest", "honest"), repeats=exp.get("repeats", 1), store=store,
+                                 concurrency=spec.concurrency, seed=spec.seed)
+        eps = e.run()
+        summary = e.summary()
+        store.save_json("metrics.json", json.loads(summary.to_json(orient="records")))
+        rows = summary[summary["arm"] != "worst"] if not summary.empty else summary
+        if not rows.empty:
+            extra_sections.append(("ASD against each deceptive arm", (
+                plots.dual_mode(plots.heatmap, rows, x="mechanism", y="arm", value="asd", center=0.0, decimals=2,
+                                title="Does the protocol pay honest work more?", xlabel="protocol", ylabel="",
+                                value_label="ASD"), summary, None)))
     else:  # unreachable after check_spec
         raise SpecError(f"unknown experiment type {kind!r}")
     usage_summary(eps, extra_usage).to_csv(run_dir / "usage.csv", index=False)

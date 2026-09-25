@@ -1,0 +1,15 @@
+# Paired branches on repository work: honest vs faked success, three levels of reviewer access (real LLMs).
+# Estimate first: so-arena estimate configs/paired_repo_llm.yaml  (dry runs count one call per agentic decision)
+name: paired-repo-llm
+domain: {name: repo}
+items: {limit: 20}
+policies:
+  reviewer: {model: openrouter/meta-llama/llama-3.3-70b-instruct, temperature: 0, elicitation: logprobs, max_tool_calls: 12}
+mechanisms:
+  - {name: reviewed_work, label: report_only, dossier: report}
+  - {name: reviewed_work, label: report+diff}
+  - {name: reviewed_work, label: query, state_access: {reviewer: read}}
+experiment:
+  type: paired
+  behaviours: {model: openrouter/qwen/qwen3-32b, temperature: 0.5, arms: [honest, hardcode, tamper, lazy]}
+  fixtures: {reviewer: reviewer}

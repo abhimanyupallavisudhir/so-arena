@@ -185,3 +185,15 @@ def FirmAudit_real(ep, ctx):
 
     item = FirmDomain(kind="acquisition", n_items=1).load()[0]
     return run_sync(score_episode(ep, item, [FirmAudit()], ctx)).ground_truth["real_new_paying"]
+
+
+def test_paired_spec_runs_offline(tmp_path):
+    from so_arena.spec import load_spec, run_spec
+
+    spec = load_spec("configs/paired_firm_scripted.yaml")
+    out = run_spec(spec, out=tmp_path / "run")
+    import json
+
+    metrics = json.loads((out / "metrics.json").read_text())
+    assert {m["arm"] for m in metrics} >= {"burner", "fake_rows", "false_claims", "spam", "worst"}
+    assert (out / "states" / "snapshots").exists() and (out / "report.html").exists()
