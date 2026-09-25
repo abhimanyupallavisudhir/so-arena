@@ -189,3 +189,24 @@ def test_role_overrides_affordances():
     specs = mech.role_specs()
     assert specs["debater_a"].affordances == ["passage"] and specs["judge"].affordances == []
     assert specs["judge"].sees_reasoning_of == ["debater_a"]
+
+
+def test_repeats_draw_independent_samples_under_cache(tmp_path):
+    from so_arena.models.cache import CachedModel, ResponseCache
+
+    calls = []
+
+    def fn(messages, options, i):
+        calls.append(i)
+        return f"sample {i}"
+
+    model = CachedModel(soa.models.FunctionModel(fn, name="counting"), ResponseCache.at(tmp_path))
+    agent = soa.LLMPolicy(model)
+    judge = soa.ScriptedPolicy('{"A": 0.5, "B": 0.5}')
+    item = soa.binary_item("q", "?", correct="x", incorrect="y", shuffle_seed=0)
+    prof = soa.Profile(name="p", players={"agent": soa.PlayerSpec(policy=agent, stance="true"), "judge": judge})
+    eps = soa.run_sync(soa.run_episodes(Propaganda(), [item], [prof], repeats=3))
+    texts = {e.turns[0].text for e in eps}
+    assert len(texts) == 3  # three distinct samples, not one cached completion replayed
+    eps2 = soa.run_sync(soa.run_episodes(Propaganda(), [item], [prof], repeats=3))
+    assert {e.turns[0].text for e in eps2} == texts and len(calls) == 3  # re-running hits the cache

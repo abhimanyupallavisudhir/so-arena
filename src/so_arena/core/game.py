@@ -173,8 +173,10 @@ class Game:
         episode_id: str = "episode",
         branch: BranchController | None = None,
         seed: int = 0,
+        repeat: int = 0,
     ):
         self.mechanism = mechanism
+        self.repeat = repeat
         self.item = item
         self.players = players
         self.ctx = ctx or RunContext()
@@ -320,8 +322,9 @@ class Game:
         # repeats differ). In branch mode the episode id depends on the path, so it is excluded:
         # a node's pool must be the same whichever path first reaches it.
         eid = "" if self.branch is not None else self.episode_id
-        actx = ActContext(role=role, sample_index=sample_index, game=self, tools=self.tools_for(role),
-                          seed=stable_hash(self.seed, self.item.id, key, eid))
+        # repeats draw fresh samples (distinct cache keys) rather than replaying cached completions
+        actx = ActContext(role=role, sample_index=self.repeat * 10_000 + sample_index, game=self,
+                          tools=self.tools_for(role), seed=stable_hash(self.seed, self.item.id, key, eid))
         action = await player.policy.act(request, actx)
         usage = action.usage + actx.usage if action.usage.calls or action.usage.effort_seconds else actx.usage
         action.usage = usage

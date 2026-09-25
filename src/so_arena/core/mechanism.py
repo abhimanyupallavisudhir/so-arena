@@ -249,7 +249,7 @@ class Mechanism(abc.ABC):
         censored = item.censored() if item.ground_truth is not None or any(
             a.value is not None for a in item.answers or []) else item
         eid = episode_id or f"{item.id}:{self.name}:{profile}:{repeat}"
-        g = Game(self, censored, players, ctx=ctx, episode_id=eid, branch=branch, seed=seed)
+        g = Game(self, censored, players, ctx=ctx, episode_id=eid, branch=branch, seed=seed, repeat=repeat)
         error = None
         try:
             outcome = await self.protocol(g)
