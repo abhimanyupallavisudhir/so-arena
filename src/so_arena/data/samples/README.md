@@ -95,7 +95,13 @@ full file on demand.
   test); 92 problems have a survivor. Per operator: const 13%, branch 18%, boolop 18%, cmp 12%,
   range 11%, arith 9%, not 9%, slice 8%, index 7%, return 7%, minmax 0%.
 
-Regenerate with `python scripts/build_code_sample.py` (needs the network; about 40 s on 2 cores).
+  The mutants were regenerated for the same 60 problems when the operators gained mirrors that add
+  code (guards, negations; `PREPARE_VERSION` 2), so a mutant is not simply the reference with a branch
+  removed: 1267 candidates, 39% pass the visible test, 222 survive.
+
+Regenerate with `python scripts/build_code_sample.py` (needs the network; about 40 s on 2 cores), or
+offline, keeping the same problems, by running `domains.code.prepare_rows` on the sample's own original
+fields.
 
 ## `lean_minif2f_sample.jsonl` (miniF2F, Apache-2.0)
 

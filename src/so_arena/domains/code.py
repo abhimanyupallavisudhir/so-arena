@@ -1936,9 +1936,11 @@ def blind_baselines(items: Sequence[TaskItem], rules: dict[str, Callable[[str], 
     a tell a judge can use without reading the task. On the bundled sample's items
     (``CodeDomain("which_solution")``) no rule reaches 0.53 either way, since a mutant with the reference's
     shape is paired where one survives (:func:`which_items`; picking the shorter program got 0.59 before).
-    What is left: "more branches" (and "more lines") decides 5% of the items - problems whose only surviving
-    bugs drop a branch, from mutants built before the operators got mirrors that add code (regenerate the
-    sample to use them) - and is right on all of them.
+    What is left: "more branches" (and "more lines") decides 5% of the items (3 of 60) and is right on all
+    of them - problems where the only surviving bug drops a branch: none of the operators that add code
+    (guards, negations) yields a mutant that passes the visible test but fails a hidden one there. The
+    sample was regenerated with those operators (``PREPARE_VERSION`` 2); a larger pool of problems
+    (``load_rows("mbpp")``) dilutes such items further.
     """
     out: dict[str, dict[str, float]] = {}
     for name, stat in (rules or BLIND_RULES).items():
