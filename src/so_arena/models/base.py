@@ -152,6 +152,7 @@ def get_model(model: "str | Model", **model_args: Any) -> Model:
     * ``"mock"`` / ``"mock/<name>"`` -> :class:`MockModel`.
     * ``"sim/<provider/model>"`` -> :class:`SimulatedModel` (cost dry-run).
     * ``"human"`` -> :class:`HumanModel`.
+    * ``"llamacpp/<path.gguf>"`` -> in-process llama.cpp model (:mod:`so_arena.models.local`).
     * anything else -> :class:`InspectModel` (e.g. ``"openai/gpt-4o-mini"``,
       ``"anthropic/claude-haiku-4-5"``, ``"openrouter/qwen/qwen3-8b"``, ``"vllm/..."``).
 
@@ -176,6 +177,10 @@ def get_model(model: "str | Model", **model_args: Any) -> Model:
         from so_arena.models.human import HumanModel
 
         resolved = HumanModel(name=model, **model_args)
+    elif model.startswith("llamacpp/"):
+        from so_arena.models.local import LlamaCppModel
+
+        resolved = LlamaCppModel(model.removeprefix("llamacpp/"), **model_args)
     elif model.startswith("sim/"):
         from so_arena.models.simulated import SimulatedModel
 
