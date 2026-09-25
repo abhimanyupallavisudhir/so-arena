@@ -213,7 +213,11 @@ Two readings. Where some ground truth can be bought, "how good is this oversight
 measured under the *optimized* policy, since Goodhart makes it fall exactly when optimization is
 strong. Where no ground truth can be bought at all - the superhuman regime - there is no anchor, and
 incentive compatibility has to come from the mechanism's structure (sections 4-5). `RandomAudit` in
-`core.rewards` implements both the penalty and the inverse-probability-weighted forms.
+`core.rewards` implements both the penalty and the inverse-probability-weighted forms. The same weighting
+keeps *overseers* honest when only some of their calls are checked: a monitor paid the log score of its
+suspicion only on audited episodes, when flagged episodes are always audited and unflagged ones rarely,
+learns that not flagging is safe; paying $\mathbb 1[\text{audited}]\, s/P(\text{audited})$ restores a proper
+scoring rule in expectation (`MonitoredWork(penalty="audit", audit_unflagged=q)`).
 
 ## 7. When ground truth never arrives, or arrives late
 
