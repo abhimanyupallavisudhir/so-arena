@@ -4,7 +4,8 @@ OversightArena evaluates **mechanisms**: protocols that assign **rewards** to th
 part, so that the protocol could be used to train them. It asks whether those rewards track
 **ground truth** about the agents' behaviour, under increasing optimisation pressure and in
 multi-agent equilibrium. This page explains the moving parts. For the theory behind the metrics see
-[theory.md](theory.md); for recipes see [cookbook.md](cookbook.md).
+[theory.md](theory.md); for recipes see [cookbook.md](cookbook.md); for every public class and
+function see [reference.md](reference.md).
 
 ```
              ┌──────────── Domain (≈ ControlArena setting) ────────────┐

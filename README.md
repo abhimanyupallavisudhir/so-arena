@@ -133,6 +133,7 @@ All seven: [docs/demos.md](docs/demos.md) · HTML gallery: [docs/gallery/index.h
 - [Theory](docs/theory.md): scalable oversight as mechanism design.
 - [Beyond incentive compatibility](docs/beyond_ic.md): what else to measure, and how.
 - [ControlArena](docs/controlarena.md): relationship, what ControlArena's scores are, the bridges.
+- [API reference](docs/reference.md): every public class and function, from docstrings.
 - [Examples](examples/README.md) and [configs](configs/).
 
 ## Layout
