@@ -225,6 +225,23 @@ class EmpiricalGame:
             out[r] = float(np.max(dev) - np.dot(dev, mix[r]))
         return out
 
+    def coalition_gain(self, mix: Mix, coalition: Sequence[str] | None = None) -> tuple[float, dict[str, str]]:
+        """Largest gain in the coalition's *total* payoff from a joint pure deviation (others
+        fixed at ``mix``), and the deviation achieving it. Nash equilibria only rule out
+        unilateral deviations; with non-zero-sum rewards (e.g. log-score debate) copies of one
+        model can profit *jointly* — e.g. both debaters keeping the judge at 50/50 — which is the
+        collusion risk of self-play with shared weights. Default coalition: all payoff roles."""
+        coal = [r for r in (coalition or [r for r in self.roles if r in self.payoffs])]
+        base = sum(self.expected_payoffs(mix)[r] for r in coal)
+        best, arg = 0.0, {}
+        for combo in itertools.product(*[range(len(self.strategies[r])) for r in coal]):
+            m = dict(mix)
+            m.update({r: np.eye(len(self.strategies[r]))[i] for r, i in zip(coal, combo)})
+            tot = sum(self.value(self.payoffs[r], m) for r in coal)
+            if tot - base > best + 1e-12:
+                best, arg = tot - base, {r: self.strategies[r][i] for r, i in zip(coal, combo)}
+        return float(best), arg
+
     def exploitability(self, mix: Mix) -> float:
         reg = self.regret(mix)
         return float(sum(reg.values())) if reg else 0.0

@@ -348,3 +348,24 @@ def LLMJudge(model: str | Model, elicitation: str | None = None, temperature: fl
     distributions are elicited from this judge.
     """
     return LLMAgent(model, temperature=temperature, elicitation=elicitation, **kw)
+
+
+def default_models() -> tuple[str, str]:
+    """(expert model, judge model) from ``OA_EXPERT_MODEL`` / ``OA_JUDGE_MODEL``; both default to
+    Inspect's ``mockllm/model`` so that any experiment can be smoke-tested without API keys."""
+    import os
+
+    expert = os.environ.get("OA_EXPERT_MODEL", "mockllm/model")
+    return expert, os.environ.get("OA_JUDGE_MODEL", expert)
+
+
+def llm_agents(expert: str | Model | None = None, judge: str | Model | None = None, *,
+               judge_elicitation: str | None = None, judge_kinds: tuple[str, ...] = ("judge", "monitor", "overseer", "client"),
+               **expert_kw: Any) -> dict[str, Agent]:
+    """The usual agent table: a (strong) ``expert`` model for every role except judge-like ones,
+    which get the (weak, deterministic) ``judge`` model. Defaults: :func:`default_models`."""
+    e, j = default_models()
+    expert, judge = expert or e, judge or (j if expert is None else expert)
+    table: dict[str, Agent] = {f"kind:{k}": LLMJudge(judge, elicitation=judge_elicitation) for k in judge_kinds}
+    table["*"] = LLMAgent(expert, **expert_kw)
+    return table

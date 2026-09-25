@@ -1,0 +1,11 @@
+# Judge-free mechanisms: independent reporters paid by agreement-based rules (compare truthful vs colluding strategies).
+name: peer-prediction
+out: runs/peer-prediction
+domain: {type: mmlu_pro, max_rows: 60}
+limit: 30
+mechanisms:
+  - {type: reporters, n: 3, reward: {type: output_agreement}, label: output agreement}
+  - {type: reporters, n: 3, reward: {type: correlated_agreement}, label: correlated agreement}
+  - {type: reporters, n: 3, predict_peers: true, reward: {type: bts}, label: BTS}
+agents:
+  "*": {type: llm, model: "${OA_EXPERT_MODEL:-mockllm/model}"}

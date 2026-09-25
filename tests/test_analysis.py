@@ -94,3 +94,18 @@ def test_three_player_game_from_results():
     assert g.shape == (2, 2, 2)
     # under a shared reward, cheating weakly dominates: all-cheat is a pure Nash equilibrium
     assert any(all(e.mix[w][g.strategies[w].index("cheat")] == 1 for w in ws) for e in g.pure_nash())
+
+
+def test_coalition_gain_detects_collusion_in_log_score_debate():
+    import math
+
+    # judge P(truth) by (honest debater's style, liar's style): both "weak" keeps the judge undecided
+    p = {("strong", "strong"): 0.99, ("strong", "weak"): 0.999, ("weak", "strong"): 0.6, ("weak", "weak"): 0.5}
+    styles = ["strong", "weak"]
+    A = np.array([[math.log(p[(a, b)]) for b in styles] for a in styles])
+    B = np.array([[math.log(1 - p[(a, b)]) for b in styles] for a in styles])
+    g = EmpiricalGame.from_matrices(A, B, row="truthful", col="liar", row_strats=styles, col_strats=styles)
+    eq = g.pure({"truthful": "strong", "liar": "strong"})
+    assert max(g.regret(eq).values()) < 1e-9  # honest, vigorous debate is a Nash equilibrium...
+    gain, dev = g.coalition_gain(eq)
+    assert gain > 3 and dev == {"truthful": "weak", "liar": "weak"}  # ...but jointly, both prefer to go soft

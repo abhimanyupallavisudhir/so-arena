@@ -11,8 +11,8 @@ Example (``configs/gsm8k_asd.yaml``)::
       - {type: propaganda}
       - {type: naive_judge}
     agents:
-      "*": {type: llm, model: openai/gpt-4o-mini}
-      "kind:judge": {type: llm_judge, model: openai/gpt-4o-mini}
+      "*": {type: llm, model: "${OA_EXPERT_MODEL:-mockllm/model}"}
+      "kind:judge": {type: llm_judge, model: "${OA_JUDGE_MODEL:-mockllm/model}"}
     profiles: {type: stances}      # ASD worlds; roles inferred per mechanism
     clearances: null               # override per role / "kind:<kind>"
     concurrency: 8
@@ -22,6 +22,8 @@ Example (``configs/gsm8k_asd.yaml``)::
 from __future__ import annotations
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -31,9 +33,17 @@ from .experiment.runner import Experiment
 from .registry import build
 
 
+_ENV = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def expand_env(text: str) -> str:
+    """Expand ``${VAR}`` and ``${VAR:-default}`` (e.g. model names) before parsing."""
+    return _ENV.sub(lambda m: os.environ.get(m.group(1), m.group(2) if m.group(2) is not None else ""), text)
+
+
 def load_config(path: str | Path) -> dict[str, Any]:
     p = Path(path)
-    text = p.read_text()
+    text = expand_env(p.read_text())
     return json.loads(text) if p.suffix == ".json" else yaml.safe_load(text)
 
 

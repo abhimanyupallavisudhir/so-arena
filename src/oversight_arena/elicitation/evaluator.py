@@ -41,6 +41,7 @@ class Evaluator:
             (sampled deterministically per task/seed) — e.g. an opponent meta-strategy in PSRO.
         seeds: independent samples per task.
         gt_keys: ground-truth scorer names to average (reported, never shown to optimisers).
+        gt: ground-truth scorers to run (default: the domain's).
     """
 
     def __init__(
@@ -56,8 +57,10 @@ class Evaluator:
         clearances: dict[str, Sequence[str]] | None = None,
         concurrency: int = 8,
         position: str | None = None,
+        gt: Sequence[Any] | None = None,
     ):
         self.domain = domain
+        self.gt = list(gt) if gt is not None else None
         self.mechanism = mechanism
         self.agents = agents if isinstance(agents, AgentTable) else AgentTable(agents)
         self.role = role
@@ -100,7 +103,7 @@ class Evaluator:
         def make(t: Task, s: int):
             return lambda: run_episode(
                 self.mechanism, t, self.profile(strategy, t, s), self.agents, self.domain,
-                clearances=self.clearances, seed=s,
+                gt=self.gt, clearances=self.clearances, seed=s,
             )
 
         recs = await gather_limited([make(t, s) for t, s in jobs], self.concurrency)

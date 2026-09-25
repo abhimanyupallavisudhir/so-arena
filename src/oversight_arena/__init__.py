@@ -6,7 +6,9 @@ behaviour — incentive compatibility — under increasing optimisation pressure
 multi-agent equilibrium.
 """
 
-from .agents import Action, Agent, ConstantAgent, HumanAgent, LLMAgent, LLMJudge, Observation, ResponseSpec, ScriptedAgent
+from .agents import (
+    Action, Agent, ConstantAgent, HumanAgent, LLMAgent, LLMJudge, Observation, ResponseSpec, ScriptedAgent, llm_agents,
+)
 from .core.episode import EpisodeRecord
 from .core.rewards import JudgeProbability, RewardRule, score_prob
 from .core.roles import RoleSpec
@@ -22,7 +24,7 @@ from .models import get_model
 __version__ = "0.1.0"
 
 __all__ = [
-    "Action", "Agent", "ConstantAgent", "HumanAgent", "LLMAgent", "LLMJudge", "Observation", "ResponseSpec",
+    "Action", "Agent", "ConstantAgent", "HumanAgent", "LLMAgent", "LLMJudge", "Observation", "ResponseSpec", "llm_agents",
     "ScriptedAgent", "EpisodeRecord", "JudgeProbability", "RewardRule", "score_prob", "RoleSpec",
     "DISHONEST", "HONEST", "Assignment", "Profile", "Stance", "Strategy", "argue", "Answer", "InfoBlock",
     "Task", "TaskView", "Tool", "tool", "AgentTable", "Cartesian", "Experiment", "Fixed", "Results", "Seeds",
