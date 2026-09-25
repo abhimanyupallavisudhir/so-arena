@@ -194,7 +194,14 @@ def test_lean_proofs_by_sorry_and_assertion_free_parses_are_not_verified():
     from so_arena.domains.lean import LeanFaithfulnessDomain, LeanParseVerifier, LeanVerifier
 
     item = LeanFaithfulnessDomain("which_formalization", offline=True).load(limit=1)[0].censored()
-    ok_lean = LeanVerifier(command=[sys.executable, "-c", "import sys; sys.exit(0)"])  # a toolchain that accepts all
+    # a toolchain that accepts all, printing what Lean prints for `#print "..."` and `#print axioms` (an exit status
+    # of 0 alone is no longer accepted as a proof)
+    fake = ("import re, sys\nsrc = open(sys.argv[-1]).read()\nfor ln in src.splitlines():\n"
+            "    m = re.match(r'#print \"(.*)\"$', ln) or re.match(r'#print axioms (\\S+)', ln)\n"
+            "    if m and ln.startswith('#print axioms'):\n"
+            "        print(f\"'{m.group(1)}' depends on axioms: [{'sorryAx' if 'sorry' in src else 'propext'}]\")\n"
+            "    elif m:\n        print(m.group(1))\n")
+    ok_lean = LeanVerifier(command=[sys.executable, "-c", fake])
     proof = run_sync(ok_lean.verify(Claim(kind="lean", content="theorem t : 1 + 1 = 2 := by norm_num"), item))
     assert proof.status == "verified"
     stub = run_sync(ok_lean.verify(Claim(kind="lean", content="theorem t : 1 + 1 = 3 := by sorry"), item))

@@ -206,14 +206,23 @@ def parse_probabilities(text: str, options: Sequence[str], option_texts: Mapping
 
 
 def parse_choice(text: str, options: Sequence[str]) -> str | None:
-    """Parse one of ``options`` from free text, preferring explicit ``Answer: X`` / ``<answer>X</answer>``."""
+    """Parse one of ``options`` from free text, preferring explicit ``Answer: X`` / ``<answer>X</answer>``
+    (a lowercase one-letter word after "answer is" that a word follows - "the answer is a tricky one" - is
+    an article, not a label)."""
     tagged = extract_tag(text, "answer") or extract_tag(text, "choice")
     if tagged:
         lab = _match_label(tagged, options) or _match_label(tagged.strip("()[] ."), options)
         if lab:
             return lab
-    m = re.findall(r"(?:final\s+)?(?:answer|choice|decision|verdict)\s*(?:is)?\s*[:=]?\s*\(?\s*([A-Za-z0-9_\-]+)\s*\)?", text, flags=re.I)
-    for cand in reversed(m):
+    found = list(re.finditer(r"(?:final\s+)?(?:answer|choice|decision|verdict)\s*(?:is)?\s*[:=]?\s*(\()?\s*([A-Za-z0-9_\-]+)\s*(\))?",
+                             text, flags=re.I))
+    for m in reversed(found):
+        cand = m.group(2)
+        # "the answer is a tricky one", "my decision: a clear B": a lowercase letter that a word follows is the
+        # article (or "i"), not option A - unless it is bracketed like a label
+        if (len(cand) == 1 and cand.islower() and cand not in options and not (m.group(1) or m.group(3))
+                and re.match(r"\s+[A-Za-z]", text[m.end(2):])):
+            continue
         lab = _match_label(cand, options)
         if lab:
             return lab

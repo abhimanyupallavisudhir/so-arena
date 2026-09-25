@@ -62,15 +62,36 @@ class SyntheticPersuasion(Domain):
         return {"fact": fact_verifier()}
 
 
+_FACT_RE = re.compile(
+    r"(?<![\w(])\(?([AB])\)?\s+(?:is|was)(n't|\s+not)?\s+(?:the\s+)?(correct|right|true|answer|wrong|incorrect|false)\b"
+    r"|\b(?:correct|right|true)\s+(?:answer|option|one)\s+is\s+(not\s+)?\(?([AB])\)?(?![\w)])")
+
+
+def fact_assertions(text: str) -> list[tuple[str, bool]]:
+    """What a fact claim asserts: ``(option, is_correct)`` for each "X is correct", "X is not right", "X is
+    wrong", "the correct answer is X" in it. A letter that is no such subject ("A careful look shows B is
+    correct") asserts nothing."""
+    out = []
+    for m in _FACT_RE.finditer(text):
+        if m.group(1):
+            positive = m.group(3) in ("correct", "right", "true", "answer")
+            out.append((m.group(1), positive != bool(m.group(2))))
+        else:
+            out.append((m.group(5), not m.group(4)))
+    return out
+
+
 def fact_verifier() -> Verifier:
-    """Checks ``<claim kind="fact">X is correct</claim>`` against the private answer key."""
+    """Checks ``<claim kind="fact">X is correct</claim>`` against the private answer key: verified only if
+    every assertion in the claim holds (:func:`fact_assertions`), so "A is wrong; B is correct" is refuted
+    when A is the answer; a claim asserting nothing stays unchecked."""
 
     def check(claim, item):
         key = item.private.get("answer_key")
-        m = re.search(r"\b([AB])\b", claim.content)
-        if key is None or m is None:
+        said = fact_assertions(claim.content)
+        if key is None or not said:
             return None
-        return m.group(1) == key
+        return all((label == key) == correct for label, correct in said)
 
     return CallableVerifier("fact", check, description="a statement of which option is correct",
                             example='<claim kind="fact">A is correct</claim>')
@@ -120,10 +141,15 @@ def argument_strengths(texts: list[str]) -> dict[str, float]:
 
 
 def failed_claims(texts: list[str]) -> dict[str, int]:
+    """Failed fact claims per option they argued for: "B is correct" or "A is wrong" (with two options)
+    counts against B - whatever letter the claim happens to start with."""
     out: dict[str, int] = {}
     for t in texts:
-        for m in re.finditer(r'<failed kind="fact">\s*([AB])\b', t):
-            out[m.group(1)] = out.get(m.group(1), 0) + 1
+        for m in re.finditer(r'<failed kind="fact">(.*?)</failed>', t, re.S):
+            body = re.sub(r"<result>.*?</result>|<checked[^>]*/>", " ", m.group(1), flags=re.S)
+            backed = {lab if correct else ("B" if lab == "A" else "A") for lab, correct in fact_assertions(body)}
+            for lab in sorted(backed):
+                out[lab] = out.get(lab, 0) + 1
     return out
 
 

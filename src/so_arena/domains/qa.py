@@ -393,15 +393,61 @@ def gsm8k_wrong_answers(solution: str, correct: str) -> dict[str, list[str]]:
     return {k: v for k, v in out.items() if v}
 
 
+def gsm8k_progression(correct: str, n_wrong: int, rng: random.Random) -> list[str] | None:
+    """Wrong answers for a multiple-choice item that make the answer's place among the options uninformative:
+    with the answer they form an arithmetic progression (step: the answer's own roundness - 10 for 120, 2 for
+    37 - or finer where needed) in which the answer is at a uniformly random position, so it is as likely
+    the smallest, the largest or in between, and no option is "the one the others are slips of". Options keep
+    the answer's sign and integrality and stay within a factor of 10 of it; for the few answers too small
+    for every position (1, 2, 3) the answer's position is drawn among those that fit. None if nothing fits."""
+    y = _num(correct)
+    if y is None:
+        return None
+    integral = abs(y - round(y)) < 1e-9
+    if integral:
+        n = abs(int(round(y)))
+        t = len(str(n)) - len(str(n).rstrip("0")) if n else 0
+        u = 10 ** t
+        steps = [u] if t else [2, 1]
+        steps += [x for x in (u // 2, u // 5, u // 10, 2 * (u // 10), 5 * (u // 10), 1) if x >= 1]
+    else:
+        dec = len(format_number(abs(y)).partition(".")[2])
+        steps = [2 * 10.0 ** -dec, 10.0 ** -dec]
+
+    def ok(v: float) -> bool:
+        if (y > 0 and v <= 0) or (y >= 0 and v < 0) or (y < 0 and v >= 0):
+            return False
+        return (abs(v) <= 10 if y == 0 else 0.1 - 1e-9 <= v / y <= 10 + 1e-9)
+
+    best: tuple[float, list[int]] | None = None
+    for st in dict.fromkeys(steps):
+        fits = [k for k in range(n_wrong + 1) if all(ok(y + st * (i - k)) for i in range(n_wrong + 1))]
+        if len(fits) == n_wrong + 1:
+            best = (st, fits)
+            break
+        if fits and (best is None or len(fits) > len(best[1])):
+            best = (st, fits)
+    if best is None:
+        return None
+    st, fits = best
+    k = rng.choice(fits)
+    return [format_number(y + st * (i - k)) for i in range(n_wrong + 1) if i != k]
+
+
 @register_domain("gsm8k")
 class GSM8K(QADomain):
     """Grade-school maths word problems (Cobbe et al. 2021): the numeric answer vs a plausible slip.
 
     Wrong answers are synthetic (see :func:`gsm8k_wrong_answers`): each item draws a kind of slip
     uniformly among those available for it, then a candidate, deterministically by (seed, id), and
-    records it in ``metadata["distractor_kinds"]`` so results can be split by slip type. The
-    reference solution is in ``private["solution"]`` (grant it to model informed experts); the
-    ``python`` verifier lets agents make execution-checked arithmetic claims.
+    records it in ``metadata["distractor_kinds"]`` so results can be split by slip type. With
+    ``binary=False`` several slips of the answer would all be slips of the *correct* option, which then
+    stands out as the centre of the cluster without reading the question (0.88 with four options); so
+    multiple-choice options are a progression around the answer with the answer at a random position
+    (:func:`gsm8k_progression`, kind ``perturb``) - unless ``kinds`` excludes ``perturb``. Check any
+    variant with :func:`blind_baseline`. The reference solution is in ``private["solution"]`` (grant it
+    to model informed experts); the ``python`` verifier lets agents make execution-checked arithmetic
+    claims.
     """
 
     name = "gsm8k"
@@ -445,10 +491,14 @@ class GSM8K(QADomain):
         return out
 
     def choose_wrong(self, rec: QARecord, seed: int) -> tuple[list[str], list[str]]:
-        """Wrong answers and their kinds: kinds of slip in random order (distinct kinds first), a random
-        candidate of each."""
+        """Wrong answers and their kinds. Binary: kinds of slip in random order, a random candidate of each.
+        Multiple choice: a progression with the answer at a random position (:func:`gsm8k_progression`)."""
         cands = {k: list(v) for k, v in rec.data["candidates"].items()}
         rng = random.Random(stable_hash("gsm8k-wrong", seed, rec.id))
+        if self.n_wrong > 1 and "perturb" in self.kinds:
+            wrong = gsm8k_progression(rec.correct, self.n_wrong, rng)
+            if wrong:
+                return wrong, ["perturb"] * len(wrong)
         order = sorted(cands)
         rng.shuffle(order)
         picks = [(k, rng.choice(cands[k])) for k in order]  # one per kind of slip first ...
@@ -472,6 +522,91 @@ class GSM8K(QADomain):
 
     def verifiers(self) -> dict[str, Verifier]:
         return {"python": PythonExecVerifier()}
+
+
+# ------------------------------------------------------------------------------------ blind baselines
+
+
+def _answer_only_slips(x: str) -> set[str]:
+    return {w for k, ws in gsm8k_wrong_answers(f"#### {x}", x).items() if k in ("factor", "perturb", "transpose")
+            for w in ws}
+
+
+def _trailing_zeros(v: float) -> int:
+    if abs(v - round(v)) > 1e-9 or round(v) == 0:
+        return -len(format_number(abs(v)).partition(".")[2])  # decimals count as negative roundness
+    n = str(abs(int(round(v))))
+    return len(n) - len(n.rstrip("0"))
+
+
+def _blind_rules() -> dict[str, Any]:
+    """Rules that pick options without reading the question: ``fn(texts) -> scores`` (the highest wins;
+    None: the rule does not apply). Numeric rules apply when every option is a number."""
+    def nums(texts):
+        vals = [_num(t) for t in texts]
+        return None if any(v is None for v in vals) else vals
+
+    def by(f):
+        def rule(texts):
+            vals = nums(texts)
+            return None if vals is None else f(vals, texts)
+        return rule
+
+    def median(vals, high):
+        order = sorted(range(len(vals)), key=lambda i: vals[i])
+        m = order[len(order) // 2] if high else order[(len(order) - 1) // 2]
+        return [1.0 if i == m else 0.0 for i in range(len(vals))]
+
+    def spread(vals, _):  # minus the summed distance to the other options: the centre of the cluster wins
+        return [-sum(abs(v - w) for w in vals) for v in vals]
+
+    def hub(vals, texts):  # how many other options are answer-only slips of it (see gsm8k_wrong_answers)
+        return [float(sum(o in _answer_only_slips(t) for o in texts if o != t)) for t in texts]
+
+    return {
+        "first": lambda texts: [1.0] + [0.0] * (len(texts) - 1),
+        "last": lambda texts: [0.0] * (len(texts) - 1) + [1.0],
+        "longest": lambda texts: [float(len(t)) for t in texts],
+        "shortest": lambda texts: [-float(len(t)) for t in texts],
+        "min": by(lambda vals, _: [-v for v in vals]),
+        "max": by(lambda vals, _: list(vals)),
+        "median_low": by(lambda vals, _: median(vals, False)),
+        "median_high": by(lambda vals, _: median(vals, True)),
+        "centre": by(spread),
+        "hub": by(hub),
+        "roundest": by(lambda vals, _: [float(_trailing_zeros(v)) for v in vals]),
+        "least_round": by(lambda vals, _: [-float(_trailing_zeros(v)) for v in vals]),
+    }
+
+
+def blind_baseline(items: Sequence[TaskItem], rules: Sequence[str] | None = None) -> dict[str, float]:
+    """Accuracy of simple rules that never read the question - the first or last option, the longest, the
+    smallest, the median, the centre of a numeric cluster, the option the others are slips of, the roundest
+    number - on items with answer options, next to ``chance`` (the mean of 1 / number of options). A rule
+    far above chance is a blind tell: judges can score without doing the task. Ties count as random picks
+    among the tied options; rules that do not apply to an item (numeric rules on text options) skip it, and
+    a rule applying to no item is left out."""
+    table = _blind_rules()
+    chosen = list(table) if rules is None else list(rules)
+    unknown = set(chosen) - set(table)
+    if unknown:
+        raise ValueError(f"unknown blind rules {sorted(unknown)}; available: {sorted(table)}")
+    scored = [it for it in items if it.answers and it.ground_truth is not None and it.ground_truth.correct]
+    out: dict[str, float] = {"chance": sum(1 / len(it.answers) for it in scored) / max(1, len(scored))}
+    for name in chosen:
+        hits, n = 0.0, 0
+        for it in scored:
+            texts = [a.text for a in it.answers]
+            scores = table[name](texts)
+            if scores is None:
+                continue
+            top = max(scores)
+            tied = [a.label for a, sc in zip(it.answers, scores) if sc == top]
+            hits += (it.ground_truth.correct in tied) / len(tied)
+            n += 1
+        if n:
+            out[name] = hits / n
+    return out
 
 
 # ------------------------------------------------------------------------------------ MMLU

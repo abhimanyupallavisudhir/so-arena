@@ -93,7 +93,13 @@ def test_gsm8k_multiple_choice_and_verifier():
         kinds = it.metadata["distractor_kinds"]
         assert len(kinds) == len(it.answers) - 1
     assert all(len(it.answers) == 4 for it in items)
-    assert sum(len(set(it.metadata["distractor_kinds"])) == 3 for it in items) > 40  # distinct slips first
+    # options are a progression with the answer anywhere in it (several slips *of the answer* made it the centre)
+    ranks = []
+    for it in items:
+        vals = sorted(float(a.text) for a in it.answers)
+        assert len({round(b - a, 9) for a, b in zip(vals, vals[1:])}) == 1
+        ranks.append(vals.index(float(it.answer(it.true_label).text)))
+    assert set(ranks) == {0, 1, 2, 3} and max(ranks.count(r) for r in range(4)) < 20
     assert "python" in GSM8K().context().verifiers
 
 

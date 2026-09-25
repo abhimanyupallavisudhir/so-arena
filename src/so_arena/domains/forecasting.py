@@ -87,6 +87,13 @@ _UPDATE_START = re.compile(r"^\W*(?:updates?|updated|edits?|edited|upd|addendum)
 # version 18 or later -", "the updated guidance: ...")
 _UPDATE_MARK = re.compile(r"(?:^|(?<=[.!?])\s+|\n)[^\w\n]*(?:updates?|updated|edits?|edited|upd|addendum)\b[^:.\n]{0,40}?"
                           r"(?::|\s[-\u2013\u2014]\s)", re.I | re.M)
+# Resolved markets only: an outcome stated without "resolved" - "Resolves NO, he did not attend.", "This happened
+# on March 3 - YES.", "the event occurred, so YES." (a condition in the sentence makes it criteria again)
+_OUTCOME_NOTE = re.compile(
+    r"\bresolves\b(?:\W+(?:this|the|market|question|it|as|to|now|officially|early|finally)\b){0,3}\W*(?:yes|no|n/?a)\b"
+    r"(?!\s+(?:earlier|later|sooner|more|less|longer|fewer|than)\b)"
+    r"|(?:[-\u2013\u2014:=]|\b(?:so|thus|hence|therefore|answer(?:\s+is)?|verdict(?:\s+is)?|outcome(?:\s+is)?|"
+    r"result(?:\s+is)?))\s*[\"'\u201c]?(?-i:YES|NO)[\"'\u201d]?\s*[.!]*\s*$", re.I)
 _MD_LINK = re.compile(r"\[([^\]]*)\]\((?:https?://|www\.)[^)\s]*\)")
 _URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
 _RELATIVE_TIME = re.compile(r"^(created|close|resolution)\s*([+-])\s*(\d+(?:\.\d+)?)\s*([dh])$")
@@ -209,13 +216,24 @@ def announces_resolution(text: str) -> bool:
     return False
 
 
+def announces_outcome(text: str) -> bool:
+    """Whether ``text`` states its market's outcome in the ways descriptions of resolved markets do besides
+    "resolved" (:func:`announces_resolution`): "Resolves YES." without a condition, or a sentence ending in
+    a bare YES/NO ("This happened on March 3 - YES.", "so YES")."""
+    for sentence in _SENTENCE_END.split(text):
+        for m in _OUTCOME_NOTE.finditer(sentence):
+            if not (_CRITERIA_BEFORE.search(sentence, 0, m.start()) or _CRITERIA_AFTER.search(sentence, m.end())):
+                return True
+    return False
+
+
 def clean_description(text: str, max_chars: int = 1500, *, resolved: bool = False) -> tuple[str, int]:
     """Redact a market description and truncate it; returns ``(text, n_paragraphs_redacted)``.
 
     Paragraphs announcing a resolution are dropped. Descriptions are fetched after the fact, so for
-    ``resolved`` markets also what the author marked as an update or edit (a whole paragraph, or a
-    paragraph from the marker on: "Resolves YES if X. EDIT: X happened." keeps its first sentence) and
-    links (a link's text is kept) are dropped. The trade-off: criteria the author clarified in an
+    ``resolved`` markets also paragraphs stating the outcome otherwise (:func:`announces_outcome`), what the
+    author marked as an update or edit (a whole paragraph, or a paragraph from the marker on: "Resolves YES
+    if X. EDIT: X happened." keeps its first sentence) and links (a link's text is kept) are dropped. The trade-off: criteria the author clarified in an
     update are lost too, which beats letting the outcome through.
     """
     paras = [p.strip() for p in re.split(r"\n\s*\n", text or "") if p.strip()]
@@ -231,7 +249,7 @@ def clean_description(text: str, max_chars: int = 1500, *, resolved: bool = Fals
             if mark:
                 p, trimmed = p[: mark.start()].rstrip(" \t([{-*_"), True
             p = re.sub(r"[ \t]{2,}", " ", _URL.sub("", _MD_LINK.sub(r"\1", p))).strip()
-        if p and not announces_resolution(p):
+        if p and not announces_resolution(p) and not (resolved and announces_outcome(p)):
             kept.append(p)
             redacted += trimmed
         else:
