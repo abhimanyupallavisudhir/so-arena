@@ -1,11 +1,10 @@
-import asyncio
 import math
 
 import pytest
 
 import oversight_arena as oa
 from oversight_arena.agents.base import Observation, ResponseSpec
-from oversight_arena.core.types import TokenLogprob, ToolCall
+from oversight_arena.core.types import TokenLogprob
 from oversight_arena.models import CachedModel, FunctionModel, ModelOutput
 from conftest import make_tasks
 

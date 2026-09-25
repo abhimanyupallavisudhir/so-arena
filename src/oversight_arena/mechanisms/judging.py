@@ -13,7 +13,7 @@ from ..core.rewards import JudgeProbability, RewardRule
 from ..channels.gt_channels import Label
 from ..core.roles import RoleSpec
 from .base import EpisodeContext, Mechanism
-from .common import JUDGE_BRIEF, maybe_label, Elicitation, incentive_for, judge_distribution, options_block, set_judgement
+from .common import JUDGE_BRIEF, maybe_label, Elicitation, incentive_for, judge_distribution, set_judgement
 
 
 class _JudgeBased(Mechanism):

@@ -8,7 +8,7 @@ from typing import Any
 
 from ..core.types import ChatMessage, ToolCall, Usage
 from ..core.util import rng_for
-from .base import GenConfig, Model, ModelOutput, ToolSpec
+from .base import GenConfig, Model, ModelOutput
 
 Responder = Callable[..., Any]
 

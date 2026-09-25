@@ -20,7 +20,7 @@ from ..core.episode import EpisodeRecord
 from ..core.task import Answer, InfoBlock, Task
 from ..core.tools import Tool, tool
 from ..core.transcript import Evidence
-from ..core.util import rng_for, stable_hash
+from ..core.util import rng_for
 from ..ground_truth.base import GTScorer
 from ._exec import run_python
 from .base import Domain

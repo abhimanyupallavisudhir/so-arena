@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from ..agents.base import ResponseSpec
 from ..core.task import InfoBlock, Task
 from ..core.util import rng_for
 from .base import Domain, Environment

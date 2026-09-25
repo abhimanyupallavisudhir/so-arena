@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import os
 import shutil
 import threading
@@ -127,7 +126,6 @@ PIECE_VALUES = {1: 100, 2: 300, 3: 320, 4: 500, 5: 900, 6: 0}
 
 def material(board: Any, pov: Any) -> int:
     """Crude material evaluation (a *very* weak judge's evaluator)."""
-    import chess
 
     if board.is_game_over():
         return _terminal_score(board, pov)
@@ -228,7 +226,6 @@ class LineVerifier(Verifier):
 
 
 def engine_tools(fen: str, max_depth: int, engine_path: str | None) -> list[Tool]:
-    import chess
 
     @tool(name="engine_analyse", group="engine")
     async def engine_analyse(moves: str = "", depth: int = 12, multipv: int = 3) -> str:
@@ -367,7 +364,7 @@ class ChessMoves(Domain):
         import chess
 
         tasks = []
-        for i, p in enumerate(self.prepare()):
+        for p in self.prepare():
             board = chess.Board(p["fen"])
             side = "White" if board.turn == chess.WHITE else "Black"
             rng = rng_for("chess-opts", p["puzzle"])

@@ -19,7 +19,6 @@ import math
 from typing import Any
 
 from ..agents.base import Action, Agent, Observation
-from ..core.util import rng_for
 from ..domains.synthetic import parse_bit_claims, plain_bit_claims, poisson_binomial_tail
 
 

@@ -1,10 +1,8 @@
 import asyncio
-import os
 
 import pytest
 from click.testing import CliRunner
 
-import oversight_arena as oa
 from oversight_arena.cli import main
 from oversight_arena.config import experiment_from_config
 from oversight_arena.registry import build

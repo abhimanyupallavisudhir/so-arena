@@ -18,7 +18,7 @@ import pandas as pd
 from .analysis import plots as P
 from .analysis.bon import bon_curve
 from .analysis.games import EmpiricalGame
-from .analysis.ic import asd, frontier, ic_report
+from .analysis.ic import asd
 from .analysis.report import html_report
 from .channels.evidence import EvidencePolicy
 from .core.strategy import Assignment, Profile, Stance, Strategy
@@ -159,7 +159,7 @@ def demo_bon(out: Path) -> list[Path]:
         "debate · verified": (Debate(rounds=2, evidence=EvidencePolicy(budget=3), label="debate · verified"), "debater_a"),
     }
     curves, allres = [], None
-    for label, (mech, role) in mechs.items():
+    for mech, role in mechs.values():
         strategies = {role: base}
         if role == "debater_a":
             strategies["debater_b"] = Strategy(name="honest_opponent", stance=Stance.CORRECT, params={"claims": 3})

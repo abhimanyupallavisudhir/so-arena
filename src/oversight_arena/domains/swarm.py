@@ -16,7 +16,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import shutil
 import tempfile
 from typing import Any, ClassVar
@@ -207,7 +206,7 @@ class SimOpsEnv(SwarmEnvironment):
     @staticmethod
     def _tests(spec: dict, kind: str) -> str:
         lines = []
-        for name, s in spec.items():
+        for name in spec:
             lines.append(f"from src.{name} import *")
         for name, s in spec.items():
             for i, (call, exp) in enumerate(s[kind]):

@@ -34,7 +34,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from ..agents.base import Agent, Observation, ResponseSpec
 from ..channels.evidence import EvidencePolicy, Verifier, VerifyEnv, annotate, claim_help_text, extract_claims
@@ -46,7 +46,7 @@ from ..core.strategy import BoundStrategy, fill_placeholders
 from ..core.task import Task, TaskView
 from ..core.tools import Tool
 from ..core.transcript import Entry, Evidence, Transcript
-from ..core.types import ToolTrace, Usage
+from ..core.types import Usage
 from ..core.util import rng_for, stable_hash
 
 if TYPE_CHECKING:  # pragma: no cover

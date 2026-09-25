@@ -1,11 +1,11 @@
 import pytest
 
 import oversight_arena as oa
-from oversight_arena.channels import Auditor, EvidencePolicy, Label, SimulatedProbe
+from oversight_arena.channels import Auditor, Label, SimulatedProbe
 from oversight_arena.core.rewards import Combined, JudgeLabelScore, JudgeProbability
 from oversight_arena.mechanisms import (
-    BTS, DMI, AcceptReward, Consultancy, CorrelatedAgreement, CrossExamination, Debate, Forecast, JudgeRating,
-    MarketScoring, Monitoring, MonitoredReward, NaiveJudge, OpenConsultancy, OutputAgreement, PredictionMarket,
+    BTS, DMI, Consultancy, CorrelatedAgreement, CrossExamination, Debate, Forecast, JudgeRating,
+    Monitoring, MonitoredReward, NaiveJudge, OpenConsultancy, OutputAgreement, PredictionMarket,
     Propaganda, ProperScoring, ProposerCritic, Reporters,
 )
 
@@ -57,7 +57,6 @@ def test_monitoring_with_probe_audit_and_trainable_monitor(toy_domain, scripted_
 
 
 def test_simulated_probe_auroc():
-    import random
 
     from oversight_arena.analysis.stats import bootstrap_ci  # noqa: F401
 

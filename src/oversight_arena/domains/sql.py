@@ -14,7 +14,7 @@ import json
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import ClassVar, Literal
 
 from ..channels.evidence import Claim, Verifier, VerifyEnv
 from ..core.episode import EpisodeRecord
@@ -118,7 +118,7 @@ def sql_tool(db_path: str) -> Tool:
 def schema_text(db_path: str) -> str:
     con = _connect(db_path)
     parts = []
-    for name, sql in con.execute("select name, sql from sqlite_master where type='table' order by name"):
+    for (name,) in con.execute("select name from sqlite_master where type='table' order by name"):
         cols = [r[1] + " " + (r[2] or "") for r in con.execute(f"PRAGMA table_info([{name}])")]
         parts.append(f"{name}({', '.join(cols)})")
     con.close()

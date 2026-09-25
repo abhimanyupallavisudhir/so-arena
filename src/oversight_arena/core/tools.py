@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 import typing
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field

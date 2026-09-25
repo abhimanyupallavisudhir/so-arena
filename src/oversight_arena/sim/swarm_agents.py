@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from ..agents.base import Action, Agent, Observation
-from ..core.util import rng_for
 
 
 class SwarmWorker(Agent):
