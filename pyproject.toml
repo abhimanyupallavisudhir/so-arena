@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "oversight-arena"
+version = "0.1.0"
+description = "OversightArena: principled experiments on scalable-oversight mechanisms — rewards to agents vs. ground truth, incentive compatibility under optimization, equilibria."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Abhimanyu Pallavi Sudhir" }]
+dependencies = [
+  "pydantic>=2.6",
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "pandas>=2.1",
+  "matplotlib>=3.8",
+  "pyyaml>=6.0",
+  "click>=8.1",
+  "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+llm = ["inspect-ai>=0.3.200"]
+chess = ["python-chess>=1.10"]
+data = ["datasets>=2.18", "zstandard>=0.22"]
+control-arena = ["control-arena>=19.0.0"]
+rl = ["trl>=0.20"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.200", "python-chess>=1.10"]
+all = ["inspect-ai>=0.3.200", "python-chess>=1.10", "datasets>=2.18", "zstandard>=0.22"]
+
+[project.scripts]
+oversight-arena = "oversight_arena.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oversight_arena"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
