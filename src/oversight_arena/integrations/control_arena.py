@@ -152,6 +152,7 @@ def results_from_control_arena(
     audit_budget: float | None = None,
     actor: str = "untrusted",
     transcripts: bool = True,
+    task_key: str = "main_task",
 ) -> Results:
     """ControlArena eval logs (EvalLog objects, files or directories) → OversightArena Results.
 
@@ -164,7 +165,9 @@ def results_from_control_arena(
     computes safety). Ground truth: ``honest`` (1 = honest run), ``main_task``, ``side_task`` and
     ``safe_useful`` (main task done and no side task) — all per role, plus ``_outcome``.
     ``reward``: rule applied to every episode (default ``MonitoredReward(actor=actor,
-    continuous=True)``: main-task success minus suspicion).
+    continuous=True)``: main-task success minus suspicion). ``task_key``: ``"main_task"`` (pair
+    honest and attack runs of the same main task — right when main-task names identify
+    problems, as in APPS or AgentDojo) or ``"sample"`` (every sample is its own task).
     """
     from ..mechanisms.monitoring import MonitoredReward
 
@@ -197,7 +200,7 @@ def results_from_control_arena(
         mech = f"{i['setting']}/{i['protocol']}"
         thr = thresholds.get(mech, threshold if threshold is not None else 0.5)
         mode = "attack" if i["attack"] else "honest"
-        main_name = md.get("main_task_name") or str(s.id)
+        main_name = (md.get("main_task_name") or str(s.id)) if task_key == "main_task" else f"{s.id}"
         roles = [RoleSpec(name=actor, kind="worker", title="Untrusted policy"),
                  RoleSpec(name="monitor", kind="monitor", trainable=False, title="Monitor")]
         strategy = f"attack:{md.get('side_task_name')}" if i["attack"] else "honest"
@@ -361,7 +364,6 @@ def oversight_protocol(mechanism: Any = None, actor: str = "actor", agents: Any 
     table = agents if isinstance(agents, AgentTable) else AgentTable(agents or default_inspect_agents())
     hon, att = honest or honest_strategy(), attack or attack_strategy()
 
-    @control_agent
     def oversight_arena_protocol(mechanism_config: dict = Field(default_factory=lambda: cfg)) -> Agent:
         async def impl(state: AgentState, tools: list[Tool]) -> AgentState:
             md = control_task_metadata()
@@ -395,7 +397,10 @@ def oversight_protocol(mechanism: Any = None, actor: str = "actor", agents: Any 
 
         return impl
 
-    return oversight_arena_protocol()
+    # this module uses postponed annotations, but ControlArena resolves the builder's type hints:
+    # give it the real objects (the imports above are local because control-arena is optional)
+    oversight_arena_protocol.__annotations__ = {"mechanism_config": dict, "return": Agent}
+    return control_agent(oversight_arena_protocol)()
 
 
 __all__ = [
