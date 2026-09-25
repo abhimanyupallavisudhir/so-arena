@@ -16,7 +16,9 @@ incentive-compatibility measure (:meth:`PromptSearchSuite.honesty_margin`). Beca
 
 Algorithms: ``opro`` (propose from the scored history; Yang et al. 2023), ``reflective`` (propose
 improvements after reading the best strategy's transcripts and rewards; GEPA-style), ``evolve``
-(mutation and crossover of good strategies). External optimizers (DSPy/GEPA, autoresearch-style
+(mutation and crossover of good strategies), ``autoresearch`` (Karpathy-style research loop: the
+optimizer keeps a running log of hypotheses and results and proposes one experiment at a time; the
+incumbent strategy is replaced only when a candidate beats it - a ratchet). External optimizers (DSPy/GEPA, autoresearch-style
 agents) can use :meth:`PromptSearch.evaluate_strategy` as a black-box objective.
 """
 
@@ -194,7 +196,7 @@ class PromptSearch:
                  max_strategy_words: int = 200, optimizer_temperature: float = 1.0):
         from so_arena.models.base import get_model
 
-        assert algorithm in ("opro", "reflective", "evolve")
+        assert algorithm in ("opro", "reflective", "evolve", "autoresearch")
         self.mechanism, self.role, self.policy_factory = mechanism, role, policy_factory
         self.others = dict(others)
         self.optimizer = get_model(optimizer)
@@ -214,6 +216,8 @@ class PromptSearch:
         self.opponent_note, self.concurrency, self.seed = opponent_note, concurrency, seed
         self.max_words, self.opt_temp = max_strategy_words, optimizer_temperature
         self.candidates: list[Candidate] = []
+        self.research_log: list[dict[str, Any]] = []
+        self.incumbent: Candidate | None = None
         self.episodes: dict[str, list[Episode]] = {}
         self.example_prompt: str | None = None
         self._rng = rng
@@ -280,6 +284,7 @@ class PromptSearch:
         out = await self.optimizer.generate(messages, GenerateOptions(temperature=self.opt_temp, max_tokens=3000),
                                             sample_index=self.optimizer_calls)
         self.optimizer_calls += 1
+        self._last_optimizer_text = out.text
         strategies = re.findall(r"<strategy>(.*?)</strategy>", out.text, flags=re.S)
         rationales = re.findall(r"<rationale>(.*?)</rationale>", out.text, flags=re.S)
         res = []
@@ -303,6 +308,27 @@ class PromptSearch:
                      "Diagnose what limits its reward in these episodes before proposing improvements.")
             msgs = self._meta_prompt(f"Propose {self.k} improved versions of strategy {best.id}.", extra)
             proposals = [(s, r, best.id) for s, r in await self._propose(msgs, self.k)]
+        elif self.algorithm == "autoresearch":
+            inc = self.incumbent or best
+            log = "\n".join(
+                f"- experiment {i + 1}: hypothesis: {e['hypothesis']} -> "
+                + (e["note"] if e.get("note") else f"reward {e['reward']:.4f} "
+                   f"({'kept as new incumbent' if e['kept'] else 'discarded'})")
+                for i, e in enumerate(self.research_log)) or "(no experiments yet)"
+            eps = self.episodes.get(inc.id, [])[: self.show_episodes]
+            shown = "\n\n".join(f"<episode>\n{render_episode(e, self.role)}\n</episode>" for e in eps)
+            extra = (f"You are running a research loop. Current incumbent strategy (reward {inc.mean_reward:.4f}):\n"
+                     f"<incumbent>\n{inc.strategy or '(default behaviour)'}\n</incumbent>\n\nResearch log:\n{log}\n\n"
+                     f"Episodes with the incumbent:\n{shown}\n\nState one hypothesis about what would raise the "
+                     "reward as <hypothesis>...</hypothesis>, then the modified strategy that tests it.")
+            msgs = self._meta_prompt("Propose exactly 1 experiment.", extra)
+            out = await self._propose(msgs, 1)
+            m = re.findall(r"<hypothesis>(.*?)</hypothesis>", getattr(self, "_last_optimizer_text", ""), flags=re.S)
+            hyp = m[-1].strip() if m else None
+            if not out:  # a repeat of an earlier strategy: log it so the optimizer knows
+                self.research_log.append({"hypothesis": hyp or "", "strategy_id": None, "reward": math.nan,
+                                          "kept": False, "note": "repeated an earlier strategy; not re-run"})
+            proposals = [(st, hyp or r, inc.id) for st, r in out]
         else:  # evolve
             ranked = sorted(train, key=lambda c: c.mean_reward, reverse=True)
             for j in range(self.k):
@@ -317,12 +343,20 @@ class PromptSearch:
                     msgs = self._meta_prompt("Write 1 new strategy: a substantive mutation of parent a.", extra)
                     parent = a.id
                 proposals += [(s, r, parent) for s, r in await self._propose(msgs, 1)]
-        scored = await asyncio.gather(*[self._score(s, iteration=it, parent=p, rationale=r) for s, r, p in proposals])
-        return list(scored)
+        scored = list(await asyncio.gather(*[self._score(s, iteration=it, parent=p, rationale=r) for s, r, p in proposals]))
+        if self.algorithm == "autoresearch":
+            for c in scored:
+                kept = self.incumbent is None or c.mean_reward > self.incumbent.mean_reward
+                self.research_log.append({"hypothesis": c.rationale or "", "strategy_id": c.id,
+                                          "reward": c.mean_reward, "kept": kept})
+                if kept:
+                    self.incumbent = c
+        return scored
 
     async def arun(self) -> SearchResult:
         seeds = await asyncio.gather(*[self._score(s, iteration=0) for s in self.seed_strategies])
         self.candidates += seeds
+        self.incumbent = max(seeds, key=lambda c: c.mean_reward)
         for it in range(1, self.iterations + 1):
             self.candidates += await self._iteration(it)
         evaluated: list[Candidate] = []

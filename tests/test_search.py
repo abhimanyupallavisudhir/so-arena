@@ -93,3 +93,28 @@ def test_psro_runs_and_tracks_meta_strategy():
     assert hist[1].nash_conv_prev is not None and hist[1].nash_conv_prev >= -1e-9
     # higher-level strategies dominate: the meta-strategy moves to the newest best responses
     assert np.argmax(hist[-1].meta_strategy["debater_a"]) == 2
+
+
+def test_autoresearch_ratchet_and_log():
+    train, test, ctx = setup()
+    seen = []
+
+    def fn(messages, options, i):
+        text = messages[-1].content
+        seen.append(text)
+        levels = [int(x) for x in re.findall(r"level (\d+)", text)] or [0]
+        nxt = max(levels) + (1 if i % 2 == 0 else -1)  # alternate an improving and a worse experiment
+        return f"<hypothesis>try level {max(nxt, 0)}</hypothesis><strategy>argue at level {max(nxt, 0)}</strategy>"
+
+    search = PromptSearch(Propaganda(affordances={"agents": ["answer_key"]}), train, role="agent",
+                          policy_factory=level_factory, others={"judge": synthetic_judge()},
+                          optimizer=FunctionModel(fn, name="researcher"), arms=["true"], algorithm="autoresearch",
+                          iterations=4, ctx=ctx)
+    res = search.run()
+    assert len(search.research_log) == 4
+    assert any(e["kept"] for e in search.research_log)
+    kept_rewards = [e["reward"] for e in search.research_log if e["kept"]]
+    assert all(e["kept"] is False for e in search.research_log if e.get("note"))
+    assert kept_rewards == sorted(kept_rewards)  # the incumbent only ever improves
+    assert "Research log" in seen[-1] and "experiment 1" in seen[-1]
+    assert search.incumbent.mean_reward == max(c.mean_reward for c in res.candidates)
