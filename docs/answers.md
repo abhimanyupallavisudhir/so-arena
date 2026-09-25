@@ -134,7 +134,7 @@ The library implements the proposal's "Strand 5" build-out list:
 |---|---|
 | protocols as first-class objects over agentic episodes, incl. ControlArena micro-protocols | done (mechanisms; ControlArena bridge both ways) |
 | paired-arm runner | done: forkable content-addressed state (files incl. git repositories, SQLite databases, mail, a card ledger, simulated counterparties with hidden state), per-decision branches, dossiers of diffs, access levels, work once / review many (`core.state`, `samplers.paired`, domains `repo` and `firm`); container isolation and Postgres/Neon/Dolt or Stripe-sandbox backends plug in as environments |
-| judge interface for LLMs and humans with evaluation budget as a parameter | done (LLM policies, `HumanModel(time_budget_s=)`, `CallbackModel` for a rating UI; budget sweeps); a hosted rating UI is future work |
+| judge interface for LLMs and humans with evaluation budget as a parameter | done: LLM policies, and a hosted rating interface with timers (`so_arena.rating`: any role served to raters in the browser, budgets shown as countdowns and optionally enforced, time spent recorded as oversight effort), `HumanModel` at the terminal, `CallbackModel` for other interfaces |
 | metrics with uncertainty: ASD both forms, expected scores, judge accuracy, discrimination at fixed FPR, control safety/usefulness | done (PGR requires weak-to-strong training runs - compute it from their outputs) |
 | model registry with parameters, compute, inference settings | done (`ModelSpec`, `samplers.sweeps.capability`) |
 | hooks exporting any protocol as an RL reward | done (`integrations.rl`) |

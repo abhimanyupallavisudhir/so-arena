@@ -83,7 +83,7 @@ simulated models that prices every call).
 | **Stateful work** | forkable content-addressed state (files, SQLite, mail, ledgers, hidden environment state), a branch per decision and per best-of-N sample, reviewer dossiers of diffs, read/write access per role, paired-branch experiments (work once, review many) |
 | **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, Lean statement structure, Lean typechecking, fact checkers) under per-mechanism budgets and display rules |
 | **Deferred ground truth** | release mechanism results with a SHA-256 commitment; resolve and score when the truth arrives |
-| **Infrastructure** | Inspect backend (all providers), response cache, dry-run cost simulation, model registry, resumable run stores, YAML specs, CLI, self-contained HTML reports, Inspect task export, ControlArena bridge |
+| **Infrastructure** | Inspect backend (all providers), response cache, dry-run cost simulation, model registry, resumable run stores, YAML specs, CLI, self-contained HTML reports, a browser rating interface for human judges with time budgets, Inspect task export, ControlArena bridge, GEPA backend for prompt search |
 
 ## Documentation
 
