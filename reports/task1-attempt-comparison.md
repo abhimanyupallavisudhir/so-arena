@@ -158,3 +158,5 @@ Take **#2** as the base, then:
 3. Run the real-LLM pilot. Both Claude attempts need only an OpenRouter, OpenAI or Anthropic key; #2 prices its pilot set at about \$0.20.
 
 #3 and #4 add nothing the others lack except #4's PDF caveats and #3's genuinely-running ControlArena example. Both are worth a quick look, but not worth merging.
+
+A second-pass bug hunt with about 110 more findings is in [bug-hunt.md](bug-hunt.md).
