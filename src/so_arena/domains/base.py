@@ -53,6 +53,10 @@ class Domain(abc.ABC):
         """Strategy prompts for commonly used behaviour labels in this domain (optional)."""
         return {}
 
+    def scripted_arms(self) -> dict[str, Callable[[], Any]]:
+        """Scripted versions of behaviour arms (label -> policy factory), for offline experiments and tests."""
+        return {}
+
 
 _DOMAINS: dict[str, Callable[..., Domain]] = {}
 
