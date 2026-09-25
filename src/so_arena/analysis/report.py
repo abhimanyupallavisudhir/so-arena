@@ -19,6 +19,7 @@ from typing import Any
 
 import pandas as pd
 
+from so_arena.analysis.frames import config_key, mechanism_labels
 from so_arena.analysis.plots import Chart
 from so_arena.core.mechanism import Episode
 
@@ -232,7 +233,9 @@ class Report:
     def episodes(self, episodes: Sequence[Episode], *, hide_ground_truth: bool = False, max_episodes: int = 300,
                  title: str = "Episodes") -> "Report":
         eps = list(episodes)[:max_episodes]
-        mechs = sorted({e.mechanism for e in eps})
+        labels = mechanism_labels(eps)
+        mech_of = {id(e): labels[(e.mechanism, config_key(e))] for e in eps}
+        mechs = sorted(set(mech_of.values()))
         profs = sorted({e.profile for e in eps})
         opts = lambda xs: "".join(f'<option value="{_e(x)}">{_e(x)}</option>' for x in xs)  # noqa: E731
         head = (f'<h2>{_e(title)}</h2><div class="filters">'
@@ -244,7 +247,7 @@ class Report:
         for ep in eps:
             rewards = " ".join(f'<span class="chip">{_e(r)} {_num(v)}</span>' for r, v in ep.rewards.items())
             dec = f'<span class="chip">→ {_e(ep.outcome.decision)}</span>' if ep.outcome.decision else ""
-            summary = (f'<summary><b>{_e(ep.mechanism)}</b> <span class="muted">{_e(ep.profile)} · {_e(ep.item_id)}</span> '
+            summary = (f'<summary><b>{_e(mech_of[id(ep)])}</b> <span class="muted">{_e(ep.profile)} · {_e(ep.item_id)}</span> '
                        f"{dec} {rewards}</summary>")
             turns = []
             for t in ep.turns:
@@ -267,7 +270,7 @@ class Report:
             if not hide_ground_truth and ep.ground_truth:
                 gt = f'<div class="gt"><b>Ground truth</b> {gt_chips(ep.ground_truth)}</div>'
             err = f'<div class="gt" style="color:var(--bad)">error: {_e(ep.error.splitlines()[-1])}</div>' if ep.error else ""
-            cards.append(f'<details class="ep" data-mech="{_e(ep.mechanism)}" data-prof="{_e(ep.profile)}">{summary}'
+            cards.append(f'<details class="ep" data-mech="{_e(mech_of[id(ep)])}" data-prof="{_e(ep.profile)}">{summary}'
                          f'{"".join(turns)}{gt}{err}</details>')
         more = (f'<p class="muted">Showing the first {max_episodes} of {len(episodes)} episodes.</p>'
                 if len(episodes) > max_episodes else "")
@@ -306,13 +309,14 @@ def build_report(episodes: Sequence[Episode], path: str | Path, *, title: str = 
     ok = [e for e in eps if e.error is None]
     rep = Report(title, subtitle)
     cost = sum(e.total_usage.cost_usd for e in eps)
+    labels = mechanism_labels(eps)
     rep.kpis({"Episodes": len(eps), "Items": len({e.item_id for e in eps}),
-              "Mechanisms": len({e.mechanism for e in eps}), "Cost (USD)": f"{cost:,.2f}",
+              "Mechanisms": len(set(labels.values())), "Cost (USD)": f"{cost:,.2f}",
               **({"Errors": sum(e.error is not None for e in eps)} if any(e.error for e in eps) else {})})
     df = with_parse_status(role_frame(ok), ok)
     if not hide_ground_truth and not df.empty and df["value"].notna().any():
         a = asd(df)
-        order = list(dict.fromkeys(e.mechanism for e in ok))
+        order = list(dict.fromkeys(labels[(e.mechanism, config_key(e))] for e in ok))
         if not a.empty:
             a = a.assign(_o=a["mechanism"].map({m: i for i, m in enumerate(order)})).sort_values("_o").drop(columns="_o")
             charts = dual_mode(asd_bars, a, subtitle="Paired by item; whiskers are 95% bootstrap intervals")

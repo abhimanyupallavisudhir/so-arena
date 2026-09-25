@@ -76,6 +76,9 @@ def _clean(payoffs: np.ndarray) -> np.ndarray:
     return w
 
 
+_WARNED_PLUGIN: set[tuple[int, int]] = set()
+
+
 class BestOfN(Selection):
     def __init__(self, n: int, mode: str = "unbiased"):
         assert n >= 1 and mode in ("unbiased", "plugin")
@@ -89,7 +92,13 @@ class BestOfN(Selection):
             return np.full(k, 1.0 / k)
         mode = self.mode
         if mode == "unbiased" and n > k:
-            mode = "plugin"  # cannot draw more than K without replacement
+            # without replacement n <= K draws are possible: say so, since the plug-in (with replacement)
+            # estimate is biased and a grid would otherwise mix estimators across pool sizes silently
+            if (n, k) not in _WARNED_PLUGIN:
+                _WARNED_PLUGIN.add((n, k))
+                log.warning("BestOfN(%d, 'unbiased') on a pool of %d: more draws than candidates, so the plug-in "
+                            "(with replacement) estimate is used; sample larger pools for an unbiased Bo(%d)", n, k, n)
+            mode = "plugin"
         order = np.argsort(w, kind="stable")
         ws = w[order]
         probs_sorted = np.zeros(k)
@@ -229,6 +238,7 @@ class TreeLeaf(BaseModel):
 class GameTree(BaseModel):
     item_id: str
     mechanism: str
+    config: str = ""  # the mechanism's config hash: trees of different configurations are kept apart
     root: str
     nodes: dict[str, TreeNode] = Field(default_factory=dict)
     leaves: dict[str, TreeLeaf] = Field(default_factory=dict)
@@ -254,8 +264,9 @@ class TreeValue(BaseModel):
     # nothing about the rest: best-of-N may put most of its mass on candidates nobody could label.
     reward_coverage: dict[str, float] = Field(default_factory=dict)
     coverage: dict[str, float] = Field(default_factory=dict)
-    # The largest L1 distance, over information sets, between a set's selection and its selection policy's
-    # response to everyone's final behaviour: 0 at a fixed point (always, in trees without hidden moves).
+    # In reward units: the largest change, over information sets, in the mover's expected reward there if it
+    # re-applied its selection policy to everyone's final behaviour - 0 at a fixed point (always, in trees
+    # without hidden moves); a large gap means fictitious play has not settled (e.g. it cycles).
     gap: float = 0.0
 
 
@@ -372,7 +383,9 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
     (exact backward induction when every information set is a single node), then refined by fictitious
     play: for ``t = 2..fp_iters`` each selection moves to $(1-1/t)\,\sigma + \frac1t\,\mathrm{sel}(u)$
     until nothing changes by more than ``tol``. Simultaneous stages and hidden moves are solved this way;
-    the result's ``gap`` says how far from a fixed point it ended (0 without hidden moves).
+    the result's ``gap`` says, in reward units, how far from a fixed point it ended (0 without hidden
+    moves). Fictitious play need not converge (it cycles in some games): then the gap stays large and the
+    values depend on ``fp_iters`` - :func:`optimization_grid` warns.
 
     Roles without a policy act as their base (uniform over their pool). A missing reward (an errored or
     pending leaf) or ground-truth label is never counted as a payoff or a value: selection treats a
@@ -391,9 +404,9 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
     # deepest information sets first: backward induction when each set is a single node
     order = sorted(t_.sets, key=lambda k: (-max(t_.depth[n] for n in t_.sets[k]), k))
 
-    def response(key: str, reach: dict[str, np.ndarray]) -> np.ndarray:
+    def response(key: str, reach: dict[str, np.ndarray], u: np.ndarray | None = None) -> np.ndarray:
         node = tree.nodes[t_.sets[key][0]]
-        return sel(node.role, node.phase).probs(t_.payoffs(key, reach))
+        return sel(node.role, node.phase).probs(t_.payoffs(key, reach) if u is None else u)
 
     for it in range(1, max(1, fp_iters) + 1):
         reach = t_.reach()
@@ -409,7 +422,12 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
         if it > 1 and change <= tol:
             break
     reach = t_.reach()
-    gap = max((float(np.abs(response(k, reach) - t_.sigma[k]).sum()) for k in order), default=0.0)
+    gap = 0.0
+    for k in order:  # what re-applying each selection would change, in reward (not strategy) units: pure
+        u = t_.payoffs(k, reach)  # responses to a near-equilibrium mixture move far in strategy space for nothing
+        fin = np.isfinite(u)
+        if fin.any():
+            gap = max(gap, abs(float(((response(k, reach, u) - t_.sigma[k])[fin] * u[fin]).sum())))
     return _tree_value(t_, tree.root, gap)
 
 
@@ -463,6 +481,13 @@ def optimization_grid(trees: Sequence[GameTree], grid: dict[str, Sequence[int | 
         row["gap"] = max((tv.gap for tv in per_tree), default=0.0)
         row["n_items"] = len(per_tree)
         rows.append(row)
+    span = max((float(np.ptp(r)) for r in (np.array([v for leaf in t.leaves.values() for v in leaf.rewards.values()
+                                                      if v is not None and math.isfinite(v)]) for t in trees) if r.size),
+               default=0.0)
+    unsettled = [row["gap"] for row in rows if row["gap"] > 1e-2 * max(span, 1e-9)]
+    if unsettled:
+        log.warning("optimization_grid: fictitious play did not settle on %d row(s) (gap up to %.3g, rewards span %.3g): "
+                    "their values depend on fp_iters", len(unsettled), max(unsettled), span)
     if low:
         log.warning("optimization_grid: %d item value(s) dropped: below %.0f%% of the selected plays have a label",
                     low, 100 * min_coverage)

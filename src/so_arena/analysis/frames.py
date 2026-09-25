@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -10,16 +12,70 @@ import pandas as pd
 from so_arena.core.mechanism import Episode
 
 
+def config_key(ep: Episode) -> str:
+    """The episode's mechanism configuration, hashed (as :meth:`~so_arena.core.mechanism.Mechanism.config_hash`)."""
+    return hashlib.sha256(json.dumps(ep.mechanism_config, sort_keys=True).encode()).hexdigest()[:10]
+
+
+def _flat(d: Any, prefix: str = "") -> dict[str, Any]:
+    if isinstance(d, dict):
+        out: dict[str, Any] = {}
+        for k, v in d.items():
+            out.update(_flat(v, f"{prefix}{k}."))
+        return out
+    return {prefix[:-1]: d}
+
+
+def _short(v: Any) -> str:
+    s = v if isinstance(v, str) else json.dumps(v, sort_keys=True, default=str)
+    return s if len(s) <= 24 else s[:21] + "..."
+
+
+def mechanism_labels(episodes: Sequence[Episode]) -> dict[tuple[str, str], str]:
+    """``(mechanism name, config key) -> label`` for analysis.
+
+    Mechanisms are named by class (``debate``), so two configurations of one mechanism - another reward
+    transform, verification policy or number of rounds - would otherwise be pooled into one row of every
+    analysis. A name used by a single configuration keeps it; otherwise each configuration is labelled by
+    the settings that tell them apart (``debate(transform="prob")``), or by its config hash.
+    """
+    configs: dict[str, dict[str, dict[str, Any]]] = {}
+    for ep in episodes:
+        configs.setdefault(ep.mechanism, {}).setdefault(config_key(ep), ep.mechanism_config)
+    labels: dict[tuple[str, str], str] = {}
+    for name, by_key in configs.items():
+        if len(by_key) == 1:
+            labels[(name, next(iter(by_key)))] = name
+            continue
+        flat = {k: _flat({"config": c.get("config"), "reward_rule": c.get("reward_rule"),
+                          "verification_policy": c.get("verification_policy")}) for k, c in by_key.items()}
+        fields = sorted({f for fl in flat.values() for f in fl})
+        differ = [f for f in fields if len({json.dumps(fl.get(f), sort_keys=True, default=str) for fl in flat.values()}) > 1]
+        # the constructor arguments the experimenter set, when they differ (reward-rule fields follow from them)
+        differ = ([f for f in differ if f.startswith("config.")] or differ)[:3]
+        made: dict[str, str] = {}
+        for k, fl in flat.items():
+            parts = [f"{f.split('.', 1)[1] if f.startswith('config.') else f}={_short(fl.get(f))}" for f in differ]
+            made[k] = f"{name}({', '.join(parts)})" if parts else f"{name}#{k[:6]}"
+        if len(set(made.values())) < len(made):
+            made = {k: f"{v}#{k[:6]}" for k, v in made.items()}
+        labels.update({(name, k): v for k, v in made.items()})
+    return labels
+
+
 def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, *,
                include_errors: bool = False, include_fixtures: bool = False) -> pd.DataFrame:
     """One row per (episode, role).
 
-    Columns include ``reward`` (mechanism reward), ``value`` (ground-truth value of the role's
-    behaviour), ``label`` (behaviour label), ``stance`` (assigned) and ``position`` (final),
+    Columns include ``mechanism`` (its name, or a label per configuration where several configurations
+    share one: :func:`mechanism_labels`) and ``mechanism_config`` (the config hash), ``reward`` (mechanism
+    reward), ``value`` (ground-truth value of the role's behaviour), ``label`` (behaviour label),
+    ``stance`` (assigned) and ``position`` (final),
     ``judge_p_true``/``judge_correct`` (control-style measures of the outcome), claim statistics and
     cost. Tags are added as ``tag_<name>`` columns.
     """
     rows: list[dict[str, Any]] = []
+    labels = mechanism_labels(episodes)
     for ep in episodes:
         if ep.error is not None and not include_errors:
             continue
@@ -43,7 +99,8 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
                 "run_id": ep.run_id,
                 "item_id": ep.item_id,
                 "domain": ep.domain,
-                "mechanism": ep.mechanism,
+                "mechanism": labels[(ep.mechanism, config_key(ep))],
+                "mechanism_config": config_key(ep),
                 "profile": ep.profile,
                 "repeat": ep.repeat,
                 "role": role,
@@ -88,10 +145,12 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
 def episode_frame(episodes: Sequence[Episode]) -> pd.DataFrame:
     """One row per episode (outcome-level)."""
     rows = []
+    labels = mechanism_labels(episodes)
     for ep in episodes:
         gt = ep.ground_truth or {}
         row = {
-            "episode_id": ep.id, "item_id": ep.item_id, "mechanism": ep.mechanism, "profile": ep.profile,
+            "episode_id": ep.id, "item_id": ep.item_id, "mechanism": labels[(ep.mechanism, config_key(ep))],
+            "mechanism_config": config_key(ep), "profile": ep.profile,
             "repeat": ep.repeat, "decision": ep.outcome.decision, "error": ep.error is not None,
             "cost_usd": ep.total_usage.cost_usd, "tokens": ep.total_usage.total_tokens,
             **{f"reward_{r}": v for r, v in ep.rewards.items()},

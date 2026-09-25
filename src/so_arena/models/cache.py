@@ -72,7 +72,7 @@ class CachedModel(Model):
 
     async def generate(self, messages, options=None, *, sample_index=0):
         options = options or GenerateOptions()
-        key = cache_key(self.name, messages, options, sample_index)
+        key = cache_key(getattr(self.inner, "identity", self.name), messages, options, sample_index)
         hit = self.cache.get(key)
         if hit is not None:
             usage = hit.usage.model_copy(update={"cost_usd": 0.0, "cached_calls": 1, "calls": 0})

@@ -22,6 +22,31 @@ from typing import Any
 
 from so_arena.core.types import Completion, GenerateOptions, Message, TokenLogprob, TopLogprob, Usage
 
+# constructor arguments that do not change what a model answers (credentials, connection limits)
+_NOT_IDENTITY = ("api_key", "key", "token", "secret", "password", "max_connections", "timeout", "retries")
+
+
+def draw_seed(options: GenerateOptions) -> int:
+    """Seed offset for ``options.draw`` (0 without one): backends seeded from ``sample_index`` alone give
+    identical prompts identical samples, whichever role or decision asks."""
+    import hashlib
+
+    return int(hashlib.sha256(options.draw.encode()).hexdigest()[:8], 16) % 1_000_003 if options.draw else 0
+
+
+def model_identity(name: str, args: dict[str, Any]) -> str:
+    """``name``, plus a fingerprint of the constructor arguments that decide what the model answers (a
+    ``base_url``, an adapter, a model path): two backends served under one name - e.g. RL checkpoints behind
+    ``vllm/policy`` - must not share cached completions or episode ids. Credentials are left out."""
+    import hashlib
+    import json
+
+    keep = {k: repr(v) for k, v in sorted(args.items())
+            if not any(part in k.lower() for part in _NOT_IDENTITY)}
+    if not keep:
+        return name
+    return f"{name}#{hashlib.sha256(json.dumps(keep, sort_keys=True).encode()).hexdigest()[:10]}"
+
 
 def estimate_tokens(text: str) -> int:
     """Cheap token estimate (~4 characters per token for English)."""
@@ -37,6 +62,12 @@ class Model(abc.ABC):
 
     name: str = "model"
     supports_logprobs: bool = False
+
+    @property
+    def identity(self) -> str:
+        """What the model's answers depend on (cache keys and policy descriptions use it): its name, plus
+        any constructor arguments that change its answers (see :func:`model_identity`)."""
+        return model_identity(self.name, getattr(self, "_args", None) or getattr(self, "_model_args", None) or {})
 
     @abc.abstractmethod
     async def generate(

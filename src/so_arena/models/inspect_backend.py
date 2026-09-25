@@ -48,9 +48,11 @@ class InspectModel(Model):
                 converted.append(ChatMessageAssistant(content=m.content))
             else:
                 converted.append(ChatMessageUser(content=m.content))
+        from so_arena.models.base import draw_seed
+
         seed = None
         if options.seed is not None:
-            seed = options.seed + sample_index
+            seed = options.seed + sample_index + draw_seed(options)
         config = GenerateConfig(
             temperature=options.temperature,
             max_tokens=options.max_tokens,

@@ -506,7 +506,8 @@ class Game:
         calls: list[dict[str, Any]] = []  # this candidate's trusted record of tool calls
         tools = {n: _RecordingTool(t) for n, t in self.tools_for(role, access).items()}
         actx = ActContext(role=role, sample_index=self.repeat * 10_000 + sample_index, game=self,
-                          tools=tools, seed=stable_hash(self.seed, self.item.id, key, eid), workspace=slot)
+                          tools=tools, seed=stable_hash(self.seed, self.item.id, key, eid), workspace=slot,
+                          draw=f"{role}|{self.item.id}|{key}")  # separate samples per role, item and decision
         new_state: str | None = None
         try:
             with using_workspace(slot), recording_tool_calls(calls):

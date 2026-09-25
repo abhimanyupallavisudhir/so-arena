@@ -120,8 +120,8 @@ async def expand_tree(
     for ep in episodes:
         ep.usage = charged.get(leaf_of.get(ep.id, ""), {})
     usage = {r: u.model_dump() for r, u in root_bc.usage.items()}
-    tree = GameTree(item_id=item.id, mechanism=mechanism.name, root=root, nodes=nodes, leaves=leaves,
-                    roles=list(mechanism.roles()), usage=usage)
+    tree = GameTree(item_id=item.id, mechanism=mechanism.name, config=mechanism.config_hash(), root=root, nodes=nodes,
+                    leaves=leaves, roles=list(mechanism.roles()), usage=usage)
     return tree, episodes
 
 
@@ -163,8 +163,9 @@ class OptimizationExperiment:
         trees = exp.run()
         surface = exp.grid({"worker": [1, 2, 4, 8], "critic": [1, 2, 4]})
 
-    With a ``store``, the trees go to its ``trees.jsonl``, replacing only this mechanism's earlier
-    trees, so experiments on several mechanisms can share a store (:func:`load_trees` reads them back).
+    With a ``store``, the trees go to its ``trees.jsonl``, replacing only this mechanism configuration's
+    earlier trees, so experiments on several mechanisms - or configurations of one - can share a store
+    (:func:`load_trees` reads them back).
     """
 
     def __init__(self, mechanism: Mechanism, items: Sequence[TaskItem], profile: Profile, *,
@@ -190,7 +191,7 @@ class OptimizationExperiment:
         trees = await asyncio.gather(*[one(it) for it in self.items])
         self.trees = [t for t in trees if t is not None]
         if self.store is not None:
-            save_trees(self.store.path, self.trees, mechanism=self.mechanism.name)
+            save_trees(self.store.path, self.trees, mechanism=self.mechanism.name, config=self.mechanism.config_hash())
         return self.trees
 
     def run(self) -> list[GameTree]:
@@ -203,18 +204,23 @@ class OptimizationExperiment:
         return optimization_grid(self.trees, grid, kind=kind, mode=mode, min_coverage=min_coverage)
 
 
-def save_trees(path: Any, trees: Sequence[GameTree], *, mechanism: str | None = None) -> None:
+def save_trees(path: Any, trees: Sequence[GameTree], *, mechanism: str | None = None, config: str | None = None) -> None:
     """Write trees to ``trees.jsonl`` in a run directory (or to a file path).
 
-    With ``mechanism``, only that mechanism's earlier trees are replaced and other mechanisms' are
-    kept, so experiments on several mechanisms can share a store; without it the file is rewritten.
+    With ``mechanism``, only that mechanism's earlier trees are replaced - with ``config`` as well, only
+    those of that configuration (``Mechanism.config_hash()``), so two configurations of one mechanism do
+    not delete each other's - and the rest are kept; without it the file is rewritten.
     """
     from pathlib import Path
 
     p = Path(path)
     if p.is_dir():
         p = p / "trees.jsonl"
-    kept = [t for t in load_trees(p) if t.mechanism != mechanism] if mechanism is not None and p.exists() else []
+
+    def replaced(t: GameTree) -> bool:
+        return t.mechanism == mechanism and (config is None or t.config == config)
+
+    kept = [t for t in load_trees(p) if not replaced(t)] if mechanism is not None and p.exists() else []
     tmp = p.with_name(p.name + ".tmp")
     with open(tmp, "w") as f:
         for t in [*kept, *trees]:
@@ -222,12 +228,13 @@ def save_trees(path: Any, trees: Sequence[GameTree], *, mechanism: str | None = 
     tmp.replace(p)
 
 
-def load_trees(path: Any, mechanism: str | None = None) -> list[GameTree]:
-    """Trees from ``trees.jsonl`` in a run directory (or a file path); ``mechanism`` selects one mechanism's."""
+def load_trees(path: Any, mechanism: str | None = None, config: str | None = None) -> list[GameTree]:
+    """Trees from ``trees.jsonl`` in a run directory (or a file path); ``mechanism`` (and ``config``, a
+    config hash) select one mechanism's (configuration's)."""
     from pathlib import Path
 
     p = Path(path)
     if p.is_dir():
         p = p / "trees.jsonl"
     trees = [GameTree.model_validate_json(line) for line in p.read_text().splitlines() if line.strip()]
-    return [t for t in trees if mechanism is None or t.mechanism == mechanism]
+    return [t for t in trees if (mechanism is None or t.mechanism == mechanism) and (config is None or t.config == config)]

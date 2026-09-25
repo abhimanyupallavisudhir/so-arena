@@ -47,7 +47,9 @@ class LlamaCppModel(Model):
 
     def _generate(self, messages, options: GenerateOptions, sample_index: int) -> Completion:
         llm, lock = self._llm()
-        seed = (options.seed if options.seed is not None else 0) + sample_index
+        from so_arena.models.base import draw_seed
+
+        seed = (options.seed if options.seed is not None else 0) + sample_index + draw_seed(options)
         kw: dict[str, Any] = dict(
             messages=[{"role": m.role if m.role != "tool" else "user", "content": m.content} for m in messages],
             temperature=0.0 if options.temperature is None else options.temperature,

@@ -22,7 +22,7 @@ import json
 import os
 import traceback
 import types
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
@@ -48,7 +48,8 @@ def describe_config(obj: Any, _depth: int = 8, _seen: frozenset[int] = frozenset
     """A plain, process-independent description of a configuration value (for config hashes and logs).
 
     Scalars stay as they are and containers are described element-wise; pydantic models by their
-    fields; functions by qualified name (a function is identified by its name, not its code); reward
+    fields; functions by qualified name plus the plain values they close over or default to (see
+    :func:`_describe_function`: a function is identified by its name and parameters, not its code); reward
     rules and verifiers - the parts of a mechanism - by class and public attributes; policies by their
     ``describe()``; any other object only by class and ``name`` (its attributes may hold clients,
     caches or other run state). Never contains memory addresses, so hashes agree across processes.
@@ -83,7 +84,9 @@ def describe_config(obj: Any, _depth: int = 8, _seen: frozenset[int] = frozenset
         return {"partial": sub(obj.func), "args": sub(obj.args), "keywords": sub(obj.keywords)}
     if isinstance(obj, types.MethodType):
         return {"method": _qualname(obj.__func__), "of": deeper(obj.__self__)}
-    if isinstance(obj, (types.FunctionType, types.BuiltinFunctionType, type)):
+    if isinstance(obj, types.FunctionType):
+        return _describe_function(obj, deeper)
+    if isinstance(obj, (types.BuiltinFunctionType, type)):
         return _qualname(obj)
     if isinstance(obj, BaseModel):
         return {"class": _qualname(type(obj)), **{f: deeper(getattr(obj, f)) for f in type(obj).model_fields}}
@@ -96,6 +99,32 @@ def describe_config(obj: Any, _depth: int = 8, _seen: frozenset[int] = frozenset
     if isinstance(getattr(obj, "name", None), str):
         out["name"] = obj.name
     return out
+
+
+def _describe_function(fn: types.FunctionType, describe: Callable[[Any], Any]) -> Any:
+    """A function's qualified name, plus the plain values it closes over or defaults to: its behaviour
+    depends on them, so ``length_penalty(1.0)`` and ``length_penalty(100.0)`` - or an audit oracle built
+    with another noise level - must give different config hashes and episode ids (a resumed store would
+    otherwise return episodes rewarded under the old rule).
+
+    Only scalars, strings, functions, classes and tuples of them count: mutable closure values (a list of
+    calls, a cache) are usually run state, which must not change episode ids between a run and its
+    resumption.
+    """
+    from so_arena.core.policy import _plain
+
+    code = fn.__code__
+    values: dict[str, Any] = {}
+    for name, cell in zip(code.co_freevars, fn.__closure__ or ()):
+        try:
+            values[name] = cell.cell_contents
+        except ValueError:  # an empty cell (a local assigned after the function was defined)
+            continue
+    positional = code.co_varnames[: code.co_argcount]
+    values.update(zip(positional[len(positional) - len(fn.__defaults__ or ()):], fn.__defaults__ or ()))
+    values.update(fn.__kwdefaults__ or {})
+    params = {k: describe(v) for k, v in sorted(values.items()) if _plain(v) and v is not fn}
+    return {"function": _qualname(fn), "params": params} if params else _qualname(fn)
 
 
 class RoleSpec(BaseModel):
@@ -149,7 +178,9 @@ class Episode(BaseModel):
     reward_details: dict[str, Any] = Field(default_factory=dict)
     # Filled by ground-truth scorers (experimenter side). Keys: role_values, outcome_value, ...
     ground_truth: dict[str, Any] = Field(default_factory=dict)
-    gt_status: Literal["known", "pending", "unknown", "unscored"] = "unscored"
+    # "error": a ground-truth scorer failed (e.g. a sandbox or network error) - the episode is scored again
+    # when its store is resumed, rather than keeping a missing value for good
+    gt_status: Literal["known", "pending", "unknown", "unscored", "error"] = "unscored"
     # model usage of the play; in a sampled game tree each (shared) candidate pool is charged to one
     # canonical leaf, so the tree's leaf episodes sum to its total without double counting
     # (see samplers.pools.expand_tree)

@@ -89,21 +89,7 @@ def describe_callable(fn: Callable[..., Any]) -> Any:
     """
     from so_arena.core.mechanism import describe_config
 
-    desc = describe_config(fn)
-    if not isinstance(fn, types.FunctionType):
-        return desc
-    code = fn.__code__
-    values: dict[str, Any] = {}
-    for name, cell in zip(code.co_freevars, fn.__closure__ or ()):
-        try:
-            values[name] = cell.cell_contents
-        except ValueError:  # an empty cell (a local assigned after the function was defined)
-            continue
-    positional = code.co_varnames[: code.co_argcount]
-    values.update(zip(positional[len(positional) - len(fn.__defaults__ or ()):], fn.__defaults__ or ()))
-    values.update(fn.__kwdefaults__ or {})
-    params = {k: describe_config(v) for k, v in sorted(values.items()) if _plain(v)}
-    return {"function": desc, "params": params} if params else desc
+    return describe_config(fn)  # functions are described with their closure and default values there
 
 
 class ActContext:
@@ -123,12 +109,16 @@ class ActContext:
         tools: dict[str, Tool] | None = None,
         seed: int = 0,
         workspace: "Workspace | WorkspaceSlot | None" = None,
+        draw: str = "",
     ):
         self.role = role
         self.sample_index = sample_index
         self.game = game
         self.tools = tools or {}
         self.seed = seed
+        # which role's decision this is: model calls carry it (GenerateOptions.draw), so that identical
+        # prompts from different roles or decisions are separate samples, in the cache and for seeded backends
+        self.draw = draw
         self.rng = random.Random(stable_hash(seed, role, sample_index))
         self.usage = Usage()
         from so_arena.core.state import Workspace as _Workspace, WorkspaceSlot as _Slot
@@ -143,6 +133,8 @@ class ActContext:
 
     async def generate(self, model: "Model", messages: Sequence[Message], options: GenerateOptions | None = None,
                        *, sample_offset: int = 0) -> Completion:
+        if self.draw:
+            options = (options or GenerateOptions()).merged(draw=self.draw)
         out = await model.generate(list(messages), options, sample_index=self.sample_index * 1000 + sample_offset)
         self.usage = self.usage + out.usage
         return out
@@ -360,7 +352,7 @@ class LLMPolicy(Policy):
             "type": "LLMPolicy",
             "id": self.id,
             "label": self.label,
-            "model": self.model.name,
+            "model": self.model.identity,
             "strategy": self.strategy,
             "system_prompt": self.system_prompt,
             "temperature": self.temperature,
@@ -661,7 +653,7 @@ class BestOfNPolicy(Policy):
                 sub_slot = WorkspaceSlot(slot.store, slot.parent, slot.access) if fork else slot
                 slots.append(sub_slot)
                 sub = ActContext(role=ctx.role, sample_index=ctx.sample_index * self.n + i, game=ctx.game,
-                                 tools=ctx.tools, seed=stable_hash(ctx.seed, i), workspace=sub_slot)
+                                 tools=ctx.tools, seed=stable_hash(ctx.seed, i), workspace=sub_slot, draw=ctx.draw)
                 records.append([])
                 with using_workspace(sub_slot) if fork else contextlib.nullcontext(), recording_tool_calls(records[i]):
                     a = await self.base.act(request, sub)
@@ -670,7 +662,9 @@ class BestOfNPolicy(Policy):
                         s = await s
                 ctx.usage = ctx.usage + sub.usage
                 cands.append((float(s), i, a))
-            best = max(cands, key=lambda t: (t[0], -t[1]))
+            # a NaN score (e.g. a preview judge that failed to parse) ranks below every real one: max() would
+            # otherwise keep whichever candidate came first against it
+            best = max(cands, key=lambda t: (not math.isnan(t[0]), t[0] if not math.isnan(t[0]) else 0.0, -t[1]))
         except BaseException:
             for s_ in slots if fork else ():
                 s_.close(keep=False)

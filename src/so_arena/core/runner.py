@@ -173,13 +173,17 @@ async def score_episode(ep: Episode, item: TaskItem, scorers: Sequence[GroundTru
         return ep
     if not item.has_ground_truth and item.ground_truth is None:
         ep.gt_status = "unknown"
+    failed = False
     for s in scorers:  # merged incrementally, so later scorers can read earlier results
         try:
             part = await s.score(ep, item, ctx)
         except Exception as e:  # a failing scorer should not lose the episode
             part = {f"error_{s.name}": repr(e)}
+            failed = True
         ep.ground_truth = merge_gt([ep.ground_truth, part])
-    if item.has_ground_truth:
+    if failed:
+        ep.gt_status = "error"  # scored again on resumption: a transient failure must not stick
+    elif item.has_ground_truth:
         ep.gt_status = "known"  # also when re-scoring an episode that was pending
     elif ep.gt_status == "unscored":
         ep.gt_status = "unknown"
@@ -222,7 +226,7 @@ async def run_episodes(
     store are loaded instead of re-run - those with the same :func:`episode_id`, i.e. the same
     mechanism configuration, item content, players and seed, and both real or both simulated (dry
     runs). Reused episodes whose ground truth was pending are scored again if their item has been
-    resolved since.
+    resolved since, and so are those whose ground-truth scorers failed (``gt_status="error"``).
     """
     from so_arena.config import settings
 
@@ -250,10 +254,10 @@ async def run_episodes(
         eid = _episode_id(ctx.run_id, mechanism, config_hash, item, prof.name, described[id(prof)], rep, seed, simulate)
         if eid in existing:
             ep = existing[eid]
-            if ep.gt_status == "pending" and item.has_ground_truth:
-                # resolved since it was played: keep the play (re-running would answer after the
-                # resolution) and score it against the ground truth now available
-                ep = await score_episode(ep.model_copy(deep=True), item, scorers, ctx)
+            if ep.gt_status in ("pending", "error") and item.has_ground_truth:
+                # resolved since it was played, or its scoring failed: keep the play (re-running would
+                # answer after the resolution) and score it (again, from scratch) against the ground truth
+                ep = await score_episode(ep.model_copy(deep=True, update={"ground_truth": {}}), item, scorers, ctx)
                 if store is not None:
                     store.append(ep)
             progress.tick()
@@ -280,6 +284,11 @@ async def run_episodes(
     if n_err:
         log.warning("%d/%d episodes errored; first error:\n%s", n_err, len(eps),
                     next(e.error for e in eps if e.error))
+    gt_err = [e for e in eps if e.gt_status == "error"]
+    if gt_err:
+        first = next((v for k, v in gt_err[0].ground_truth.items() if k.startswith("error_")), "?")
+        log.warning("ground truth of %d/%d episodes failed (scored again when the store is resumed); first: %s",
+                    len(gt_err), len(eps), first)
     return eps
 
 

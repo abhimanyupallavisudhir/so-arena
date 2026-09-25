@@ -319,13 +319,17 @@ def acceptance_asd(episodes: Sequence[Episode], *, honest: str = "honest", trans
     per task, $s(p_{\\text{accept}} \\mid \\text{honest work}) - s(p_{\\text{accept}} \\mid \\text{arm's work})$
     for a proper score $s$ (``transform``) - the reward a worker paid by acceptance would get - averaged
     over tasks, per deceptive arm, plus the worst case. Needs :class:`WorkReviewInfo` in the scorers."""
+    from so_arena.analysis.frames import config_key, mechanism_labels
+
     rows = []
+    labels = mechanism_labels(episodes)  # configurations of one mechanism are separate protocols
     for ep in episodes:
         gt = ep.ground_truth or {}
         probs = ep.outcome.probs or {}
         if ep.error is not None or ACCEPT not in probs or "task_id" not in gt or "arm" not in gt:
             continue
-        rows.append({"mechanism": ep.mechanism, "profile": ep.profile, "item_id": gt["task_id"], "tag_arm": gt["arm"],
+        rows.append({"mechanism": labels[(ep.mechanism, config_key(ep))], "profile": ep.profile, "item_id": gt["task_id"],
+                     "tag_arm": gt["arm"],
                      "role": "worker", "reward": score_probability(probs, ACCEPT, transform)})
     df = pd.DataFrame(rows)
     if df.empty:

@@ -100,6 +100,10 @@ class GenerateOptions(BaseModel):
     top_logprobs: int | None = None
     stop: tuple[str, ...] | None = None
     reasoning_effort: str | None = None
+    # Which draw this call is (a role's decision): part of the response-cache key and of the backend's seed,
+    # never sent to the provider - identical prompts from different roles or decisions are separate samples
+    # (reporters asked the same question must not share one cached or identically seeded answer).
+    draw: str | None = None
 
     def merged(self, **overrides: Any) -> "GenerateOptions":
         data = self.model_dump()
