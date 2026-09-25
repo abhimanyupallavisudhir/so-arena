@@ -70,3 +70,16 @@ def test_disclosure_theory():
     assert rows[(8, "naive")]["debate_asd"] > 5  # both sides disclosing ⇒ unravelling
     assert rows[(8, "naive")]["propaganda_asd"] < 0.1  # naive judge fooled by selective disclosure
     assert rows[(8, "selection-aware")]["propaganda_asd"] > 5  # a sceptical judge is not
+
+
+def test_reporting_advantage_polynomial_identity_and_unique_mixed_equilibrium():
+    import numpy as np
+
+    for m in (2, 3, 5, 8):
+        p = sg.SwarmParams(n=m + 1, g=0.3, b=0.1, a=0.2, c=0.05, o=1.0)
+        for q in (0.1, 0.5, 0.9):
+            u = 1 - q
+            closed = p.c + p.b / m * sum(u**j for j in range(m)) - (1 - p.a) * (p.g + p.c) * u ** (m - 1)
+            assert sg.expected_advantage(q, m, p) == pytest.approx(closed, abs=1e-12)
+        f = np.array([sg.expected_advantage(q, m, p) for q in np.linspace(1e-3, 1 - 1e-3, 400)])
+        assert np.sum(np.diff(np.sign(f)) != 0) == 1  # exactly one mixed equilibrium (not necessarily monotone)
