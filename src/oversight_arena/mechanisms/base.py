@@ -282,7 +282,7 @@ class EpisodeContext:
             response=response,
             tools=tool_list,
             claim_help=self._claim_help(role),
-            seed=sample_index(role, b.seed if b else 0, self.seed),
+            seed=sample_index(role, b.seed_for(step) if b else 0, self.seed),
             turn=turn,
             step=step,
             params=dict(b.params) if b else {},

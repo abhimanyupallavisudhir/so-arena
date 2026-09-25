@@ -96,7 +96,8 @@ class Strategy(BaseModel):
             return w.id if w is not None else wrong[0]
         return rng_for("incorrect", task.id, seed).choice(wrong)
 
-    def bind(self, task: Task, role: str, seed: int = 0, position: str | None = None) -> "BoundStrategy":
+    def bind(self, task: Task, role: str, seed: int = 0, position: str | None = None,
+             step_seeds: dict[str, int] | None = None) -> "BoundStrategy":
         target = position if position is not None else self.resolve_target(task, seed)
         target_text = ""
         others: list[str] = []
@@ -124,6 +125,7 @@ class Strategy(BaseModel):
             tags=dict(self.tags),
             clearance=list(self.clearance),
             seed=seed,
+            step_seeds=dict(step_seeds or {}),
         )
 
 
@@ -140,14 +142,24 @@ class BoundStrategy(BaseModel):
     tags: dict[str, Any] = Field(default_factory=dict)
     clearance: list[str] = Field(default_factory=list)
     seed: int = 0
+    step_seeds: dict[str, int] = Field(default_factory=dict)
+
+    def seed_for(self, step: str | None) -> int:
+        return self.step_seeds.get(step, self.seed) if step is not None else self.seed
 
 
 class Assignment(BaseModel):
-    """What plays a role in one episode: a strategy, optional explicit position, seed, agent key."""
+    """What plays a role in one episode: a strategy, optional explicit position, seed, agent key.
+
+    ``seed`` is the sample index: distinct seeds give distinct (cached) samples. ``step_seeds``
+    overrides it for particular protocol steps — e.g. a proposer's ``proposal`` and
+    ``rebuttal`` samples vary independently when building game trees (see :class:`GameTree`).
+    """
 
     strategy: Strategy = Field(default_factory=lambda: Strategy(name="default"))
     position: str | None = None  # explicit option id (overrides the strategy's stance)
-    seed: int = 0  # sample index; distinct seeds give distinct (cached) samples
+    seed: int = 0
+    step_seeds: dict[str, int] = Field(default_factory=dict)
     agent: str | None = None  # key into the experiment's agent table (default: role-based lookup)
 
 
@@ -162,7 +174,7 @@ class Profile(BaseModel):
     def id(self) -> str:
         return stable_hash(
             {
-                r: (a.strategy.id, a.position, a.seed, a.agent)
+                r: (a.strategy.id, a.position, a.seed, a.agent) + ((sorted(a.step_seeds.items()),) if a.step_seeds else ())
                 for r, a in sorted(self.assignments.items())
             },
             length=12,

@@ -107,7 +107,7 @@ async def run_episode(
     try:
         for spec in roles:
             a = profile.get(spec.name)
-            bound[spec.name] = a.strategy.bind(task, spec.name, seed=a.seed, position=a.position)
+            bound[spec.name] = a.strategy.bind(task, spec.name, seed=a.seed, position=a.position, step_seeds=a.step_seeds)
             agent_map[spec.name] = table.resolve(spec, a.agent)
     except Exception as e:  # a malformed strategy or missing agent must not abort a whole experiment
         return _error_record(mechanism, task, profile, f"setup failed: {type(e).__name__}: {e}", experiment, seed)
@@ -156,7 +156,7 @@ async def run_episode(
         bound={
             r: BoundInfo(
                 agent=agent_map[r].id, strategy_id=b.strategy_id, strategy_name=b.name, stance=b.stance,
-                target=b.target, tags=b.tags, seed=b.seed,
+                target=b.target, tags=b.tags, seed=b.seed, step_seeds=b.step_seeds,
             )
             for r, b in bound.items()
         },

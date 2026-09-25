@@ -22,6 +22,10 @@ class BoundInfo(BaseModel):
     target: str | None = None
     tags: dict[str, Any] = Field(default_factory=dict)
     seed: int = 0
+    step_seeds: dict[str, int] = Field(default_factory=dict)
+
+    def seed_for(self, step: str | None) -> int:
+        return self.step_seeds.get(step, self.seed) if step is not None else self.seed
 
 
 class ChannelUse(BaseModel):

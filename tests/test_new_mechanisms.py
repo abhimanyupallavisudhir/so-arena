@@ -94,3 +94,27 @@ def test_artifact_archetypes():
 
     lib = artifact_library()
     assert len(lib) == len(ARTIFACT_ARCHETYPES) and {s.tags["honest"] for s in lib} == {True, False}
+
+
+def test_game_tree_profiles_nest_samples():
+    from collections import defaultdict
+
+    from oversight_arena.analysis.bon import tree_value, trees_from_results
+    from oversight_arena.experiment.profiles import GameTree
+
+    base = oa.Strategy(name="base", params={"sample": {"claims": (1, 5), "lie_rate": (0.0, 1.0), "side_error": 0.4}})
+    src = GameTree(levels=[("proposer", "proposal", 3), ("critic", "critique", 2), ("proposer", "rebuttal", 2)],
+                   strategies={"proposer": base, "critic": base})
+    dom = HiddenBits(n_tasks=4)
+    res = oa.Experiment(dom, ProposerCritic(critiques=1, rebuttal=True, evidence=EvidencePolicy(budget=3)), AGENTS, src,
+                        progress=False).run()
+    assert len(res) == 4 * 12 and not res.errors
+    proposals = defaultdict(set)
+    for r in res.records:
+        proposals[(r.task_id, r.bound["proposer"].seed_for("proposal"))].add(r.transcript.entries[0].content)
+    assert all(len(v) == 1 for v in proposals.values())  # proposal j is shared by all its descendants
+    trees = trees_from_results(res, [("proposer", "proposal"), ("critic", "critique"), ("proposer", "rebuttal")])
+    assert [len(t.children) for t in trees] == [3] * 4 and all(len(c.children) == 2 for t in trees for c in t.children)
+    pay1, _ = tree_value(trees[0], [1, 1, 1], [True, False, True])
+    pay3, _ = tree_value(trees[0], [3, 1, 1], [True, False, True])
+    assert pay3 >= pay1 - 1e-9  # proposer optimisation cannot lower its expected payoff

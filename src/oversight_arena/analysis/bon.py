@@ -144,19 +144,27 @@ def tree_mesh(
     return pd.DataFrame(rows)
 
 
-def trees_from_results(results, levels: Sequence[str], payoff: str = "accept_prob", gt: tuple[str, str] | None = ("correct", "proposer")) -> list[Node]:
+def trees_from_results(results, levels: Sequence[str | tuple[str, str]], payoff: str = "accept_prob",
+                       gt: tuple[str, str] | None = ("correct", "proposer")) -> list[Node]:
     """Build game trees from episodes whose profiles vary role seeds jointly.
 
-    ``levels`` are role names in move order (e.g. ["proposer", "critic"]); a node at each level
-    is identified by that role's (strategy, sample index). Episodes sharing the same task and
-    the same prefix are siblings. ``payoff`` is read from ``record.outcome``.
+    ``levels`` are the moves in order, as role names or (role, step) pairs — e.g.
+    ``[("proposer", "proposal"), ("critic", "critique"), ("proposer", "rebuttal")]`` for episodes
+    generated with :class:`~oversight_arena.experiment.profiles.GameTree`. A node at each level
+    is identified by that role's (strategy, sample index for the step). Episodes sharing the
+    same task and the same prefix are siblings. ``payoff`` is read from ``record.outcome``.
     """
     recs = results.records if hasattr(results, "records") else results
     by_task: dict[str, dict] = {}
     for r in recs:
         if r.error:
             continue
-        path = tuple((r.bound[lv].strategy_id, r.bound[lv].seed) if lv in r.bound else ("", 0) for lv in levels)
+        path = []
+        for lv in levels:
+            role, step = (lv, None) if isinstance(lv, str) else lv
+            b = r.bound.get(role)
+            path.append((b.strategy_id, b.seed_for(step)) if b is not None else ("", 0))
+        path = tuple(path)
         val = r.outcome.get(payoff)
         g = r.gt.get(gt[0], {}).get(gt[1]) if gt else None
         tree = by_task.setdefault(r.task_id, {})

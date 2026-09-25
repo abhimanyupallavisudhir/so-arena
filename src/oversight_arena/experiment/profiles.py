@@ -146,6 +146,32 @@ class Seeds(ProfileSource):
         return out
 
 
+class GameTree(ProfileSource):
+    """Nested samples for game-tree analyses of sequential protocols (as in *Debate with self-play
+    best-of-N optimisation*): e.g. ``levels=[("proposer", "proposal", 8), ("critic", "critique", 8),
+    ("proposer", "rebuttal", 4)]`` yields 8·8·4 profiles; with a caching model the proposal for
+    index j is shared by all its descendants, critique k is drawn given proposal j, and so on —
+    so the episodes form trees. Analyse with
+    :func:`~oversight_arena.analysis.bon.trees_from_results` + :func:`tree_value` / :func:`tree_mesh`.
+    """
+
+    levels: list[tuple[str, str, int]]
+    strategies: dict[str, Strategy] = Field(default_factory=dict)
+
+    def profiles(self, task: Task, roles: list[RoleSpec]) -> list[Profile]:
+        out = []
+        for idx in itertools.product(*[range(n) for _, _, n in self.levels]):
+            steps: dict[str, dict[str, int]] = {}
+            for (role, step, _), k in zip(self.levels, idx):
+                steps.setdefault(role, {})[step] = k
+            asg = {r: Assignment(strategy=self.strategies.get(r, Strategy(name="default")), step_seeds=st)
+                   for r, st in steps.items()}
+            for r, strat in self.strategies.items():
+                asg.setdefault(r, Assignment(strategy=strat))
+            out.append(Profile(assignments=asg, label="/".join(f"{step}#{k}" for (_, step, _), k in zip(self.levels, idx))))
+        return out
+
+
 class ProductProfiles(ProfileSource):
     """Merge profiles from several sources (later sources override earlier per role)."""
 
