@@ -14,13 +14,14 @@ from __future__ import annotations
 import abc
 import asyncio
 import contextlib
+import contextvars
 import enum
 import hashlib
 import math
 import random
 import types
 from collections import Counter
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any
 
 from so_arena.core.actions import Action, ActionRequest
@@ -45,6 +46,32 @@ if TYPE_CHECKING:
 
 def stable_hash(*parts: Any) -> int:
     return int(hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12], 16)
+
+
+_TOOL_CALLS: contextvars.ContextVar["list[dict[str, Any]] | None"] = contextvars.ContextVar("so_arena_tool_calls",
+                                                                                             default=None)
+
+
+@contextlib.contextmanager
+def recording_tool_calls(sink: list[dict[str, Any]] | None) -> Iterator[list[dict[str, Any]] | None]:
+    """Collect the tool calls made in this context into ``sink``: the trusted record of a decision.
+
+    The game opens one sink per sampled candidate. It is context-local, so wrappers that sample several
+    candidates per decision (e.g. :class:`BestOfNPolicy`) give each candidate a sink of its own and pass
+    on only the kept candidate's records - a discarded attempt is not part of what the role did.
+    """
+    token = _TOOL_CALLS.set(sink)
+    try:
+        yield sink
+    finally:
+        _TOOL_CALLS.reset(token)
+
+
+def record_tool_call(record: dict[str, Any]) -> None:
+    """Add a tool call to the current context's record (no-op outside a recorded decision)."""
+    sink = _TOOL_CALLS.get()
+    if sink is not None:
+        sink.append(record)
 
 
 def _plain(v: Any) -> bool:
@@ -123,7 +150,10 @@ class ActContext:
     async def call_tool(self, name: str, args: str) -> str:
         tool = self.tools.get(name)
         if tool is None:
-            return f"error: unknown tool {name!r}; available: {sorted(self.tools)}"
+            # an attempt is part of the trusted record too, so it matches what an LLM policy reports
+            msg = f"error: unknown tool {name!r}; available: {sorted(self.tools)}"
+            record_tool_call({"name": name, "args": args, "result": msg, "error": True})
+            return msg
         from so_arena.core.state import _CURRENT, using_workspace
 
         def _current_slot():
@@ -252,6 +282,12 @@ def finalize_from_text(request: ActionRequest, text: str, *, reasoning: str | No
 
 # ------------------------------------------------------------------------------------ LLM policy
 
+# the investigation before a decision that is not free text (see LLMPolicy's ``investigate``)
+INVESTIGATE_PROMPT = ("Before you answer, investigate: use your tools to check whatever you need for this decision. "
+                      "Then write brief notes on what you found - they are private, only you will see them. Do not "
+                      "give your answer yet: you will be asked for it next.")
+DECIDE_PROMPT = "Your investigation is over (no more tool calls). Now give your answer."
+
 
 class LLMPolicy(Policy):
     """A prompted language model.
@@ -266,6 +302,10 @@ class LLMPolicy(Policy):
         cot: ask the model to reason privately in ``<thinking>`` tags; the reasoning is recorded but
             only shown to roles allowed to see it (e.g. a CoT monitor).
         use_tools: allow calling the tools the role is granted.
+        investigate: before a decision that is not free text (a choice, probabilities, a score, JSON), let
+            a role with tools investigate first: the tool loop, ending in brief private notes; the decision
+            is then elicited (verbalized, by logprobs or by vote) after the investigation. Without it such
+            decisions use no tools - e.g. a reviewer with read access to the work could not inspect it.
     """
 
     def __init__(
@@ -285,6 +325,7 @@ class LLMPolicy(Policy):
         seed: int | None = None,
         label: str | None = None,
         id: str | None = None,
+        investigate: bool = True,
     ):
         from so_arena.models.base import get_model
 
@@ -298,6 +339,7 @@ class LLMPolicy(Policy):
         self.n_votes = n_votes
         self.cot = cot
         self.use_tools = use_tools
+        self.investigate = investigate
         self.max_tool_calls = max_tool_calls
         self.reasoning_effort = reasoning_effort
         self.seed = seed
@@ -327,6 +369,7 @@ class LLMPolicy(Policy):
             "n_votes": self.n_votes,
             "cot": self.cot,
             "use_tools": self.use_tools,
+            "investigate": self.investigate,
             "max_tool_calls": self.max_tool_calls,
             "reasoning_effort": self.reasoning_effort,
             "seed": self.seed,
@@ -348,7 +391,7 @@ class LLMPolicy(Policy):
             extra.append(self.system_prompt)
         if self.strategy:
             extra.append("Your strategy:\n" + self.strategy)
-        if request.kind == "text" and self.use_tools and request.allow_tools and ctx.tools:
+        if self._tools_on(request, ctx) and (request.kind == "text" or self.investigate):
             extra.append(tool_instructions(ctx.tools, self.max_tool_calls))
         if self.cot and not (request.kind == "probabilities" and self.elicitation == "logprobs"):
             extra.append(
@@ -357,22 +400,42 @@ class LLMPolicy(Policy):
             )
         return _with_system(msgs, "\n\n".join(extra))
 
+    def _tools_on(self, request: ActionRequest, ctx: ActContext) -> bool:
+        return bool(self.use_tools and request.allow_tools and ctx.tools)
+
     async def act(self, request: ActionRequest, ctx: ActContext) -> Action:
         msgs = self._compose(request, ctx)
+        # Tools serve free text directly; any other decision (a reviewer's verdict, a monitor's score) is made
+        # after an investigation, in whatever way it is elicited - logprobs and votes cannot run tools.
+        calls: list[dict] = []
+        notes: str | None = None
+        if request.kind != "text" and self.investigate and self._tools_on(request, ctx):
+            msgs, calls, notes = await self._investigate(msgs, ctx)
         if request.kind == "probabilities" and self.elicitation in ("logprobs", "vote"):
-            return await self._elicit_probs(request, msgs, ctx)
-        msgs = _append_user(msgs, format_instructions(request, self.elicitation))
-        text, reasoning, tool_calls, meta = await self._generate_with_tools(request, msgs, ctx)
-        action = finalize_from_text(request, text, reasoning=reasoning)
-        action.tool_calls = tool_calls
-        if meta:
-            # white-box backends can attach e.g. probe readings to completions; monitors read them here
-            action.metadata["completion"] = meta
-            if "probe_scores" in meta:
-                action.metadata["probe_scores"] = meta["probe_scores"]
+            action = await self._elicit_probs(request, msgs, ctx)
+        else:
+            msgs = _append_user(msgs, format_instructions(request, self.elicitation))
+            text, reasoning, tool_calls, meta = await self._generate_with_tools(request, msgs, ctx,
+                                                                                tools=request.kind == "text")
+            action = finalize_from_text(request, text, reasoning=reasoning)
+            action.tool_calls = tool_calls
+            if meta:
+                # white-box backends can attach e.g. probe readings to completions; monitors read them here
+                action.metadata["completion"] = meta
+                if "probe_scores" in meta:
+                    action.metadata["probe_scores"] = meta["probe_scores"]
+        if calls or notes:  # the investigation is part of the decision's record, and private
+            action.tool_calls = calls + action.tool_calls
+            action.reasoning = "\n\n".join(r for r in (notes, action.reasoning) if r) or None
         return action
 
-    async def _generate_with_tools(self, request, msgs, ctx) -> tuple[str, str | None, list[dict], dict]:
+    async def _tool_loop(self, msgs: list[Message], ctx: ActContext, *, tools: bool
+                         ) -> tuple[str, list[Message], list[str], list[dict], dict]:
+        """Generate; while the response calls a tool (and ``tools``), run it and continue with the result.
+
+        Returns the final response (tool tags removed), the conversation it answers, native reasoning, the
+        tool calls and the final completion's metadata. Simulated completions call no tools: one call.
+        """
         tool_calls: list[dict] = []
         convo = list(msgs)
         reasoning_parts: list[str] = []
@@ -382,18 +445,35 @@ class LLMPolicy(Policy):
             meta = {k: v for k, v in out.metadata.items() if k != "simulated"}
             if out.reasoning:
                 reasoning_parts.append(out.reasoning)
-            m = TOOL_CALL_RE.search(raw) if (ctx.tools and self.use_tools and request.allow_tools) else None
+            m = TOOL_CALL_RE.search(raw) if tools else None
             if m is None or step == self.max_tool_calls:
-                public, cot = split_reasoning(TOOL_CALL_RE.sub("", raw)) if self.cot else (TOOL_CALL_RE.sub("", raw).strip(), None)
-                if cot:
-                    reasoning_parts.append(cot)
-                return public, ("\n\n".join(reasoning_parts) or None), tool_calls, meta
+                return TOOL_CALL_RE.sub("", raw), convo, reasoning_parts, tool_calls, meta
             name, args = m.group("name"), m.group("args").strip()
             result = await ctx.call_tool(name, args)
             tool_calls.append({"name": name, "args": args, "result": result})
             prefix = raw[: m.end()]
             convo = convo + [Message.assistant(prefix), Message.user(f'<tool_result name="{name}">\n{result}\n</tool_result>')]
-        return "", None, tool_calls, {}  # pragma: no cover
+        return "", convo, reasoning_parts, tool_calls, {}  # pragma: no cover
+
+    async def _generate_with_tools(self, request, msgs, ctx, *, tools: bool | None = None
+                                   ) -> tuple[str, str | None, list[dict], dict]:
+        raw, _, reasoning_parts, tool_calls, meta = await self._tool_loop(
+            msgs, ctx, tools=self._tools_on(request, ctx) if tools is None else tools)
+        public, cot = split_reasoning(raw) if self.cot else (raw.strip(), None)
+        if cot:
+            reasoning_parts.append(cot)
+        return public, ("\n\n".join(reasoning_parts) or None), tool_calls, meta
+
+    async def _investigate(self, msgs: list[Message], ctx: ActContext) -> tuple[list[Message], list[dict], str | None]:
+        """Use the tools, then write private notes. Returns the conversation in which the decision is then
+        elicited (the investigation, the notes, and a request to decide), the tool calls, and the private
+        reasoning (native reasoning and the notes)."""
+        convo = _append_user(msgs, INVESTIGATE_PROMPT)
+        raw, convo, reasoning, calls, _ = await self._tool_loop(convo, ctx, tools=True)
+        notes = raw.strip()
+        public, cot = split_reasoning(notes) if self.cot else (notes, None)
+        decide = convo + [Message.assistant(notes or "(no notes)"), Message.user(DECIDE_PROMPT)]
+        return decide, calls, "\n\n".join(r for r in (*reasoning, cot, public) if r) or None
 
     async def _elicit_probs(self, request, msgs, ctx) -> Action:
         opts = request.options or []
@@ -570,17 +650,20 @@ class BestOfNPolicy(Policy):
 
         # Candidates are seeded from the decision (independent draws across items and episodes). With state
         # access each works on its own copy of the decision's starting state, and the chosen candidate's
-        # copy becomes the decision's - as for the sampled candidates of a game tree.
+        # copy becomes the decision's - as for the sampled candidates of a game tree. Each candidate's tool
+        # calls are recorded separately, and only the chosen one's join the decision's trusted record.
         slot = ctx._slot
         fork = slot is not None and slot.ws is None and bool(slot.parent)
-        cands, slots = [], []
+        outer = _TOOL_CALLS.get()
+        cands, slots, records = [], [], []
         try:
             for i in range(self.n):
                 sub_slot = WorkspaceSlot(slot.store, slot.parent, slot.access) if fork else slot
                 slots.append(sub_slot)
                 sub = ActContext(role=ctx.role, sample_index=ctx.sample_index * self.n + i, game=ctx.game,
                                  tools=ctx.tools, seed=stable_hash(ctx.seed, i), workspace=sub_slot)
-                with using_workspace(sub_slot) if fork else contextlib.nullcontext():
+                records.append([])
+                with using_workspace(sub_slot) if fork else contextlib.nullcontext(), recording_tool_calls(records[i]):
                     a = await self.base.act(request, sub)
                     s = self.scorer(request, a, sub)
                     if asyncio.iscoroutine(s):
@@ -598,6 +681,8 @@ class BestOfNPolicy(Policy):
                     s_.close(keep=False)
             slot.close(keep=False)
             slot.ws = slots[best[1]].ws
+        if outer is not None:
+            outer.extend(records[best[1]])
         best[2].metadata["bon_scores"] = [c[0] for c in cands]
         return best[2]
 

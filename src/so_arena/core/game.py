@@ -28,8 +28,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from so_arena.core.actions import Action, ActionKind, ActionRequest, GameView, TurnView
 from so_arena.core.items import TaskItem
-from so_arena.core.policy import ActContext, Policy, stable_hash
-from so_arena.core.state import Environment, StateStore, Workspace, WorkspaceSlot, diff_trees, using_workspace
+from so_arena.core.policy import ActContext, Policy, record_tool_call, recording_tool_calls, stable_hash
+from so_arena.core.state import Environment, StateStore, WorkspaceSlot, diff_trees, using_workspace
 from so_arena.core.tools import Tool
 from so_arena.core.types import Message, Usage
 from so_arena.core.verification import (
@@ -49,10 +49,12 @@ _ACCESS_ORDER = {"none": 0, "read": 1, "write": 2}
 
 
 class _RecordingTool(Tool):
-    """Delegates to a tool and records each call (the trusted record of what a role did, whatever its policy)."""
+    """Delegates to a tool and records each call (the trusted record of what a role did, whatever its policy)
+    in the current context's sink (see :func:`~so_arena.core.policy.recording_tool_calls`): one per sampled
+    candidate, and one per candidate of a best-of-N policy, so a discarded attempt never enters the record."""
 
-    def __init__(self, inner: Tool, sink: list[dict[str, Any]]):
-        self.inner, self.sink = inner, sink
+    def __init__(self, inner: Tool):
+        self.inner = inner
         self.name, self.description, self.example = inner.name, inner.description, inner.example
 
     def __getattr__(self, attr: str) -> Any:
@@ -63,7 +65,7 @@ class _RecordingTool(Tool):
 
     async def call(self, args, item, game=None):
         res = await self.inner.call(args, item, game)
-        self.sink.append({"name": self.inner.name, "args": args, "result": res.output, "error": res.error})
+        record_tool_call({"name": self.inner.name, "args": args, "result": res.output, "error": res.error})
         return res
 
 
@@ -250,6 +252,9 @@ class Game:
         self.state = state
         self.base_state = base_state if base_state is not None else state
         self._group_writers: dict[str, str] = {}
+        self._group_state: dict[str, str | None] = {}  # simultaneous group -> the state its movers act on
+        # reverts of stateful work (state_without): reverted roles ("a,b") -> paths whose changes did not merge
+        self.revert_conflicts: dict[str, list[str]] = {}
         import random
 
         self.rng = random.Random(stable_hash(seed, episode_id))
@@ -399,7 +404,12 @@ class Game:
 
     def state_without(self, roles: Sequence[str]) -> str | None:
         """The state as if ``roles`` had never changed it: the task's starting state plus every other
-        role's state changes, replayed file by file in order (reverting a contribution)."""
+        role's state changes, merged in order (reverting a contribution; see
+        :meth:`~so_arena.core.state.StateStore.replay_with_conflicts`).
+
+        Where a kept change overlaps a reverted one, the entry keeps neither and the revert is not clean:
+        its paths are recorded in :attr:`revert_conflicts` (under the reverted roles, e.g. ``"worker_1"``)
+        for mechanisms and audits to report."""
         if self.state is None or self.base_state is None:
             return self.state
         excluded, transitions, current = set(roles), [], self.base_state
@@ -408,7 +418,9 @@ class Game:
                 if t.role not in excluded:
                     transitions.append((current, t.state))
                 current = t.state
-        return self.states.replay(self.base_state, transitions)
+        sid, conflicts = self.states.replay_with_conflicts(self.base_state, transitions)
+        self.revert_conflicts[",".join(sorted(excluded))] = conflicts
+        return sid
 
     def state_diff(self, since: str | None = None, **kw: Any) -> str:
         """Reviewer-readable changes from ``since`` (default: the task's starting state) to the current state.
@@ -432,9 +444,10 @@ class Game:
         return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
     async def _produce(self, role: str, request: ActionRequest, sample_index: int, key: str = "",
-                       budget_used: int = 0, access: str | None = None) -> _Produced:
-        """Sample one candidate action; ``budget_used`` is how many verifications ``role`` has already
-        used on this play (each candidate is charged separately: siblings never share a budget)."""
+                       budget_used: int = 0, access: str | None = None, parent: str | None = None) -> _Produced:
+        """Sample one candidate action on the state ``parent`` (see :meth:`act`); ``budget_used`` is how
+        many verifications ``role`` has already used on this play (each candidate is charged separately:
+        siblings never share a budget)."""
         player = self.players[role]
         # Seed policy randomness from the decision key (+ the episode id outside branch mode, so that
         # repeats differ). In branch mode the episode id depends on the path, so it is excluded:
@@ -443,16 +456,15 @@ class Game:
         # A role with state access acts in its own working copy of the current state (one per sampled
         # candidate); with write access the frozen copy becomes the state the rest of the play sees.
         access = self.state_access(role, access)
-        parent = self.state
         slot = WorkspaceSlot(self.states, parent, access) if access != "none" and parent else None
         # repeats draw fresh samples (distinct cache keys) rather than replaying cached completions
-        calls: list[dict[str, Any]] = []
-        tools = {n: _RecordingTool(t, calls) for n, t in self.tools_for(role, access).items()}
+        calls: list[dict[str, Any]] = []  # this candidate's trusted record of tool calls
+        tools = {n: _RecordingTool(t) for n, t in self.tools_for(role, access).items()}
         actx = ActContext(role=role, sample_index=self.repeat * 10_000 + sample_index, game=self,
                           tools=tools, seed=stable_hash(self.seed, self.item.id, key, eid), workspace=slot)
         new_state: str | None = None
         try:
-            with using_workspace(slot):
+            with using_workspace(slot), recording_tool_calls(calls):
                 action = await player.policy.act(request, actx)
         except BaseException:
             if slot is not None:
@@ -480,31 +492,29 @@ class Game:
         if vs and action.text:
             vp = self.mechanism.verification
             assert vp is not None
-            scratch: Workspace | None = None
-            try:
-                for claim in parse_claims(action.text, role):
-                    v = vs.get(claim.kind)
-                    if v is None:
-                        verifs.append(Verification(claim=claim, status="unknown_kind"))
-                        continue
-                    if vp.budget_per_role is not None and budget_used + checked >= vp.budget_per_role:
-                        verifs.append(Verification(claim=claim, status="over_budget"))
-                        continue
-                    checked += 1
-                    # claims about the state are checked on a scratch copy of the state the claimant left
-                    target = new_state or parent
-                    if getattr(v, "uses_state", False) and scratch is None and target:
-                        scratch = self.states.fork(target, access="read")
-                    try:
-                        with using_workspace(scratch if getattr(v, "uses_state", False) else None):
-                            res = await v.verify(claim, self.item, self)
-                    except Exception as e:  # verifier failures are logged, not fatal
-                        res = Verification(claim=claim, status="error", detail=repr(e))
-                    usage = usage + res.usage
-                    verifs.append(res)
-            finally:
-                if scratch is not None:
-                    self.states.discard(scratch)
+            for claim in parse_claims(action.text, role):
+                v = vs.get(claim.kind)
+                if v is None:
+                    verifs.append(Verification(claim=claim, status="unknown_kind"))
+                    continue
+                if vp.budget_per_role is not None and budget_used + checked >= vp.budget_per_role:
+                    verifs.append(Verification(claim=claim, status="over_budget"))
+                    continue
+                checked += 1
+                # a claim about the state is checked on a fresh scratch copy of the state the claimant left,
+                # one per claim: an earlier claim's command must not rig the state a later claim is checked on
+                target = new_state or parent
+                scratch = self.states.fork(target, access="read") if getattr(v, "uses_state", False) and target else None
+                try:
+                    with using_workspace(scratch):
+                        res = await v.verify(claim, self.item, self)
+                except Exception as e:  # verifier failures are logged, not fatal
+                    res = Verification(claim=claim, status="error", detail=repr(e))
+                finally:
+                    if scratch is not None:
+                        self.states.discard(scratch)
+                usage = usage + res.usage
+                verifs.append(res)
             shown = annotate(action.text, verifs, display=vp.display, show_output=vp.show_output)
         return _Produced(action=action, verifications=verifs, shown=shown, usage=usage, state=new_state, checked=checked)
 
@@ -549,9 +559,12 @@ class Game:
         key = self._node_key(role, request.phase, slot, group)
         # verifications the role used on this play so far (earlier decisions only, like the node key)
         used = sum(n for s, (r, n) in self._verif_used.items() if r == role and s < slot)
+        # the state the decision acts on; simultaneous movers all act on the state the stage began with, as
+        # their views exclude each other's moves (a partner may finish first, in plain runs and in replays)
+        parent = self._group_state.setdefault(group, self.state) if group is not None else self.state
 
         async def sample(i: int) -> _Produced:
-            return await self._produce(role, request, i, key, used, access)
+            return await self._produce(role, request, i, key, used, access, parent)
 
         if self.branch is not None:
             produced, idx = await self.branch.decide(key, role, request.phase, group, slot, sample)
@@ -585,9 +598,14 @@ class Game:
         return a
 
     async def simultaneous(self, calls: Sequence[tuple[str, dict[str, Any]]]) -> list[Action]:
-        """Run several ``act`` calls simultaneously: no participant sees the others' current actions."""
+        """Run several ``act`` calls simultaneously: no participant sees the others' current actions.
+
+        On stateful tasks every mover acts on the state as it was when the stage began (a reader never
+        sees the writer's simultaneous move); the result of the (at most one) writer is the state after it.
+        """
         self._group_counter += 1
         gid = f"g{self._group_counter}"
+        self._group_state[gid] = self.state
         return list(await asyncio.gather(*[self.act(role, group=gid, **kw) for role, kw in calls]))
 
     # ------------------------------------------------------------------------------ export

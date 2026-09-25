@@ -237,5 +237,7 @@ class Team(Mechanism):
             output=self._team_log(g, "grader"),
             data={"team_score": team_score, "team_score_reverted": reverted, "reports": reports,
                   "violators": sorted(violators), "caught": caught or verified_report, "team_roles": self.workers,
-                  "beliefs": beliefs, **({"team_state": team_state} if team_state is not None else {})},
+                  "beliefs": beliefs, **({"team_state": team_state} if team_state is not None else {}),
+                  # stateful tasks: files where a violator's changes could not be cleanly separated from later work
+                  **({"revert_conflicts": dict(g.revert_conflicts)} if g.revert_conflicts else {})},
         )
