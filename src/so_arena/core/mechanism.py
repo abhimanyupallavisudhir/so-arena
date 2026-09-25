@@ -1,0 +1,294 @@
+"""Mechanisms: oversight protocols that also assign rewards to agents.
+
+A scalable-oversight mechanism, in the sense used here, is any protocol (control workflow) together
+with a *reward rule* that scores each trainable agent - so that it can be used for training. Roles
+without rewards (``trainable=False``) are fixtures with fixed behaviour, e.g. a trusted weak judge.
+
+A :class:`Mechanism` is the *game form* (:meth:`protocol`: who acts when, what they see, which tools
+and verifiers they have, what the outcome is) plus a :class:`~so_arena.core.rewards.RewardRule`
+(the payments). Keeping the two separate matters: the same protocol with a different reward rule is
+a different mechanism (debate with log-score vs. win/lose rewards; a team with a common reward vs.
+one with whistleblower bounties), and reward rules can be re-applied to recorded episodes post hoc.
+"""
+
+from __future__ import annotations
+
+import abc
+import datetime as _dt
+import hashlib
+import json
+import traceback
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
+
+from pydantic import BaseModel, Field
+
+from so_arena.core.game import BranchController, Game, Player, RunContext, Turn
+from so_arena.core.items import TaskItem
+from so_arena.core.types import Usage
+from so_arena.core.verification import VerificationPolicy
+
+if TYPE_CHECKING:
+    from so_arena.core.rewards import RewardRule
+
+RoleKind = Literal["agent", "judge", "monitor", "auditor", "grader", "market", "reporter"]
+
+
+class RoleSpec(BaseModel):
+    name: str
+    kind: RoleKind = "agent"
+    trainable: bool = True
+    description: str = ""
+    affordances: list[str] = Field(default_factory=list)  # keys of TaskItem.private it can read
+    tools: list[str] = Field(default_factory=list)  # tool names from the run context
+    sees_reasoning_of: list[str] = Field(default_factory=list)  # roles whose CoT it sees ("*" = all)
+    required: bool = True
+    title: str | None = None
+
+
+class Outcome(BaseModel):
+    """The result of a protocol run."""
+
+    decision: str | None = None  # e.g. the judge's chosen answer, "accept"/"reject"
+    probs: dict[str, float] | None = None  # the deciding role's final distribution
+    output: Any = None  # free-form final output (e.g. the accepted artifact)
+    data: dict[str, Any] = Field(default_factory=dict)  # mechanism-specific (reports, prices, ...)
+
+
+class PlayerRecord(BaseModel):
+    policy_id: str
+    label: str | None = None
+    stance: str | None = None
+    model: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class Episode(BaseModel):
+    """Everything recorded about one run of a mechanism on one item under one profile."""
+
+    id: str
+    run_id: str = "run"
+    item_id: str
+    domain: str = "generic"
+    mechanism: str
+    mechanism_config: dict[str, Any] = Field(default_factory=dict)
+    profile: str = "default"
+    players: dict[str, PlayerRecord] = Field(default_factory=dict)
+    positions: dict[str, str | None] = Field(default_factory=dict)
+    turns: list[Turn] = Field(default_factory=list)
+    outcome: Outcome = Field(default_factory=Outcome)
+    rewards: dict[str, float | None] = Field(default_factory=dict)
+    reward_status: Literal["final", "pending", "error"] = "final"
+    reward_details: dict[str, Any] = Field(default_factory=dict)
+    # Filled by ground-truth scorers (experimenter side). Keys: role_values, outcome_value, ...
+    ground_truth: dict[str, Any] = Field(default_factory=dict)
+    gt_status: Literal["known", "pending", "unknown", "unscored"] = "unscored"
+    usage: dict[str, Usage] = Field(default_factory=dict)
+    tags: dict[str, Any] = Field(default_factory=dict)
+    trainable_roles: list[str] = Field(default_factory=list)
+    role_kinds: dict[str, str] = Field(default_factory=dict)
+    repeat: int = 0
+    seed: int = 0
+    created_at: str = Field(default_factory=lambda: _dt.datetime.now(_dt.timezone.utc).isoformat())
+    error: str | None = None
+
+    # -------------------------------------------------------------------- convenience accessors
+    def reward(self, role: str) -> float | None:
+        return self.rewards.get(role)
+
+    def value(self, role: str) -> float | None:
+        return (self.ground_truth.get("role_values") or {}).get(role)
+
+    def label(self, role: str) -> str | None:
+        p = self.players.get(role)
+        return p.label if p else None
+
+    def turns_of(self, role: str) -> list[Turn]:
+        return [t for t in self.turns if t.role == role]
+
+    def last_turn(self, role: str, phase: str | None = None) -> Turn | None:
+        ts = [t for t in self.turns if t.role == role and (phase is None or t.phase == phase)]
+        return ts[-1] if ts else None
+
+    @property
+    def total_usage(self) -> Usage:
+        total = Usage()
+        for u in self.usage.values():
+            total = total + u
+        return total
+
+    def verifications(self, role: str | None = None) -> list:
+        out = []
+        for t in self.turns:
+            if role is None or t.role == role:
+                out += t.verifications
+        return out
+
+
+class Mechanism(abc.ABC):
+    """Base class for mechanisms. Subclasses define :meth:`roles` and :meth:`protocol`.
+
+    Constructor keyword arguments are stored as the mechanism's config (logged with every episode
+    and used in episode ids, so changing the config never reuses stale results).
+    """
+
+    name: ClassVar[str] = "mechanism"
+    description: ClassVar[str] = ""
+
+    def __init__(self, *, reward: "RewardRule | None" = None, verification: VerificationPolicy | None = None,
+                 name: str | None = None, affordances: dict[str, list[str]] | None = None,
+                 tools: dict[str, list[str]] | None = None, sees_reasoning: dict[str, list[str]] | None = None,
+                 trainable: dict[str, bool] | None = None, **config: Any):
+        """Args (common to all mechanisms):
+            reward: reward rule (defaults to :meth:`default_reward`).
+            verification: which claims are verified and how results are shown.
+            affordances / tools / sees_reasoning: per-role overrides of the role specs. Keys are role
+                names, ``"agents"`` (every agent-kind role) or ``"all"``; values are lists of private
+                item keys / tool names / roles whose chain of thought the role sees.
+            trainable: per-role override of whether a role receives reward (e.g. train the judge).
+        """
+        self.config = config
+        self.role_overrides = {
+            "affordances": dict(affordances or {}),
+            "tools": dict(tools or {}),
+            "sees_reasoning_of": dict(sees_reasoning or {}),
+            "trainable": dict(trainable or {}),
+        }
+        for k, v in self.role_overrides.items():
+            if v:
+                self.config[f"role_{k}"] = v
+        self.reward_rule = reward if reward is not None else self.default_reward()
+        self.verification = verification
+        if name:
+            self.name = name  # type: ignore[misc]
+
+    def role_specs(self) -> dict[str, RoleSpec]:
+        """:meth:`roles` with the per-role overrides applied (this is what the runtime uses)."""
+        specs = {r: s.model_copy(deep=True) for r, s in self.roles().items()}
+        for field in ("affordances", "tools", "sees_reasoning_of"):
+            for key, vals in self.role_overrides[field].items():
+                for r, spec in specs.items():
+                    if key == r or key == "all" or (key == "agents" and spec.kind == "agent"):
+                        setattr(spec, field, sorted(set(getattr(spec, field)) | set(vals)))
+        for key, flag in self.role_overrides["trainable"].items():
+            for r, spec in specs.items():
+                if key == r or key == "all" or (key == "agents" and spec.kind == "agent"):
+                    spec.trainable = bool(flag)
+        return specs
+
+    # ------------------------------------------------------------------ to implement
+    @abc.abstractmethod
+    def roles(self) -> dict[str, RoleSpec]: ...
+
+    @abc.abstractmethod
+    async def protocol(self, g: Game) -> Outcome: ...
+
+    def default_reward(self) -> "RewardRule":
+        from so_arena.core.rewards import NoReward
+
+        return NoReward()
+
+    # ------------------------------------------------------------------ descriptions
+    def role_title(self, role: str, g: Game | None = None) -> str:
+        spec = self.role_specs().get(role)
+        title = (spec.title if spec and spec.title else role.replace("_", " ").title())
+        if g is not None and g.positions.get(role) and (spec is None or spec.kind == "agent"):
+            title += f" (arguing for {g.positions[role]})"
+        return title
+
+    def trainable_roles(self) -> list[str]:
+        return [r for r, s in self.role_specs().items() if s.trainable]
+
+    def describe(self, role: str | None = None) -> str:
+        """Natural-language description of the rules and rewards (given to prompt optimizers that
+        are meant to 'know the mechanism')."""
+        lines = [f"Mechanism: {self.name}. {self.description}".strip()]
+        for r, s in self.role_specs().items():
+            t = "trainable (receives reward)" if s.trainable else "fixed behaviour (no reward)"
+            lines.append(f"- role {r} [{s.kind}, {t}]: {s.description}")
+        lines.append(f"Rewards: {self.reward_rule.describe()}")
+        if self.verification is not None and self.verification.verifiers:
+            names = [v if isinstance(v, str) else v.name for v in self.verification.verifiers]
+            lines.append(f"Verifiable claim kinds: {', '.join(names)}")
+        if self.config:
+            lines.append(f"Config: {json.dumps(self.config, default=str)}")
+        if role:
+            lines.append(f"You are optimizing the behaviour of role '{role}'.")
+        return "\n".join(lines)
+
+    def config_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "class": type(self).__name__,
+            "config": json.loads(json.dumps(self.config, default=str)),
+            "reward": self.reward_rule.describe(),
+            "verification": (
+                [v if isinstance(v, str) else v.name for v in self.verification.verifiers]
+                if self.verification else None
+            ),
+        }
+
+    def config_hash(self) -> str:
+        return hashlib.sha256(json.dumps(self.config_dict(), sort_keys=True).encode()).hexdigest()[:10]
+
+    # ------------------------------------------------------------------ running
+    async def run(
+        self,
+        item: TaskItem,
+        players: dict[str, Player],
+        ctx: RunContext | None = None,
+        *,
+        episode_id: str | None = None,
+        profile: str = "default",
+        branch: BranchController | None = None,
+        tags: dict[str, Any] | None = None,
+        repeat: int = 0,
+        seed: int = 0,
+    ) -> Episode:
+        """Run the protocol on (a censored copy of) ``item`` and compute rewards."""
+        ctx = ctx or RunContext()
+        censored = item.censored() if item.ground_truth is not None or any(
+            a.value is not None for a in item.answers or []) else item
+        eid = episode_id or f"{item.id}:{self.name}:{profile}:{repeat}"
+        g = Game(self, censored, players, ctx=ctx, episode_id=eid, branch=branch, seed=seed)
+        error = None
+        try:
+            outcome = await self.protocol(g)
+        except Exception:
+            outcome = Outcome()
+            error = traceback.format_exc()
+        ep = Episode(
+            id=eid,
+            run_id=ctx.run_id,
+            item_id=item.id,
+            domain=item.domain,
+            mechanism=self.name,
+            mechanism_config=self.config_dict(),
+            profile=profile,
+            players={
+                r: PlayerRecord(policy_id=p.policy.id, label=p.behaviour, stance=p.stance,
+                                model=p.policy.model_name, config=p.policy.describe())
+                for r, p in players.items()
+            },
+            positions=dict(g.positions),
+            turns=list(g.turns),
+            outcome=outcome,
+            usage=dict(g.usage) if branch is None else {},
+            tags=dict(tags or {}),
+            trainable_roles=self.trainable_roles(),
+            role_kinds={r: spec.kind for r, spec in g.roles.items()},
+            repeat=repeat,
+            seed=seed,
+            error=error,
+        )
+        if error is None:
+            try:
+                rewards = await self.reward_rule.acompute(ep, g)
+                ep.rewards = rewards
+                ep.reward_status = "pending" if any(v is None for r, v in rewards.items()
+                                                    if r in ep.trainable_roles) else "final"
+            except Exception:
+                ep.error = traceback.format_exc()
+                ep.reward_status = "error"
+        else:
+            ep.reward_status = "error"
+        return ep

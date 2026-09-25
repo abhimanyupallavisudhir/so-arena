@@ -1,0 +1,24 @@
+# Default model registry. Prices are USD per million tokens and are INDICATIVE (list prices as
+# known when this file was written); verify before budgeting. Ratings are optional and only used
+# for scaling plots. Add entries or load your own file with so_arena.models.registry.load_registry.
+models:
+  - {name: openai/gpt-4o-mini, family: gpt-4o, organization: OpenAI, price_input_per_mtok: 0.15, price_output_per_mtok: 0.60, supports_logprobs: true}
+  - {name: openai/gpt-4o, family: gpt-4o, organization: OpenAI, price_input_per_mtok: 2.50, price_output_per_mtok: 10.0, supports_logprobs: true}
+  - {name: openai/gpt-4.1-nano, family: gpt-4.1, organization: OpenAI, price_input_per_mtok: 0.10, price_output_per_mtok: 0.40, supports_logprobs: true}
+  - {name: openai/gpt-4.1-mini, family: gpt-4.1, organization: OpenAI, price_input_per_mtok: 0.40, price_output_per_mtok: 1.60, supports_logprobs: true}
+  - {name: openai/gpt-4.1, family: gpt-4.1, organization: OpenAI, price_input_per_mtok: 2.00, price_output_per_mtok: 8.00, supports_logprobs: true}
+  - {name: openai/gpt-5-nano, family: gpt-5, organization: OpenAI, price_input_per_mtok: 0.05, price_output_per_mtok: 0.40, reasoning: true}
+  - {name: openai/gpt-5-mini, family: gpt-5, organization: OpenAI, price_input_per_mtok: 0.25, price_output_per_mtok: 2.00, reasoning: true}
+  - {name: openai/gpt-5, family: gpt-5, organization: OpenAI, price_input_per_mtok: 1.25, price_output_per_mtok: 10.0, reasoning: true}
+  - {name: anthropic/claude-3-5-haiku-latest, family: claude-3.5, organization: Anthropic, price_input_per_mtok: 0.80, price_output_per_mtok: 4.00}
+  - {name: anthropic/claude-haiku-4-5, family: claude-4.5, organization: Anthropic, price_input_per_mtok: 1.00, price_output_per_mtok: 5.00, price_cached_input_per_mtok: 0.10}
+  - {name: anthropic/claude-sonnet-4-5, family: claude-4.5, organization: Anthropic, price_input_per_mtok: 3.00, price_output_per_mtok: 15.0, price_cached_input_per_mtok: 0.30}
+  - {name: anthropic/claude-opus-4-5, family: claude-4.5, organization: Anthropic, price_input_per_mtok: 5.00, price_output_per_mtok: 25.0, price_cached_input_per_mtok: 0.50}
+  - {name: google/gemini-2.5-flash-lite, family: gemini-2.5, organization: Google, price_input_per_mtok: 0.10, price_output_per_mtok: 0.40}
+  - {name: google/gemini-2.5-flash, family: gemini-2.5, organization: Google, price_input_per_mtok: 0.30, price_output_per_mtok: 2.50}
+  - {name: google/gemini-2.5-pro, family: gemini-2.5, organization: Google, price_input_per_mtok: 1.25, price_output_per_mtok: 10.0}
+  - {name: together/deepseek-ai/DeepSeek-V3, family: deepseek-v3, organization: DeepSeek, params_b: 671, active_params_b: 37, price_input_per_mtok: 1.25, price_output_per_mtok: 1.25}
+  - {name: openrouter/qwen/qwen3-8b, family: qwen3, organization: Alibaba, params_b: 8, price_input_per_mtok: 0.035, price_output_per_mtok: 0.138}
+  - {name: openrouter/qwen/qwen3-32b, family: qwen3, organization: Alibaba, params_b: 32, price_input_per_mtok: 0.10, price_output_per_mtok: 0.30}
+  - {name: openrouter/meta-llama/llama-3.1-8b-instruct, family: llama-3.1, organization: Meta, params_b: 8, price_input_per_mtok: 0.02, price_output_per_mtok: 0.05, supports_logprobs: true}
+  - {name: openrouter/meta-llama/llama-3.3-70b-instruct, family: llama-3.3, organization: Meta, params_b: 70, price_input_per_mtok: 0.12, price_output_per_mtok: 0.30, supports_logprobs: true}

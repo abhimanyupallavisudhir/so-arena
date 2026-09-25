@@ -1,0 +1,108 @@
+"""Model registry: capability and cost metadata used for scaling curves and cost estimates.
+
+Scaling experiments need to know *how capable* each model is (parameters, training compute, an
+Elo-like rating, a domain rating such as chess Elo) so that metrics can be plotted against the
+agent-judge capability gap. Cost estimation needs prices. Both live in :class:`ModelSpec`.
+
+The bundled ``data/models.yaml`` holds a small default set; prices there are indicative and should
+be checked. Register your own with :func:`register_model` or :func:`load_registry`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, Field
+
+from so_arena.core.types import Usage
+
+
+class ModelSpec(BaseModel):
+    name: str
+    family: str | None = None
+    organization: str | None = None
+    params_b: float | None = None  # total parameters, billions
+    active_params_b: float | None = None  # for mixture-of-experts
+    training_flops: float | None = None
+    release_date: str | None = None
+    ratings: dict[str, float] = Field(default_factory=dict)  # e.g. {"arena_elo": 1250, "chess_elo": 1500}
+    price_input_per_mtok: float | None = None
+    price_output_per_mtok: float | None = None
+    price_cached_input_per_mtok: float | None = None
+    supports_logprobs: bool | None = None
+    reasoning: bool | None = None
+    notes: str | None = None
+
+    def cost(self, usage: Usage) -> float | None:
+        if self.price_input_per_mtok is None or self.price_output_per_mtok is None:
+            return None
+        cached_price = (
+            self.price_cached_input_per_mtok
+            if self.price_cached_input_per_mtok is not None
+            else self.price_input_per_mtok
+        )
+        uncached_in = max(0, usage.input_tokens - usage.cached_input_tokens)
+        return (
+            uncached_in * self.price_input_per_mtok
+            + usage.cached_input_tokens * cached_price
+            + (usage.output_tokens + usage.reasoning_tokens) * self.price_output_per_mtok
+        ) / 1e6
+
+    def rating(self, key: str) -> float | None:
+        return self.ratings.get(key)
+
+
+_REGISTRY: dict[str, ModelSpec] = {}
+
+
+def _norm(name: str) -> str:
+    return name.strip().lower()
+
+
+def register_model(spec: ModelSpec | None = None, **kwargs: Any) -> ModelSpec:
+    spec = spec or ModelSpec(**kwargs)
+    _REGISTRY[_norm(spec.name)] = spec
+    return spec
+
+
+def load_registry(path: str | Path) -> list[ModelSpec]:
+    data = yaml.safe_load(Path(path).read_text())
+    specs = [register_model(ModelSpec(**entry)) for entry in data.get("models", [])]
+    return specs
+
+
+def get_spec(name: str) -> ModelSpec | None:
+    """Look up a spec by exact name, then by suffix (so 'openai/gpt-4o-mini' matches 'gpt-4o-mini')."""
+    if not _REGISTRY:
+        _load_default()
+    key = _norm(name)
+    if key in _REGISTRY:
+        return _REGISTRY[key]
+    for prefix in ("sim/", "openrouter/", "openai/", "anthropic/", "google/", "together/"):
+        key = key.removeprefix(prefix)
+    if key in _REGISTRY:
+        return _REGISTRY[key]
+    tail = key.split("/")[-1]
+    for k, spec in _REGISTRY.items():
+        if k.split("/")[-1] == tail:
+            return spec
+    return None
+
+
+def all_specs() -> list[ModelSpec]:
+    if not _REGISTRY:
+        _load_default()
+    return list(_REGISTRY.values())
+
+
+def _load_default() -> None:
+    path = Path(__file__).resolve().parent.parent / "data" / "models.yaml"
+    if path.exists():
+        load_registry(path)
+
+
+def cost_of(model_name: str, usage: Usage) -> float | None:
+    spec = get_spec(model_name)
+    return spec.cost(usage) if spec else None

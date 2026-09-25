@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "so-arena"
+version = "0.1.0"
+description = "OversightArena: principled experiments on scalable-oversight mechanisms (incentive compatibility, optimization pressure, equilibria)."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Abhimanyu Pallavi Sudhir" }]
+keywords = ["scalable oversight", "debate", "mechanism design", "AI safety", "control", "incentive compatibility"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "pydantic>=2.6",
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "pandas>=2.1",
+  "pyyaml>=6",
+  "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+inspect = ["inspect-ai>=0.3.100"]
+controlarena = ["control-arena>=19", "inspect-ai>=0.3.100"]
+chess = ["chess>=1.10"]
+hf = ["datasets>=2.18"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.100", "chess>=1.10"]
+all = ["inspect-ai>=0.3.100", "control-arena>=19", "chess>=1.10", "datasets>=2.18"]
+
+[project.scripts]
+so-arena = "so_arena.cli:main"
+
+[project.urls]
+Repository = "https://github.com/abhimanyupallavisudhir/so-arena"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/so_arena"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+  "slow: long-running tests",
+  "network: tests that need internet access",
+  "engine: tests that need a local chess engine (stockfish)",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
