@@ -375,19 +375,23 @@ def demo_swarm(out: Path) -> list[Path]:
     pop = [strat[n] for n, _, _ in SWARM_STRATEGIES]
     w0 = _swarm_mix(0.5, 0.1)
     init = [w0[s_.name] for s_ in pop]
+    train_seeds = (3, 4, 5)  # stochastic training: show the mean path over independent runs
     for rname, natural in ((f"bounty {b_hi:g} (> stake)", True), (f"bounty {b_hi:g} (> stake)", False),
                            (f"bounty {b_lo:g} (< stake)", True)):
-        tr = StrategyGradient(dom, Swarm(n_workers=3, rounds=1, reward=rules[rname]), agents, {w: pop for w in workers},
-                              init={w: init for w in workers}, lr=2.0, batch=32, iterations=40, gt_keys=("clean",),
-                              seed=3, natural=natural)
-        traj = asyncio.run(tr.run())
-        for _, r in traj.iterrows():
-            sgd_rows.append({"run": f"{rname} · {'natural PG' if natural else 'REINFORCE'}", "iteration": r["iteration"],
-                             "P(cheat)": np.mean([r[f"p[{w}:cheat·silent]"] + r[f"p[{w}:cheat·report]"] for w in workers]),
-                             "P(report)": np.mean([r[f"p[{w}:cheat·report]"] + r[f"p[{w}:honest·report]"] for w in workers])})
-    sgd = pd.DataFrame(sgd_rows)
+        for seed in train_seeds:
+            tr = StrategyGradient(dom, Swarm(n_workers=3, rounds=1, reward=rules[rname]), agents, {w: pop for w in workers},
+                                  init={w: init for w in workers}, lr=2.0, batch=32, iterations=40, gt_keys=("clean",),
+                                  seed=seed, natural=natural)
+            traj = asyncio.run(tr.run())
+            for _, r in traj.iterrows():
+                sgd_rows.append({"run": f"{rname} · {'natural PG' if natural else 'REINFORCE'}", "seed": seed,
+                                 "iteration": r["iteration"],
+                                 "P(cheat)": np.mean([r[f"p[{w}:cheat·silent]"] + r[f"p[{w}:cheat·report]"] for w in workers]),
+                                 "P(report)": np.mean([r[f"p[{w}:cheat·report]"] + r[f"p[{w}:honest·report]"] for w in workers])})
+    sgd = pd.DataFrame(sgd_rows).groupby(["run", "iteration"], as_index=False)[["P(cheat)", "P(report)"]].mean()
     sgd.to_csv(out / "sampled_training.csv", index=False)
-    fig, ax = P.line_compare(sgd, "iteration", "P(cheat)", "run", title="Sampled training on episodes, starting from silence",
+    fig, ax = P.line_compare(sgd, "iteration", "P(cheat)", "run",
+                             title=f"Sampled training on episodes, starting from silence (mean of {len(train_seeds)} runs)",
                              xlabel="training iteration", ylabel="P(cheat)")
     figs["Sampled training: P(cheat)"] = P.save(fig, out / "sampled_training_cheat.png")
     rep = html_report(Results([]), out / "report.html", title="Swarms: shared objective vs whistleblowing",

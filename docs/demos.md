@@ -100,7 +100,9 @@ falsehood. Every search is re-evaluated on held-out tasks.
 - The basin of the honest outcome from the simulated empirical game matches the mean-field theory
   within 0.04 (theory.md Proposition 6).
 - Sampled training shows algorithm dependence: from a silent start with a bounty above the stake,
-  natural policy gradient deters misconduct while REINFORCE entrenches it.
+  natural policy gradient cuts P(cheat) from 0.5 to about 0.16 in 40 iterations while REINFORCE
+  raises it to 0.8 (mean of 3 runs). The natural-gradient estimate is unbiased but noisy: a rarely
+  played strategy that happens to be sampled gets a large step.
 
 ![Basin: theory vs simulation](figures/swarm_basin.png)
 ![Sampled training](figures/swarm_training.png)
@@ -118,7 +120,7 @@ falsehood. Every search is re-evaluated on held-out tasks.
 - Against the log-reading monitor, a tiny penalty (λ = 0.1) turns overt misbehaviour covert. Alarms
   on misbehaving episodes drop from 100% to about 9%, while misbehaviour persists until λ = 5,
   exactly the theoretical threshold.
-- A fixed-accuracy probe deters misbehaviour at λ = 0.4–0.7.
+- A fixed-accuracy probe deters misbehaviour at λ = 0.5–0.7.
 
 ![Misbehaviour vs penalty](figures/monitoring_misbehaviour.png)
 ![Alarms vs penalty](figures/monitoring_alarms.png)

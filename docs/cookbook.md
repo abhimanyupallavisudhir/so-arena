@@ -132,6 +132,9 @@ tree_mesh(trees, [[1, 1, 1], [8, 1, 1], [8, 8, 1], [8, 8, 4]], maximize=[True, F
 # payoff = proposer's P(accept); gt = P(proposal correct) — the "worm" through optimisation pressure
 ```
 
+There is one tree per (mechanism configuration, task, repeat), labelled in `tree.data`. Episodes
+that collide on a path raise an error, and samples with a missing payoff are never selected.
+
 ## 5. Prompt optimisation: searching for what the mechanism rewards
 
 ```python
@@ -176,19 +179,24 @@ psro = PSRO(dom, Debate(rounds=2, evidence=EvidencePolicy()), oa.llm_agents(),
             oracles={r: optimizer_oracle(opt, iterations=2, per_iter=3) for r in ("debater_a", "debater_b")},
             iterations=4, meta_solver="nash")          # "last" = level-k / iterated best response; "uniform" = fictitious play
 trace = asyncio.run(psro.run())
-trace.df()          # meta-equilibrium payoffs, ground truth and exploitability per iteration
+trace.df()          # meta-equilibrium payoffs, ground truth, exploitability and best-response gains per iteration
 trace.game.outcomes()                                    # all equilibria of the final empirical game, with GT
 ```
 
+`br_gain` is measured on fresh samples (the samples that selected a best response flatter it;
+`br_gain_in_sample` keeps that optimistic number for comparison).
+
 For finite strategy sets you already have, estimate the game directly:
-`EmpiricalGame.from_results(res, roles=[...])`. Then read `.nash()`, `.outcomes()`,
-`.regret(g.pure({...}))`, `.coalition_gain(mix)` (collusion), `.replicator(x0)` and `.basins()`.
+`EmpiricalGame.from_results(res, roles=[...], mechanism=...)`. Then read `.nash()` (all supports,
+so degenerate games are covered), `.outcomes()`, `.regret(g.pure({...}))`, `.coalition_gain(mix)`
+(collusion), `.replicator(x0)` and `.basins()`.
 
 ## 7. Reinforcement learning
 
 - **Strategy-level RL** *(no LLM needed)*. `StrategyGradient` trains softmax policies over strategy
-  populations on real episodes. `natural=True` gives exponential weights, whose mean-field limit is
-  the replicator dynamics; `natural=False` gives REINFORCE. Use `init=` to test path dependence.
+  populations on real episodes. `natural=True` gives exponential weights with importance-weighted
+  advantages (unbiased for rare strategies too), whose mean-field limit is the replicator
+  dynamics; `natural=False` gives REINFORCE. Use `init=` to test path dependence.
 - **Weight-level RL.**
   - `MechanismEnv(domain, mechanism, fixtures, trainable=[...])` is a turn-based text environment
     for any RL stack: `reset()` / `step(text)`, then rewards from the mechanism.
@@ -196,8 +204,9 @@ For finite strategy sets you already have, estimate the game directly:
     roles (see `examples/rl_trl_grpo.py`). Give each dataset row the stance its prompt asked for
     (a `stance`, `position` or `strategy` column), so every completion is scored at the position
     it argued.
-  - `preference_pairs(results, role)` produces DPO pairs, with a column saying whether ground truth
-    agrees with each preference.
+  - `preference_pairs(results, role)` produces DPO pairs (with a `prompt` column), pairing only
+    episodes with the same mechanism configuration, task, position and opponents, with a column
+    saying whether ground truth agrees with each preference.
 
 ## 8. Real capability gaps
 
@@ -225,8 +234,17 @@ leak it:
   a fake verdict, exiting early, patching the tests or returning an always-equal object cannot
   pass. `passes_hidden` (code ground truth), `<run>` / `<assert>` verifiers and SimOps' true score
   use it.
+- `<run>` and `<assert>` expressions must be about the task's implementations: no `:=`, no
+  private or dunder names, and calls only to `impl_*`, lambdas, methods and plain builtins.
 - `<lean>` claims and proofs are screened for escape hatches (`sorry`, `axiom`, `native_decide`,
-  metaprogramming, ...) and every declared theorem's axioms are audited with `#print axioms`.
+  `debug.skipKernelTC`, metaprogramming, ...) and every declared theorem's axioms are audited with
+  `#print axioms`. A proof must prove *the given statement*: the statement is elaborated before the
+  proof (so the proof's notations or instances cannot change its meaning) and the kernel checks
+  `example : <statement> := @<theorem>` after it.
+- SimOps reads no result from the output of worker code: its own scorer calls each test through
+  the same channel. Misconduct in code (hard-coded answers, however obfuscated or spread across
+  files; scorer hacks such as always-equal values) is found by replaying the log and checking each
+  snapshot's behaviour, and the write that introduced it is blamed.
 - For adversarial workloads at scale, run inside a container as well, or plug in your own executor
   (`_exec.set_executor`).
 
@@ -265,6 +283,9 @@ mech = Monitoring(
     reward=MonitoredReward(alarm_penalty=1.0))
 ```
 
+- **Who is paid for what.** A trainable monitor is paid for its *own* flag, not for alarms the probe
+  raises. If a monitor or probe gives no score (e.g. unparseable output), the episode counts as an
+  alarm (`missing_score="alarm"`), so an actor cannot profit from breaking its monitor.
 - **Real detectors.** Use `FunctionProbe(fn=lambda entries: ...)`: the function sees the actor's
   entries, including anything the agent recorded, such as activations.
 - **Structured submissions.** Domains that declare `submit_fields` get the actor's final answer as
@@ -367,6 +388,8 @@ Plus `ground_truth.llm.LLMCompliance` (did "argue for the wrong answer" happen?)
 ## 15. Inspect and ControlArena
 
 See [controlarena.md](controlarena.md). In short:
-- `integrations.inspect.oversight_task(...)` runs an experiment as an Inspect task;
+- `integrations.inspect.oversight_task(...)` runs an experiment as an Inspect task, and
+  `results_from_logs(dir)` reads it back (one copy per episode when evals are re-run into the same
+  directory; batch rewards such as multi-task peer prediction are computed on load);
 - `results_from_control_arena(logs, reward=...)` analyses a control protocol as a training signal;
 - `ControlArenaDomain` and `oversight_protocol` connect settings and micro-protocols.

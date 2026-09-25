@@ -119,8 +119,16 @@ Mechanisms and agents never see a `Task`. They see a `TaskView`, from which valu
 Each role's observation is sanitised for it. Other roles' private reasoning, unshared tool
 traces, evidence it may not see and harness-private data are removed. This applies to
 programmatic agents too. Mechanisms decide who sees what: `visible_to` for messages,
-`reasoning_visible_to` for chains of thought (e.g. a CoT monitor), and `tools_visible_to` for
-tool calls and outputs (e.g. an action monitor).
+`reasoning_visible_to` for chains of thought (e.g. a CoT monitor), `tools_visible_to` for
+tool calls and outputs (e.g. an action monitor), and `data_visible_to` for the structured fields
+of a response (e.g. a programmatic actor's action label, which its monitor must not read).
+
+**Provenance.** In rendered transcripts, text written by the system is marked with reserved
+brackets: speaker labels (`⟦Debater A⟧:`), moderator lines, trusted tool output and verification
+verdicts (`⟦VERIFIED by sql_executor⟧`). Participant-written text (messages, reasoning, tool
+arguments and results, claim text) cannot contain those brackets, look-alikes of them, or
+invisible and direction-changing characters, so it cannot pass itself off as system text. LLM
+agents are told what the brackets mean.
 
 **Built-in domains**, grouped by the kind of gap between experts and the judge:
 
@@ -156,8 +164,11 @@ A mechanism's `EvidencePolicy` decides:
 | `annotate_unchecked` | mark claims over budget as UNCHECKED |
 
 Only trusted code can mark a claim as verified: status marks that agents write themselves are
-stripped. Domain knobs add verifier *strength*, e.g. `ChessMoves.verify_depth` (0 = legality only)
-or the quote length limit. Together these make "what can be proven, by whom, how cheaply, how
+stripped (look-alike letters included). Verifiers check what the claim means, not only that it
+runs: quotes must match whole words, chess lines may not pass (null moves), `<run>` / `<assert>`
+expressions may not rebind or patch the implementations they are about, and `<lean>` snippets may
+not use escape hatches (their axioms are audited). Domain knobs add verifier *strength*, e.g.
+`ChessMoves.verify_depth` (0 = legality only) or the quote length limit. Together these make "what can be proven, by whom, how cheaply, how
 reliably" a systematic experimental factor (see `sweep` and the `hiddenbits` demo).
 
 ## Behaviours: strategies, profiles and samplers
@@ -240,8 +251,14 @@ attached when it arrives (`Results.resolve`).
 repeats concurrently:
 - appends records to `episodes.jsonl`;
 - resumes by deterministic episode keys covering mechanism config, task content, strategies,
-  agents, seed, domain config and clearances;
-- adds newly requested ground-truth scorers to resumed records.
+  agents (for scripted agents: their code, closures, bound arguments and the globals they read),
+  seed, domain config and clearances;
+- recomputes ground truth on resumed records when a scorer is new, has failed, or has changed
+  (scorers are fingerprinted by configuration and code).
+
+Trusted randomness (random audits, simulated probes, verification noise, tie-breaks between
+reporters) uses **common random numbers**: a draw depends on the task, the episode seed and how many
+draws came before, not on the mechanism or strategies, so compared arms see the same audits.
 
 `Results` gives long (`df`) and wide (`episodes_df`) tables, re-scoring, ground-truth resolution and
 persistence. `sweep` runs an experiment factory over a parameter grid. YAML configs and the CLI
@@ -256,8 +273,12 @@ persistence. `sweep` runs an experiment factory over a parameter grid. YAML conf
 | What would a strong optimiser pick? | `ic.frontier` (frontier gap, GT of the argmax, GT regret) |
 | One step of optimisation | `bon.bon_curve` (exact best-of-$n$, with KL), `bon.tree_value` / `tree_mesh` (nested min-max best-of-$n$ on game trees) |
 | Equilibria | `games.EmpiricalGame`: Nash (support enumeration / replicator), regret, exploitability, `outcomes()`, zero-sum value, `replicator`, `fictitious_play`, basins |
-| Beyond IC | `diagnostics`: outcome accuracy and calibration, reward signal-to-noise, slot / verbosity / label biases, compliance, cost |
+| Beyond IC | `diagnostics`: outcome accuracy and calibration (task-clustered CIs), reward signal-to-noise, slot / verbosity / label biases, compliance, cost |
 | Reporting | `plots` (optimisation-pressure curves, bars, heatmaps, replicator fields, regime maps), `report.html_report` (self-contained HTML with transcript browser) |
+
+Analyses group by `mechanism`. Configurations that share a display name (e.g. two unlabelled
+`Debate` variants) get a short hash suffix in `Results.df()`, so they are never pooled, and
+`EmpiricalGame.from_results` refuses to pool several configurations into one game.
 
 ## Releases
 

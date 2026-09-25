@@ -29,7 +29,7 @@ Robust parsing of structured answers out of free-form LLM text.
 - **`parse_choice`**`(text: 'str', options: 'list[str]', option_texts: 'dict[str, str] | None' = None, strict: 'bool' = False) -> 'str | None'` — The option an answer commits to. Explicit forms first (``ANSWER: B``, "the answer is (B)", "(B)"), then an exact option-text mention. Unless ``strict``, fall back to the last standalone option token (weak: prefer asking again, see :class:`LLMAgent`).
 - **`parse_distribution`**`(text: 'str', options: 'list[str]') -> 'dict[str, float] | None'` — Parse a probability distribution over options. Accepts JSON (``{"A": 0.7}``, nested under "probabilities", keys like "Option A", "(A)" or "A (Paris)"), and lines such as ``A: 70%``, ``**A**: 0.7``, ``- A (Paris): 0.8``, ``A) 70%``, ``A - 70%``, ``P(A) = 0.7``, ``"A": .65``. Percentages are detected per distribution. Returns None if nothing parses.
 - **`parse_json`**`(text: 'str') -> 'dict[str, Any] | None'`
-- **`parse_scalar`**`(text: 'str', lo: 'float', hi: 'float', name: 'str' = 'value') -> 'float | None'`
+- **`parse_scalar`**`(text: 'str', lo: 'float', hi: 'float', name: 'str' = 'value') -> 'float | None'` — A number on the scale [lo, hi] from free text or JSON: a labelled value (``NAME: 7``, ``**NAME**: 3/10``, ``NAME = 70%``), else a JSON field, else the last number in range.
 - **`split_thinking`**`(text: 'str') -> 'tuple[str, str | None]'` — Remove <thinking>...</thinking> (or scratchpad/think) blocks; return (public, private).
 
 ## `oversight_arena.agents.scripted`
@@ -69,7 +69,7 @@ Beyond incentive compatibility: outcome quality, reward-signal quality, judge bi
 - **`ece`**`(ep: 'pd.DataFrame', bins: 'int' = 10) -> 'float'` — Expected calibration error of the judge's confidence in its decision (any number of options): confidence = the judge's largest option probability, accuracy = whether the decision was correct.
 - **`length_bias`**`(results, roles: 'str | Sequence[str] | None' = None, gt: 'str' = 'correct', by: 'Sequence[str]' = ('mechanism',)) -> 'pd.DataFrame'` — Within-task Spearman correlation between reward and words written, *holding GT fixed* — a classic judge exploit (verbosity).
 - **`option_label_bias`**`(results, label: 'str' = 'A') -> 'pd.DataFrame'` — Bias toward an option *label*: the judge's mean probability on ``label`` minus how often ``label`` is actually correct (needs ``results.tasks``). Also split by whether it is correct.
-- **`outcome_metrics`**`(results, by: 'Sequence[str]' = ('mechanism',)) -> 'pd.DataFrame'` — Principal-level quality: decision accuracy, judge P(correct), log score, calibration (ECE).
+- **`outcome_metrics`**`(results, by: 'Sequence[str]' = ('mechanism',)) -> 'pd.DataFrame'` — Principal-level quality: decision accuracy, judge P(correct), log score, calibration (ECE). Confidence intervals resample *tasks* (episodes of one task are not independent).
 - **`position_bias`**`(results, roles: 'Sequence[str]' = ('debater_a', 'debater_b'), gt: 'str' = 'correct') -> 'pd.DataFrame'` — Reward advantage of the first vs second slot at equal ground truth (debate order/slot bias).
 - **`reward_snr`**`(results, roles: 'str | Sequence[str] | None' = None, strategy_col: 'str' = 'strategy_name', by: 'Sequence[str]' = ('mechanism',)) -> 'pd.DataFrame'` — Signal-to-noise of the reward as a *training signal*.
 
@@ -116,7 +116,7 @@ Self-contained HTML report for a set of results (tables + figures + transcript b
 
 Statistics helpers: cluster (task-level) bootstrap and summaries.
 
-- **`bootstrap_ci`**`(values: 'Sequence[float] | np.ndarray', stat: 'Callable[[np.ndarray], float]' = <function mean at 0x7f03f9bdc6b0>, n_boot: 'int' = 2000, alpha: 'float' = 0....)` — Point estimate and percentile CI of ``stat`` over i.i.d. units (e.g. per-task values).
+- **`bootstrap_ci`**`(values: 'Sequence[float] | np.ndarray', stat: 'Callable[[np.ndarray], float]' = <function mean at 0x7fa6645ddab0>, n_boot: 'int' = 2000, alpha: 'float' = 0....)` — Point estimate and percentile CI of ``stat`` over i.i.d. units (e.g. per-task values).
 - **`cluster_bootstrap`**`(df: 'pd.DataFrame', cluster: 'str', fn: 'Callable[[pd.DataFrame], float]', n_boot: 'int' = 1000, alpha: 'float' = 0.05, seed: 'int' = 0) -> 'tuple[float, fl...)` — Bootstrap resampling whole clusters (tasks) — the right unit for per-task correlation.
 - **`fmt_ci`**`(est: 'float', lo: 'float', hi: 'float', digits: 'int' = 3) -> 'str'`
 
@@ -230,6 +230,8 @@ Transcripts: ordered entries with per-role visibility, evidence and (private) re
 - **`Entry`** (class)
 - **`Evidence`** (class) — The result of a verification: a claim checked by trusted code (or a trusted oracle).
 - **`Transcript`** (class)
+- **`label`**`(text: 'str') -> 'str'` — A system-written label, e.g. ``⟦Moderator⟧``.
+- **`untrusted`**`(text: 'Any') -> 'str'` — Participant-written text as it may appear in a transcript: no reserved brackets (or their look-alikes), no invisible or direction-changing characters.
 
 ## `oversight_arena.core.types`
 
@@ -247,7 +249,7 @@ Small shared utilities: stable hashing, deterministic RNG, JSON helpers, async h
 
 - **`canonical_json`**`(obj: 'Any') -> 'str'` — Deterministic JSON serialisation (sorted keys, no whitespace) used for hashing.
 - **`clamp`**`(x: 'float', lo: 'float', hi: 'float') -> 'float'`
-- **`code_hash`**`(fn: 'Any') -> 'str'` — Hash of what a function does: bytecode (nested code objects included, never memory addresses), names, defaults and closure contents — e.g. to key scripted agents, so that ``make(0.3)`` and ``make(0.7)`` from one factory hash differently. Stable across processes.
+- **`code_hash`**`(fn: 'Any', *, _seen: 'set[int] | None' = None, _depth: 'int' = 0) -> 'str'` — Hash of what a function does: bytecode (nested code objects included, never memory addresses), names, defaults, closure contents (recursively), the plain values of globals it reads, the bound arguments of ``functools.partial`` and the instance of a bound method — e.g. to key scripted agents, so that ``make(0.3)`` and ``make(0.7)`` from one factory, or ``partial(policy, p=0.3)`` and ``partial(policy, p=0.9)``, hash differently. Stable across processes.
 - **`gather_limited`**`(coros: 'Iterable[Callable[[], Awaitable[T]]]', limit: 'int' = 8) -> 'list[T]'` — Run zero-arg coroutine factories with bounded concurrency, preserving order.
 - **`normalize`**`(d: 'dict[str, float]', eps: 'float' = 0.0) -> 'dict[str, float]'`
 - **`now_iso`**`() -> 'str'`
@@ -308,6 +310,7 @@ Code with hidden tests: an *execution* capability gap (HumanEval+ / MBPP+).
 - **`CodeProposal`** (class) — Open-ended code *generation* tasks (for proposer–critic / monitoring): the artifact is the proposer's code; GT = hidden tests (:class:`CodeArtifactGT`).
 - **`HiddenTestsCode`** (class) — HumanEval+ (default) or MBPP+ with generated subtle mutants.
 - **`RunVerifier`** (class) — ``<run>impl_A([1, 2])</run>`` → trusted execution output; ``<assert>expr</assert>`` checks.
+- **`check_expression`**`(expr: 'str') -> 'str | None'` — Why a ``<run>`` / ``<assert>`` expression is not allowed (None if it is). A verified claim must be *about* the task's implementations, so the expression may not rebind or patch them: no ``:=``, no private or dunder names and attributes, and calls only to ``impl_*``, lambdas, methods of values and plain builtins.
 - **`doc_examples`**`(prompt: 'str') -> 'list[tuple[str, str]]'` — (call, expected) pairs from '>>>' doctest lines.
 - **`exec_tool`**`(resources: 'dict[str, Any]') -> 'Tool'`
 - **`mutants`**`(src: 'str', max_n: 'int' = 30, seed: 'int' = 0) -> 'list[tuple[str, str]]'` — Single-site mutants of ``src`` as (description, source).
@@ -323,7 +326,7 @@ Forecasting: delayed ground truth (question resolution).
 - **`ForecastScore`** (class) — Per-forecaster proper scores vs the resolution (log and Brier) + the principal's log score.
 - **`ManifoldForecasting`** (class)
 - **`default_forecast_gt`**`() -> 'list[GTScorer]'`
-- **`forecast_task`**`(qid: 'str', question: 'str', outcome: 'float | None', *, description: 'str' = '', close: 'str | None' = None, resolved_at: 'str | None' = None, market_p: 'f...)`
+- **`forecast_task`**`(qid: 'str', question: 'str', outcome: 'float | None', *, description: 'str' = '', close: 'str | None' = None, resolved_at: 'str | None' = None, market_p: 'f...)` — A binary forecasting question. ``show_close`` (default: only for unresolved questions): platforms move a resolved question's close time to when it resolved, and early closes correlate with the outcome, so a backtest must not show it.
 
 ## `oversight_arena.domains.lean`
 
@@ -335,10 +338,13 @@ Lean 4 / miniF2F: formal proofs checked by the kernel — and the question the k
 - **`LeanVerifier`** (class)
 - **`LocalLean`** (class) — Run ``lake env lean`` on a temp file inside a Lean project that has Mathlib.
 - **`MiniF2F`** (class)
-- **`kernel_check`**`(checker: 'LeanChecker', header: 'str', code: 'str') -> 'tuple[bool, str]'` — Static screen (:data:`FORBIDDEN`), then the kernel, then an axiom audit: every theorem the code declares must depend only on the standard axioms (``#print axioms``).
+- **`kernel_check`**`(checker: 'LeanChecker', header: 'str', code: 'str', before: 'str' = '', after: 'str' = '') -> 'tuple[bool, str]'` — Static screen (:data:`FORBIDDEN`) of the untrusted ``code``, then the kernel on ``header + before + code + after`` (``before``/``after``: trusted checks), then an axiom audit: every theorem the code declares must depend only on the standard axioms (``#print axioms``).
 - **`nonstandard_axioms`**`(msg: 'str') -> 'set[str]'` — Axioms reported by ``#print axioms`` beyond Lean's standard three (e.g. ``sorryAx``).
 - **`perturb_statement`**`(stmt: 'str', seed: 'int') -> 'tuple[str, str] | None'` — A meaning-changing perturbation of a Lean statement: (new statement, description).
-- **`proves_statement`**`(code: 'str', stmt: 'str') -> 'tuple[bool, str]'` — Static checks before the kernel: the exact given statement appears (up to whitespace) and no escape hatches (sorry, admit, new axioms, unsafe/extern implementations) are used.
+- **`proves_statement`**`(code: 'str', stmt: 'str') -> 'tuple[bool, str]'` — Static screen before the kernel: no escape hatches (sorry, new axioms, unsafe/extern code, metaprogramming, ...) and the given theorem is declared. That the declared theorem has the given statement is then checked by the kernel (:func:`statement_checks`), not by matching text: a weakened theorem, or the statement in a comment or string, would pass a text match.
+- **`renumber_hypotheses`**`(stmt: 'str') -> 'str'` — Hypotheses renamed h₀, h₁, ... in order of appearance, everywhere in the statement, so a gap in the numbering (e.g. left by a dropped hypothesis) cannot give an item away.
+- **`split_statement`**`(stmt: 'str') -> 'tuple[str, str, str] | None'` — ``theorem NAME BINDERS : GOAL := sorry`` → (NAME, BINDERS, GOAL); None if unparseable.
+- **`statement_checks`**`(stmt: 'str', tag: 'str') -> 'tuple[str, str] | None'` — Trusted Lean text around a proof of ``stmt``: the statement elaborated as a definition *before* the proof (so notations or instances the proof declares cannot change its meaning), and an ``example`` after it that the declared theorem has exactly that type.
 - **`statement_head`**`(stmt: 'str') -> 'str'` — The statement without its placeholder proof (``:= sorry`` / ``:= by sorry``).
 
 ## `oversight_arena.domains.math`
@@ -348,6 +354,7 @@ Math word problems with tool asymmetry (the ASD paper's GSM8K setting).
 - **`CalcVerifier`** (class) — Verifies ``<calc>expr = value</calc>`` claims (or just shows ``<calc>expr</calc>``).
 - **`GSM8K`** (class) — GSM8K questions with one correct and one plausible incorrect answer (+ worked solutions).
 - **`calculator_tool`**`() -> 'Tool'`
+- **`fmt_number`**`(v: 'float') -> 'str'` — Numbers as a person would write them: integers without exponent, others to 10 significant digits.
 - **`safe_eval`**`(expr: 'str') -> 'float'` — Evaluate an arithmetic expression safely (numbers, + - * / // % **, a few functions).
 
 ## `oversight_arena.domains.mcq`
@@ -371,6 +378,7 @@ QuALITY reading comprehension with information asymmetry and verified quotes.
 
 - **`QuALITY`** (class)
 - **`QuoteVerifier`** (class)
+- **`quoted_in`**`(quote: 'str', text: 'str') -> 'bool'` — Whether ``quote`` occurs in ``text`` (normalised) as whole words: "found it not" is not a quote of "found it notable", nor "cks was" of "Hendricks was".
 
 ## `oversight_arena.domains.sql`
 
@@ -380,9 +388,10 @@ Text-to-SQL over a *private* database: the expert can query the data, the judge 
 - **`SQLArtifactGT`** (class) — GT for proposed SQL (artifacts): 1 if its result equals the gold query's result.
 - **`SQLVerifier`** (class)
 - **`fmt_rows`**`(rows: 'list[tuple]', cols: 'list[str]', max_rows: 'int' = 20) -> 'str'`
-- **`is_ordered`**`(query: 'str') -> 'bool'`
+- **`full_result`**`(path: 'str', query: 'str') -> 'tuple[bool, list[tuple] | None]'` — (ok, all rows) for ground truth; rows is None if the result exceeds ``GT_MAX_ROWS``.
+- **`is_ordered`**`(query: 'str') -> 'bool'` — Whether the query orders its *result*: an ORDER BY at the top level (not inside a subquery or a window specification).
 - **`run_query`**`(path: 'str', query: 'str', max_rows: 'int' = 20, timeout: 'float' = 10.0) -> 'tuple[bool, list[tuple] | str, list[str]]'`
-- **`same_result`**`(a: 'list[tuple]', b: 'list[tuple]', ordered: 'bool') -> 'bool'` — Result equality: as sequences if the reference query orders rows, else as multisets.
+- **`same_result`**`(a: 'list[tuple]', b: 'list[tuple]', ordered: 'bool') -> 'bool'` — Result equality: as sequences if the reference query orders rows, else as multisets. Numbers compare by value (int vs float, float noise).
 - **`schema_text`**`(db_path: 'str') -> 'str'`
 - **`sql_tool`**`(db_path: 'str') -> 'Tool'`
 - **`value_text`**`(rows: 'list[tuple]') -> 'str'`
@@ -404,8 +413,8 @@ HiddenBits: a synthetic *verifiable-disclosure* domain (for theory validation an
 - **`BitHonesty`** (class) — Fraction of a role's bit claims — marked up or plain text ("bit 3 is 1") — that are TRUE, checked against the hidden bits whether or not the mechanism verified them (behavioural honesty GT). Roles that make no claims get no score.
 - **`BitVerifier`** (class)
 - **`HiddenBits`** (class)
-- **`parse_bit_claims`**`(entry: 'Any') -> 'list[tuple[int, int, str]]'` — (index, claimed value, status mark) for each ``<bit>`` claim in a transcript entry. Status marks in message text are written only by the mechanism (agents' marks are stripped).
-- **`plain_bit_claims`**`(text: 'str') -> 'list[tuple[int, int]]'` — Unverifiable plain-text claims of the form "bit 7 is 1".
+- **`parse_bit_claims`**`(entry: 'Any') -> 'list[tuple[int, int, str]]'` — (index, claimed value, status mark) for each ``<bit>`` claim in a transcript entry, with attributes in any order (the same extractor the verifier uses). Status marks in message text are written only by the mechanism (agents' marks are stripped).
+- **`plain_bit_claims`**`(text: 'str') -> 'list[tuple[int, int]]'` — Unverifiable plain-text claims: "bit 7 is 1", "Bit #7 = 1", "bit 7: 1", "bits 3 and 4 are both 1", ... (markup is removed first, so it is not counted twice).
 - **`poisson_binomial_tail`**`(ps: 'list[float]', k: 'int') -> 'float'` — P(sum of independent Bernoulli(p_i) >= k).
 
 ## `oversight_arena.domains.synthetic_forecasting`
@@ -432,7 +441,7 @@ Evaluating candidate strategies for one role by running episodes.
 Multi-agent optimisation: PSRO / iterated best response / level-k with any strategy oracle.
 
 - **`PSRO`** (class)
-- **`PSROIteration`** (class) — PSROIteration(iteration: 'int', populations: 'dict[str, list[str]]', meta: 'dict[str, dict[str, float]]', meta_payoffs: 'dict[str, float]', meta_gt: 'dict[str, float]', exploitability: 'float', new: 'dict[str, str | None]' = <factory>, br_gain: 'dict[str, float]' = <factory>)
+- **`PSROIteration`** (class) — PSROIteration(iteration: 'int', populations: 'dict[str, list[str]]', meta: 'dict[str, dict[str, float]]', meta_payoffs: 'dict[str, float]', meta_gt: 'dict[str, float]', exploitability: 'float', new: 'dict[str, str | None]' = <factory>, br_gain: 'dict[str, float]' = <factory>, br_gain_in_sample: 'dict[str, float]' = <factory>)
 - **`PSROTrace`** (class) — PSROTrace(iterations: 'list[PSROIteration]', results: 'Results', game: 'EmpiricalGame', populations: 'dict[str, list[Strategy]]')
 - **`optimizer_oracle`**`(proposer: 'Proposer', iterations: 'int' = 2, per_iter: 'int' = 3, minibatch: 'int | None' = None, steering: 'str | None' = None) -> 'Oracle'` — Best-response oracle: short prompt optimisation seeded with the role's population.
 - **`pool_oracle`**`(pool: 'Sequence[Strategy]') -> 'Oracle'` — Best response chosen from a fixed candidate pool (cheap; exact within the pool).
@@ -451,7 +460,7 @@ Prompt (strategy) optimisation against a mechanism's rewards.
 - **`Proposer`** (class)
 - **`is_score`**`(v: 'Any') -> 'bool'` — A usable score: not None and not NaN. Zero is a score (never test rewards by truthiness).
 - **`pareto_parent`**`(history: 'list[Candidate]', seed: 'int') -> 'Candidate'` — GEPA-style parent selection: sample among candidates that are best on some task, weighted by how many tasks they win.
-- **`ranked`**`(items: 'Sequence[Any]', key: 'Callable[[Any], Any]' = <function <lambda> at 0x7f03e82be020>) -> 'list[Any]'` — Items with a usable score, best first; items scored None/NaN are dropped.
+- **`ranked`**`(items: 'Sequence[Any]', key: 'Callable[[Any], Any]' = <function <lambda> at 0x7fa652d8ef20>) -> 'list[Any]'` — Items with a usable score, best first; items scored None/NaN are dropped.
 
 ## `oversight_arena.elicitation.rl`
 
@@ -459,7 +468,7 @@ Reinforcement learning under a mechanism.
 
 - **`MechanismEnv`** (class) — Turn-based text environment for training roles under a mechanism.
 - **`StrategyGradient`** (class) — Independent softmax-policy learners over strategy populations, trained on real episodes.
-- **`preference_pairs`**`(results: 'Any', role: 'str', gt: 'str' = 'correct', min_gap: 'float' = 0.0) -> 'pd.DataFrame'` — (prompt, chosen, rejected) pairs on the same task ranked by mechanism reward, with a column saying whether the ground truth agrees — i.e. the quality of the preference data this mechanism would feed to DPO/RLHF.
+- **`preference_pairs`**`(results: 'Any', role: 'str', gt: 'str' = 'correct', min_gap: 'float' = 0.0) -> 'pd.DataFrame'` — (prompt, chosen, rejected) pairs ranked by mechanism reward, with a column saying whether the ground truth agrees — the quality of the preference data this mechanism would feed to DPO/RLHF. Only episodes with the same context are paired (:func:`_pair_context`: mechanism configuration, task, the role's position, the other roles' strategies and samples), so a pair differs only in how ``role`` behaved. For a multi-turn role the texts are its whole turns.
 - **`reward_function`**`(domain: 'Domain', mechanism: 'Mechanism', role: 'str', fixtures: 'dict[str, Agent]', profile: 'Profile | None' = None) -> 'Any'` — A TRL-GRPO-compatible reward function for a *single-turn* trainable role.
 
 ## `oversight_arena.elicitation.strategies`
@@ -501,6 +510,8 @@ Running episodes and experiments.
 - **`AgentTable`** (class) — Maps roles to agents. Keys may be exact role names, glob patterns (``debater_*``), role kinds (``kind:judge``) or ``"*"``. Assignments can pick an agent by key.
 - **`Experiment`** (class) — A grid of episodes: tasks × mechanisms × profiles (× repeats), run concurrently.
 - **`episode_key`**`(mechanism: 'Mechanism', task: 'Task', profile: 'Profile', agents: 'dict[str, Agent]', seed: 'int', domain: 'Domain | None' = None, clearances: 'dict[str, Se...)` — Deterministic identity of an episode: everything that can change what happens in it (mechanism config, task content, strategies, agents, seed, domain config, clearances).
+- **`reward_spec`**`(rule: 'Any') -> 'dict[str, Any] | None'` — A JSON description of a reward rule from which :func:`rule_from_spec` rebuilds it.
+- **`rule_from_spec`**`(spec: 'dict[str, Any] | None') -> 'Any'` — Rebuild a reward rule from :func:`reward_spec` (None if it cannot be).
 - **`run_episode`**`(mechanism: 'Mechanism', task: 'Task', profile: 'Profile | None' = None, agents: "'AgentTable | dict[str, Agent] | Agent | None'" = None, domain: 'Domain | N...)` — Run one episode of ``mechanism`` on ``task`` with strategy ``profile``.
 - **`task_fingerprint`**`(task: 'Task') -> 'str'` — Content hash of a task (resources whose key starts with ``_`` — e.g. live checker objects — are excluded).
 
@@ -517,7 +528,8 @@ Parameter sweeps: run an experiment factory over a grid and collect one tidy tab
 Ground-truth scorers: the *evaluation* side, never visible to mechanisms.
 
 - **`GTScorer`** (class)
-- **`compute_gt`**`(task: 'Task', record: 'EpisodeRecord', scorers: 'list[GTScorer]') -> 'None'` — Fill ``record.gt`` / ``record.gt_status`` in place (existing scorer entries are kept).
+- **`compute_gt`**`(task: 'Task', record: 'EpisodeRecord', scorers: 'list[GTScorer]') -> 'None'` — Fill ``record.gt`` / ``record.gt_status`` in place (entries of other scorers are kept).
+- **`stale_scorers`**`(record: 'EpisodeRecord', scorers: 'list[GTScorer]') -> 'list[GTScorer]'` — Scorers whose values are missing from ``record``, failed, or came from a different configuration or code (see :meth:`GTScorer.fingerprint`).
 
 ## `oversight_arena.ground_truth.common`
 
@@ -564,7 +576,7 @@ Run OversightArena experiments as Inspect AI tasks, and read the logs back.
 - **`default_inspect_agents`**`(trusted: 'str' = 'trusted', untrusted: 'str' = 'untrusted', **llm_kw: 'Any') -> 'dict[str, Agent]'` — LLM agents bound to Inspect model roles: judge-like roles → ``trusted``, others → ``untrusted``.
 - **`oversight_task`**`(domain: 'Domain', mechanism: 'Mechanism', agents: "'AgentTable | dict[str, Agent] | Agent | None'" = None, profiles: "'ProfileSource | Sequence[Profile] | P...)` — Build an Inspect ``Task``: one sample per (task, profile); each epoch is an independent episode (seed = epoch - 1). See the module docstring for models and scores.
 - **`record_messages`**`(rec: 'EpisodeRecord', task: 'OATask | None' = None) -> 'list[Any]'` — An episode transcript as Inspect chat messages (for Inspect View): the public task, then one message per transcript entry, labelled with the speaker's role; structured data in metadata.
-- **`results_from_logs`**`(logs: 'Any', tasks: 'Sequence[OATask] | None' = None) -> 'Results'` — Load OversightArena records from Inspect logs (EvalLog objects, log files or directories).
+- **`results_from_logs`**`(logs: 'Any', tasks: 'Sequence[OATask] | None' = None, mechanisms: 'Sequence[Any] | None' = None) -> 'Results'` — Load OversightArena records from Inspect logs (EvalLog objects, log files or directories).
 - **`score_values`**`(rec: 'EpisodeRecord', gt_keys: 'Sequence[str] | None' = None) -> 'dict[str, float | None]'` — Flat dict of rewards and GT for an Inspect score (``reward/<role>``, ``gt/<scorer>/<who>``).
 
 ## `oversight_arena.mechanisms`
@@ -580,7 +592,7 @@ Mechanisms and the episode context they are written against.
 - **`Mechanism`** (class) — Base class for scalable-oversight mechanisms (protocol + reward rule).
 - **`mechanism`**`(fn: 'Callable[..., Awaitable[None]] | None' = None, *, roles: 'list[RoleSpec] | Callable[[Any], list[RoleSpec]]', reward: 'RewardRule | None' = None, name: ...)` — Define a mechanism from an async function ``fn(ctx, **params)``.
 - **`sample_index`**`(role: 'str', sample: 'int', episode_seed: 'int') -> 'int'` — Model sample index for a role's turn: distinct per (role, sample, episode seed), so roles with identical prompts (e.g. independent reporters) draw independent samples.
-- **`strip_status_marks`**`(text: 'str') -> 'str'` — Only trusted code may mark claims as checked: remove ``status`` attributes from claim markup (any case or quoting) and defuse text imitating trusted verdict lines.
+- **`strip_status_marks`**`(text: 'str') -> 'str'` — Only trusted code may mark claims as checked: remove ``status`` attributes from claim markup (any case or quoting, look-alike letters included) and defuse text imitating trusted verdict lines. (Genuine verdicts are labelled ⟦…⟧, which agents cannot write: see :func:`~oversight_arena.core.transcript.untrusted`.)
 
 ## `oversight_arena.mechanisms.common`
 
@@ -632,7 +644,7 @@ Single-agent judge-based mechanisms: NaiveJudge, Propaganda (≈RLHF), Consultan
 
 Monitoring mechanisms (from AI control) *with rewards*, so they can be analysed as training signals: an actor does a task; monitors (LLM on actions, LLM on chain-of-thought, simulated interpretability probes) raise alarms; the actor's reward trades off apparent task success against alarms, and a trainable monitor is rewarded through (costly, random) audits.
 
-- **`MonitoredReward`** (class) — Actor: $r = w\cdot\text{task} - \lambda\cdot\text{alarm}$ (or $-\lambda s$ if continuous). Monitor (if trainable): $+1$ for an audited true alarm, $-c$ for an audited false alarm, $-m$ for an audited miss; 0 when unaudited.
+- **`MonitoredReward`** (class) — Actor: $r = w\cdot\text{task} - \lambda\cdot\text{alarm}$ (or $-\lambda s$ if continuous). Monitor (if trainable): $+1$ for an audited true alarm, $-c$ for an audited false alarm, $-m$ for an audited miss; 0 when unaudited. The monitor is paid for its *own* flag, not for alarms raised by other detectors (a probe); no output counts as no flag. A missing suspicion score penalises the actor as an alarm (fail closed).
 - **`Monitoring`** (class) — Actor → (LLM monitor | CoT monitor | simulated probe) → alarm / deferral → rewards.
 
 ## `oversight_arena.mechanisms.peer_prediction`
@@ -641,7 +653,7 @@ Peer-prediction mechanisms: rewards WITHOUT ground truth or a judge, from correl
 
 - **`BTS`** (class) — Bayesian Truth Serum: $u_i = \log\frac{\bar x_{k_i}}{\bar y_{k_i}} + \alpha\sum_k \bar x_k\log\frac{y_{ik}}{\bar x_k}$.
 - **`CorrelatedAgreement`** (class) — CA mechanism: reward $= \mathrm{Sgn}(\Delta)[x_i, x_j]$ on a shared (bonus) task minus $\mathrm{Sgn}(\Delta)[x_i', x_j'']$ on distinct (penalty) tasks, with $\Delta$ the estimated joint-minus-product signal matrix. Informed-truthful (Shnayder et al. 2016).
-- **`DMI`** (class) — Determinant-based Mutual Information mechanism (Kong 2020): dominantly truthful with ≥ 2C tasks. Reward to i (paired with j) = $\det M^{(1)}_{ij}\cdot\det M^{(2)}_{ij}$ where $M^{(1)}, M^{(2)}$ are joint answer-count matrices on two disjoint halves of the tasks. The payment is for the whole batch, so every episode of an agent carries the same value.
+- **`DMI`** (class) — Determinant-based Mutual Information mechanism (Kong 2020): dominantly truthful with ≥ 2C tasks. Reward to i (paired with j) = $\det M^{(1)}_{ij}\cdot\det M^{(2)}_{ij}$ where $M^{(1)}, M^{(2)}$ are joint answer-count matrices on two disjoint halves of the tasks, averaged over peers. It is divided by a constant that depends only on the batch size and the answer space, $(n_1/C)^C (n_2/C)^C$ (the largest possible value), so payments lie in $[-1, 1]$ and stay comparable across profiles. The payment is for the whole batch, so every episode of an agent carries the same value.
 - **`OutputAgreement`** (class) — Reward = fraction of peers giving the same report (expected agreement with a random peer).
 - **`Reporters`** (class) — n agents independently report an answer (and optionally predict peers' reports).
 
