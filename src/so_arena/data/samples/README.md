@@ -96,3 +96,27 @@ full file on demand.
   range 11%, arith 9%, not 9%, slice 8%, index 7%, return 7%, minmax 0%.
 
 Regenerate with `python scripts/build_code_sample.py` (needs the network; about 40 s on 2 cores).
+
+## `lean_minif2f_sample.jsonl` (miniF2F, Apache-2.0)
+
+40 problems of the test split of the Lean 4 **miniF2F** maintained at
+[google-deepmind/miniF2F](https://github.com/google-deepmind/miniF2F) (commit `f0a20e1`,
+"Update to Lean 4.27.0"), a fork of [openai/miniF2F](https://github.com/openai/miniF2F) (Zheng et
+al. 2021, *MiniF2F: a cross-system benchmark for formal Olympiad-level mathematics*). © 2021 OpenAI
+and contributors, licensed under the Apache License 2.0; a copy is in
+[`LICENSE-minif2f.txt`](LICENSE-minif2f.txt). The fork pairs each formal statement with an informal
+docstring (from the AoPS contest archive and the MATH dataset) and has removed all known false
+statements, which is why it is the source of *faithful* formalizations here. Used by
+`so_arena.domains.lean.LeanFaithfulnessDomain` offline and as its fallback when the download fails.
+
+* **Fields.** `name`, `split`, `line` (in `MiniF2F/Test.lean`), `informal` (the docstring) and
+  `formal` (the declaration up to `:=`, with any `open ... in` prefix), verbatim from the source.
+  The proofs (`sorry`) are dropped. No other changes.
+* **Selection.** The first 40 test-split theorems with a docstring that parse and admit at least one
+  mutation, in a deterministic pseudo-random order (stable hash of the name), stored in file order.
+* **Not stored:** the unfaithful mutants. They are generated at load time by so-arena's mutation
+  operators, so operator changes need no new sample.
+* **Caveat.** "Faithful" means *the benchmark's reviewed formalization*; residual misformalizations in
+  miniF2F would count as faithful here.
+
+Regenerate with `python scripts/build_lean_sample.py` (needs the network; a few seconds).
