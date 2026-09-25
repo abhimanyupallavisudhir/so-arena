@@ -10,7 +10,8 @@ not edited after the truth came out.
 What a release contains is what the mechanisms saw and did: censored items (no ground truth, no
 private information unless allowlisted), transcripts, positions, outcomes, rewards and model names.
 What it withholds by default is the experimenter's account of *how* behaviour was produced - profile
-names, tags, behaviour labels, policy ids and configurations - because in instructed-arm designs that
+names, tags, behaviour labels, policy ids and configurations, and the policies' annotations of their turns
+(the component a mixture drew, a best-of-N scorer's values) - because in instructed-arm designs that
 account is the ground truth: in profile ``arm=true`` (label ``argue_true``) the agent's position is
 the correct answer. These are replaced by keyed pseudonyms that do not link episodes across items;
 episodes are ordered by pseudonym within each item and keep only the date they were created, so
@@ -36,6 +37,8 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 
+from so_arena.analysis.frames import config_key, mechanism_labels
+from so_arena.core.game import Turn
 from so_arena.core.ground_truth import GroundTruthScorer, default_scorers
 from so_arena.core.items import GroundTruth, TaskItem
 from so_arena.core.mechanism import Episode
@@ -61,10 +64,56 @@ def _pseudonym(salt: str, *parts: Any) -> str:
 # (:func:`so_arena.core.rewards.audit_draw`); what an audit found - audited values, the label a judge audit
 # returned - is ground truth (often simulated from it), and so is any detail a future rule adds: allowlist
 PUBLIC_REWARD_DETAILS = ("audited",)
+# turn fields safe to publish: what the agents did and what the mechanism saw; a field added later is reset to
+# its default until it is listed here
+PUBLIC_TURN_FIELDS = ("index", "slot", "role", "phase", "kind", "text", "shown", "reasoning", "visible_to", "choice",
+                      "probs", "score", "data", "verifications", "tool_calls", "usage", "parse_ok", "node",
+                      "candidate", "group", "state")
+# Turn metadata holds the policies' annotations, among them the experimenter's account of how behaviour was
+# produced: ``mixture_component`` names the component a MixturePolicy drew (in arm designs, the arm) and
+# ``bon_scores`` what a best-of-N scorer (possibly ground truth) gave each candidate. Published: how a decision
+# was elicited or observed, and - only with ``public_labels``, like policy ids - the drawn component.
+PUBLIC_TURN_METADATA = ("elicitation", "votes", "probe_scores", "reported_tool_calls")
+LABEL_TURN_METADATA = ("mixture_component",)
+# mechanism configuration safe to publish: what was run - constructor arguments, the reward rule's description
+# and the verifiers' names. The full reward-rule and verification-policy structures that episode ids hash
+# describe functions by the values they close over or default to, and an audit oracle may close over the answer.
+PUBLIC_MECHANISM_CONFIG = ("name", "class", "config", "reward", "verification")
+
+
+def _without_closures(x: Any) -> Any:
+    """A configuration description (:func:`so_arena.core.mechanism.describe_config`) with every function
+    reduced to its name: the values it closes over, is bound to or partially applied to may be ground truth."""
+    if isinstance(x, dict):
+        if "function" in x and set(x) <= {"function", "params"}:
+            return x["function"]
+        if "partial" in x and set(x) <= {"partial", "args", "keywords"}:
+            return {"partial": _without_closures(x["partial"])}
+        if "method" in x and set(x) <= {"method", "of"}:
+            return {"method": x["method"]}
+        return {k: _without_closures(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_without_closures(v) for v in x]
+    return x
+
+
+def _public_config(ep: Episode, salt: str) -> dict[str, Any]:
+    """The published summary of ``ep``'s mechanism configuration, with a keyed pseudonym of the full one: two
+    configurations that differ only in withheld settings stay apart in every analysis of the release (whose
+    labels, :func:`so_arena.analysis.frames.mechanism_labels`, can then quote published settings only)."""
+    out = {k: _without_closures(v) for k, v in ep.mechanism_config.items() if k in PUBLIC_MECHANISM_CONFIG}
+    return {**out, "configuration": _pseudonym(salt, "configuration", config_key(ep))}
+
+
+def _public_turn(t: Turn, *, public_labels: bool) -> Turn:
+    keep = PUBLIC_TURN_METADATA + (LABEL_TURN_METADATA if public_labels else ())
+    return Turn(**{f: getattr(t, f) for f in PUBLIC_TURN_FIELDS},
+                metadata={k: v for k, v in t.metadata.items() if k in keep})
 
 
 def _strip(ep: Episode, *, salt: str | None = None, public_labels: bool = False) -> Episode:
-    """The released form of an episode: no ground truth (nor audit findings in ``reward_details``) and,
+    """The released form of an episode: no ground truth (nor audit findings in ``reward_details``), turns
+    reduced to their public fields and metadata, the mechanism configuration to its public summary and,
     unless ``public_labels``, none of the experimenter's annotations that can encode it (see the module
     docstring). Positions and assigned stances are concrete answer labels - what the mechanism saw - and
     stay; so does ``item_id``."""
@@ -72,9 +121,11 @@ def _strip(ep: Episode, *, salt: str | None = None, public_labels: bool = False)
     e.ground_truth = {}
     e.gt_status = "pending" if ep.gt_status in ("pending", "unscored") else "unknown"
     e.reward_details = {k: v for k, v in ep.reward_details.items() if k in PUBLIC_REWARD_DETAILS}
+    e.turns = [_public_turn(t, public_labels=public_labels) for t in e.turns]
+    salt = salt if salt is not None else secrets.token_hex(16)
+    e.mechanism_config = _public_config(ep, salt)
     if public_labels:
         return e
-    salt = salt if salt is not None else secrets.token_hex(16)
     # original ids embed the profile name (and hash it), so they are replaced too
     e.id = f"{ep.mechanism}:{ep.item_id}:{_pseudonym(salt, 'episode', ep.id)}"
     e.profile = f"profile-{_pseudonym(salt, 'profile', ep.item_id, ep.profile)[:10]}"  # unlinkable across items
@@ -87,13 +138,15 @@ def _strip(ep: Episode, *, salt: str | None = None, public_labels: bool = False)
 
 
 def rankings(episodes: Sequence[Episode]) -> dict[str, Any]:
-    """Mechanism-only summaries: per item outcomes, and behaviours ranked by mean reward."""
+    """Mechanism-only summaries: per item outcomes, and behaviours ranked by mean reward - per configuration
+    of a mechanism (labelled as in :func:`so_arena.analysis.frames.mechanism_labels`), never pooled by name."""
+    labels = mechanism_labels(episodes)
     per_item: dict[str, dict[str, Any]] = {}
     for ep in episodes:
         if ep.error:
             continue
         d = per_item.setdefault(ep.item_id, {})
-        d.setdefault(ep.mechanism, []).append({
+        d.setdefault(labels[(ep.mechanism, config_key(ep))], []).append({
             "profile": ep.profile, "decision": ep.outcome.decision, "probs": ep.outcome.probs,
             "rewards": ep.rewards, "positions": ep.positions, "labels": {r: p.label for r, p in ep.players.items()},
         })
@@ -105,7 +158,8 @@ def rankings(episodes: Sequence[Episode]) -> dict[str, Any]:
             if v is None:
                 continue
             p = ep.players.get(r)
-            rows.append({"mechanism": ep.mechanism, "role": r, "behaviour": (p.label if p else None) or r, "reward": v})
+            rows.append({"mechanism": labels[(ep.mechanism, config_key(ep))], "role": r,
+                         "behaviour": (p.label if p else None) or r, "reward": v})
     board = []
     if rows:
         df = pd.DataFrame(rows)
@@ -172,12 +226,15 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
     if missing := [k for k in private_keys if k not in have]:
         raise ValueError(f"private_keys {missing} occur in no released item (private keys: {sorted(have)})")
     salt = salt if salt is not None else secrets.token_hex(16)
+    released = [_strip(e, salt=salt, public_labels=public_labels) for e in episodes]
+    # configurations of a mechanism are kept (and listed) apart, by labels made from what is published
+    labels = mechanism_labels(released)
     group: dict[tuple[str, str], int] = {}
-    for e in episodes:
-        group.setdefault((e.mechanism, e.item_id), len(group))
-    # grouped as in the run, ordered by pseudonym within each (mechanism, item): the run's order follows the arms
-    eps = sorted((_strip(e, salt=salt, public_labels=public_labels) for e in episodes),
-                 key=lambda e: (group[(e.mechanism, e.item_id)], e.id))
+    for e in released:
+        group.setdefault((labels[(e.mechanism, config_key(e))], e.item_id), len(group))
+    # grouped as in the run, ordered by pseudonym within each (mechanism configuration, item): the run's order
+    # follows the arms
+    eps = sorted(released, key=lambda e: (group[(labels[(e.mechanism, config_key(e))], e.item_id)], e.id))
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "items.jsonl", "w") as f:
@@ -198,7 +255,7 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
     files = {name: _sha(out / name) for name in names}
     man = Manifest(title=title, created_at=_dt.datetime.now(_dt.timezone.utc).isoformat(), files=files,
                    digest=_digest(files), n_items=len(items), n_episodes=len(eps), notes=notes,
-                   mechanisms=sorted({e.mechanism for e in eps}))
+                   mechanisms=sorted(set(labels.values())))
     (out / "MANIFEST.json").write_text(man.model_dump_json(indent=2))
     return man
 

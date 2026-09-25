@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sps
 
+from so_arena.analysis.frames import config_key, mechanism_labels
 from so_arena.core.mechanism import Episode
 from so_arena.core.rewards import JudgeScore, rescore
 
@@ -303,8 +304,14 @@ def incentive_alignment(df: pd.DataFrame, *, roles: Sequence[str] | None = None,
 
     Returns Pearson/Spearman correlations (overall and within-item, i.e. after removing item means),
     covariance, the regression slope of u on v, pairwise concordance with a cluster-bootstrap CI,
-    and the label-efficiency multiplier $1/(1-\\rho^2)$ of the within-item correlation (1 when the
-    reward carries no within-item signal, as in :func:`so_arena.theory.audits.label_efficiency`).
+    and the label-efficiency multiplier $1/(1-\\rho^2)$ with $\\rho$ the overall (Pearson) correlation, as
+    in :func:`so_arena.theory.audits.label_efficiency` (1 when reward or value does not vary). That is the
+    correlation that governs the audit-corrected reward
+    $\\lambda u + \\frac{\\mathbb 1[\\text{audit}]}{p}(v - \\lambda u)$ of docs/theory.md (section 6), whose
+    audit term has variance $\\mathrm{Var}(v)(1-\\rho^2)$ at the best $\\lambda$. The within-item correlation
+    removes the items' mean rewards and values - and the mean values are what the audits have to estimate -
+    so it can be far higher (e.g. when the reward's level varies by item): it measures how well the reward
+    ranks the behaviours of one item, not how many audits it saves.
     """
     from so_arena.theory.audits import efficiency_from_corr
 
@@ -333,7 +340,7 @@ def incentive_alignment(df: pd.DataFrame, *, roles: Sequence[str] | None = None,
         row.update({
             "pearson": pear, "spearman": spear, "within_item_corr": within, "cov": cov, "slope": slope,
             "concordance": conc, "concordance_ci_low": lo, "concordance_ci_high": hi, "n_pairs": npairs,
-            "label_efficiency": efficiency_from_corr(within),
+            "label_efficiency": efficiency_from_corr(pear),
             "n": len(g), "n_items": g["item_id"].nunique(),
         })
         out.append(row)
@@ -517,16 +524,19 @@ def fails_loudly(episodes: Sequence[Episode], *, signals: dict[str, Callable[[Ep
     A mechanism that "fails loudly" exposes, through quantities it can observe itself (judge
     uncertainty, failed verifications, disagreement), when its outcome is wrong. For each signal the
     AUROC is P(signal on a failed episode > signal on a correct one); 0.5 = silent failure.
-    ``failure(ep)`` defaults to ``judge_correct < 0.5``.
+    ``failure(ep)`` defaults to ``judge_correct < 0.5``. With ``by="mechanism"`` every configuration of
+    a mechanism is its own group (labelled by :func:`so_arena.analysis.frames.mechanism_labels`).
     """
     signals = signals or LOUDNESS_SIGNALS
     fail = failure or (lambda ep: None if ep.ground_truth.get("judge_correct") is None
                        else ep.ground_truth["judge_correct"] < 0.5)
     rows = []
     groups: dict[str, list[Episode]] = {}
+    labels = mechanism_labels(episodes)  # one group per configuration of a mechanism, not per class name
     for ep in episodes:
         if ep.error is None:
-            groups.setdefault(getattr(ep, by, ep.mechanism), []).append(ep)
+            key = labels[(ep.mechanism, config_key(ep))] if by == "mechanism" else getattr(ep, by, ep.mechanism)
+            groups.setdefault(key, []).append(ep)
     for key, eps in groups.items():
         for name, fn in signals.items():
             pos, neg = [], []

@@ -12,16 +12,35 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 from so_arena.core.game import Game
 from so_arena.core.mechanism import Episode, Mechanism, Outcome, RoleSpec
-from so_arena.core.rewards import FromOutcome, RewardRule, Rewards
+from so_arena.core.rewards import FromOutcome, RewardRule, Rewards, _binary_resolution
 from so_arena.core.types import Message
-from so_arena.mechanisms._common import judgment, question_block
+from so_arena.mechanisms._common import decide, judgment, question_block
 
 
 def _fmt(p: dict[str, float]) -> str:
     return ", ".join(f"{k}: {v:.3f}" for k, v in p.items())
+
+
+def market_outcome(y: Any, labels: list[str]) -> str:
+    """The market outcome a resolution names: one of ``labels`` (matched case-insensitively if that is
+    unambiguous), or - for a two-outcome market - a binary resolution (1/0, True/False, "yes"/"no"): the
+    outcome labelled yes/no if the labels say so, else the first outcome for true, as in the traders'
+    ``forecasts``. Anything else is refused: looked up as a label it would pay every trade 0."""
+    if y in labels:
+        return y
+    matches = [lab for lab in labels if str(lab).casefold() == str(y).strip().casefold()]
+    if len(matches) == 1:
+        return matches[0]
+    exact = isinstance(y, (bool, str)) or (isinstance(y, (int, float)) and y in (0, 1))
+    b = _binary_resolution(y) if exact else None
+    if b is not None and len(labels) == 2:
+        named = {_binary_resolution(lab): lab for lab in labels}
+        return named[b] if set(named) == {True, False} else labels[0 if b else 1]
+    raise ValueError(f"resolution {y!r} names none of the market's outcomes {labels}")
 
 
 class MarketMaking(Mechanism):
@@ -74,16 +93,18 @@ class MarketMaking(Mechanism):
         r_market = sum(sum(J[k] * math.log(max(m.get(k, 1e-4), 1e-4)) for k in labels) for m in path) / len(path)
         r_adv = sum(0.5 * sum(abs(path[t][k] - path[t - 1][k]) for k in labels) for t in range(1, len(path)))
         final = path[-1]
-        return Outcome(decision=max(final, key=final.get), probs=final,
+        return Outcome(decision=decide(g, final, "market"), probs=final,
                        data={"market_path": path, "judge_probs": J, "rewards": {"market": r_market, "adversary": r_adv}})
 
 
 class MarketScoringReward(RewardRule):
     """LMSR / market-scoring-rule payments: each trade from p to q pays S(q, y) - S(p, y) (log score).
 
-    ``y`` is ``outcome.data["resolution"]`` (a label) when resolved; with ``judge_key`` set and no
-    resolution, the judge's final distribution is used as a soft resolution (expected log score).
-    Unresolved markets have pending (None) rewards.
+    ``y`` is ``outcome.data["resolution"]`` when resolved: a label, or for a two-outcome market a binary
+    resolution such as ``1``, ``True`` or ``"YES"`` (see :func:`market_outcome`; one naming no outcome is
+    an error, not a market in which no trade gained anything); with ``judge_key`` set and no resolution,
+    the judge's final distribution is used as a soft resolution (expected log score). Unresolved markets
+    have pending (None) rewards.
     """
 
     def __init__(self, judge_key: str | None = "judge_probs", eps: float = 1e-3):
@@ -99,6 +120,8 @@ class MarketScoringReward(RewardRule):
         out: Rewards = {r: 0.0 for r in roles}
         if y is None and not soft:
             return {r: None for r in roles}
+        if y is not None and trades:
+            y = market_outcome(y, list(trades[0]["before"]))
         for t in trades:
             before, after, r = t["before"], t["after"], t["role"]
             if y is not None:
@@ -171,4 +194,4 @@ class PredictionMarket(Mechanism):
             body = question_block(g, "judge") + "\n\nMarket discussion:\n" + g.transcript_text("judge")
             jo = await judgment(g, "judge", setting="You are resolving a question after reading a market discussion.", body=body)
             data["judge_probs"] = jo.probs
-        return Outcome(decision=max(price, key=price.get), probs=price, data=data)
+        return Outcome(decision=decide(g, price, "price"), probs=price, data=data)

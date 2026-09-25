@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from so_arena.core.actions import Action
 from so_arena.core.game import Game
@@ -21,6 +22,34 @@ def question_block(g: Game, role: str, *, with_options: bool = True, options: Se
     if priv:
         text += "\n\n" + priv
     return text
+
+
+def require_resource(g: Game, key: str, purpose: str) -> Any:
+    """``g.ctx.resources[key]``, or an error raised before the episode's first move.
+
+    Mechanisms that pay for what an oracle finds (an auditor checking confessions, flagged work or reports)
+    would otherwise run without it as if no violation could ever be found: their rewards would say one
+    thing (the rule's description, which agents are told) and do another, and be recorded as final.
+    """
+    res = g.ctx.resources.get(key)
+    if res is None:
+        raise ValueError(f"{g.mechanism.name} needs ctx.resources[{key!r}]: {purpose}. Pass it in "
+                         f"RunContext(resources={{{key!r}: ...}}) or use a domain whose context supplies it")
+    return res
+
+
+def decide(g: Game, scores: dict[str, float], tag: str = "decision") -> str:
+    """The option with the highest score (probability, price, count); an exact tie is a fair coin between
+    the tied options.
+
+    The coin is a chance move (:meth:`~so_arena.core.game.Game.chance`, tag ``tie:<tag>``): the same for every
+    play of the item and never dependent on what a role did. Taking the first option instead would record
+    every uninformative judgment - a 50/50 review, the parse-failure fallback - as the first option
+    (``accept``, ``A``), a decision the judge never made.
+    """
+    top = max(scores.values())
+    tied = [o for o, v in scores.items() if v >= top - 1e-12]
+    return tied[0] if len(tied) == 1 else g.chance(f"tie:{tag}").choice(tied)
 
 
 def option_text(g: Game, label: str | None) -> str:
@@ -83,7 +112,7 @@ async def judgment(g: Game, judge: str, *, setting: str, body: str, options: Seq
     prompt = [Message.system(judge_system(g, setting=setting)), Message.user(body)]
     a: Action = await g.act(judge, kind="probabilities", prompt=prompt, options=labels, phase=phase)
     probs = a.probs or {o: 1 / len(labels) for o in labels}
-    return Outcome(decision=max(probs, key=probs.get), probs=probs, data={"judge_parse_ok": a.parse_ok})
+    return Outcome(decision=decide(g, probs, phase), probs=probs, data={"judge_parse_ok": a.parse_ok})
 
 
 class NullPolicy(Policy):

@@ -293,7 +293,9 @@ agent earns $R - \Delta\,\mathbb 1[k\ge1]$ and a reporter earns $R - \Delta + s$
   ($p^* \to 0$ as $n \to \infty$): in a large team someone else will probably report, so you should too.
 * **Collective liability**: if an independent audit catches unreported violations with probability
   $q$ and penalizes silent agents by $c$, reporting becomes dominant once
-  $s + (\Delta + c)q > \Delta$ even with a small bounty (the $k=0$ condition).
+  $s + (\Delta + c)q > \Delta$ even with a small bounty (the $k=0$ condition). In the library the audit
+  is `Team(random_audit=q)` and the penalty `Whistleblower(silence_penalty=c)`: every member who did not
+  report pays $c$ when an audit catches a violation that no verified report revealed.
 * **Verification** matters: with unreliable audits (verification probability $\rho$), bounties and
   reverts are paid only on verified reports; false-accusation penalties are needed once reports can be
   wrong.

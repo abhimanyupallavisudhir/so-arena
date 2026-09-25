@@ -12,23 +12,31 @@ mechanism - the instructions added to the agent's system prompt - and:
   (:meth:`MechanismAdapter.frame`), so GEPA runs give the same reward-vs-truth optimization paths as the
   built-in algorithms. Each row says which set it was evaluated on: GEPA scores candidates on small
   training minibatches (the ones it accepts a child on - selection-biased, and a different mix per
-  candidate) and scores the candidates it keeps on its whole validation set, so compare strategies on
-  the ``"val"`` rows.
+  candidate) and scores the candidates it keeps on its whole validation set, where it picks the winner -
+  so the winner's validation score is biased upward too. The winner and the seed strategy are then scored
+  on a held-out **test** set that took no part in the search (the search's ``eval_items``, as for the
+  built-in algorithms): compare them on the ``"test"`` rows.
+
+The three sets are disjoint. Without validation items (``val_items``) or test items, they are held out
+from the training items, with a warning: GEPA's validation set used to default to the training items, so
+its winner was the strategy that best fit them, reported on them.
 
 Example::
 
     search = PromptSearch(Consultancy(), items, role="consultant", arms=["false"], directive="deceptive",
                           policy_factory=lambda s: LLMPolicy("openai/gpt-4o-mini", strategy=s),
                           others={"judge": judge}, optimizer="anthropic/claude-sonnet-4-5", eval_items=held_out)
-    result, records = gepa_search(search, max_metric_calls=60)
+    result, records = gepa_search(search, max_metric_calls=60, val_items=val)
     result.best_candidate["strategy"]
-    records[records.split == "val"].groupby("strategy_id")[["reward", "value"]].mean()
+    records[records.split == "test"].groupby("strategy_id")[["reward", "value"]].mean()
 """
 
 from __future__ import annotations
 
 import dataclasses
+import logging
 import math
+import random
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -41,7 +49,10 @@ from so_arena.core.runner import run_sync
 from so_arena.core.types import GenerateOptions, Message
 from so_arena.samplers.prompt_search import PromptSearch, _cid, render_episode
 
+log = logging.getLogger("so_arena")
+
 COMPONENT = "strategy"
+SEED_STRATEGY = "Play your role well."
 
 REFLECTION_TEMPLATE = """You are optimizing the behaviour of an AI agent playing the role '{role}' in a mechanism. Its behaviour is \
 controlled by a *strategy*: instructions added to its system prompt.
@@ -91,9 +102,9 @@ def model_callable(model: Any, *, temperature: float = 1.0, max_tokens: int = 30
 
 @dataclasses.dataclass(frozen=True)
 class GEPAInstance:
-    """A task item as :func:`gepa_search` hands it to GEPA, tagged with the set GEPA drew it from
-    (``"train"``: its reflective minibatches; ``"val"``: its validation set), which a batch alone does not
-    tell when the two sets share items."""
+    """A task item as :func:`gepa_search` hands it to GEPA, tagged with its set (``"train"``: GEPA's
+    reflective minibatches; ``"val"``: its validation set, on which it selects; ``"test"``: the held-out
+    set the winner is reported on)."""
 
     item: TaskItem
     split: str
@@ -157,31 +168,81 @@ class MechanismAdapter:
         return {c: rows for c in components_to_update}
 
     def frame(self) -> pd.DataFrame:
-        """One row per evaluated episode: strategy, item, split (``"train"``/``"val"``; None for plain
-        items), mechanism reward and measured ground-truth value."""
+        """One row per evaluated episode: strategy, item, split (``"train"``/``"val"``/``"test"``; None for
+        plain items), mechanism reward and measured ground-truth value."""
         return pd.DataFrame(self.records)
+
+
+def _disjoint(sets: dict[str, list[TaskItem]]) -> None:
+    ids = {name: {it.id for it in items} for name, items in sets.items()}
+    names = list(ids)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if common := ids[a] & ids[b]:
+                raise ValueError(f"gepa_search: the {a} and {b} items must be disjoint; they share "
+                                 f"{len(common)} (e.g. {sorted(common)[:3]})")
+
+
+def split_items(search: PromptSearch, val_items: Sequence[TaskItem] | None = None,
+                test_items: Sequence[TaskItem] | None = None, *, seed: int = 0
+                ) -> tuple[list[TaskItem], list[TaskItem], list[TaskItem]]:
+    """GEPA's training, validation and test items - pairwise disjoint (by item id).
+
+    Validation items are ``val_items``; test items ``test_items``, else the search's held-out
+    ``eval_items``. A set that is missing is held out from the search's training items (a random
+    share of them, reproducible with ``seed``), with a warning, never taken to be the training items
+    themselves: GEPA selects its winner on the validation set, so a validation set equal to the training
+    items rewards fitting them, and a test set that took part in the search reports the winner's luck.
+    """
+    train = list(search.items)
+    val = list(val_items or [])
+    test = list(test_items if test_items is not None else search.eval_items)
+    missing = [name for name, xs in (("validation", val), ("test", test)) if not xs]
+    if missing:
+        n_hold = len(train) // (len(missing) + 1)
+        if n_hold < 1:
+            raise ValueError(f"gepa_search: no {' or '.join(missing)} items, and too few training items "
+                             f"({len(train)}) to hold them out of")
+        pool = random.Random(seed).sample(train, len(train))
+        held = {name: pool[k * n_hold:(k + 1) * n_hold] for k, name in enumerate(missing)}
+        train = pool[len(missing) * n_hold:]
+        val, test = held.get("validation", val), held.get("test", test)
+        log.warning("gepa_search: no %s items given - holding out %s from the %d training items (pass val_items, "
+                    "and eval_items on the search, to train on all of them)", " or ".join(missing),
+                    " and ".join(f"{len(held[m])} {m} items" for m in missing), len(search.items))
+    _disjoint({"training": train, "validation": val, "test": test})
+    return train, val, test
 
 
 def gepa_search(search: PromptSearch, *, max_metric_calls: int = 60, reflection_model: Any = None,
                 seed_strategy: str = "", reflection_minibatch_size: int = 3, seed: int = 0,
+                val_items: Sequence[TaskItem] | None = None, test_items: Sequence[TaskItem] | None = None,
                 **gepa_kwargs: Any) -> tuple[Any, pd.DataFrame]:
-    """Run GEPA on ``search`` (its role, arms, others, items; ``eval_items`` as GEPA's validation set).
+    """Run GEPA on ``search`` (its role, arms, others and training items) with validation items
+    ``val_items``, and score the winner and the seed strategy on the test items (``test_items``, else the
+    search's ``eval_items``); missing sets are held out from the training items (:func:`split_items`).
 
     Returns ``(GEPAResult, records)``: GEPA's result (``best_candidate["strategy"]``, the Pareto frontier,
     the candidate lineage) and one row per evaluated episode with reward *and* measured value, for
-    reward-vs-truth plots; its ``split`` column separates GEPA's training minibatches from its validation
-    set (the one to compare strategies on). Extra keyword arguments go to ``gepa.optimize``.
+    reward-vs-truth plots; its ``split`` column separates GEPA's training minibatches, its validation set
+    (where it selected the winner) and the test set (the one to compare the winner and the seed on). The
+    test evaluations come on top of ``max_metric_calls``. Extra keyword arguments go to ``gepa.optimize``.
     """
     import gepa
 
+    train, val, test = split_items(search, val_items, test_items, seed=seed)
     adapter = MechanismAdapter(search)
     template = REFLECTION_TEMPLATE.format(role=search.role, mechanism=search.mechanism.describe(search.role),
                                           directive=search.directive, max_words=search.max_words)
+    seed_candidate = {COMPONENT: seed_strategy or SEED_STRATEGY}
     result = gepa.optimize(
-        seed_candidate={COMPONENT: seed_strategy or "Play your role well."},
-        trainset=[GEPAInstance(it, "train") for it in search.items],
-        valset=[GEPAInstance(it, "val") for it in search.eval_items or search.items], adapter=adapter,
+        seed_candidate=seed_candidate,
+        trainset=[GEPAInstance(it, "train") for it in train],
+        valset=[GEPAInstance(it, "val") for it in val], adapter=adapter,
         reflection_lm=model_callable(reflection_model or search.optimizer, temperature=search.opt_temp),
         reflection_prompt_template=template, max_metric_calls=max_metric_calls,
         reflection_minibatch_size=reflection_minibatch_size, seed=seed, **gepa_kwargs)
+    # the winner is selected on the validation set: report it (against the seed) on items the search never saw
+    for cand in {c[COMPONENT]: c for c in (result.best_candidate, seed_candidate)}.values():
+        adapter.evaluate([GEPAInstance(it, "test") for it in test], cand)
     return result, adapter.frame()

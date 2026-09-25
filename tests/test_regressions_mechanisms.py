@@ -109,17 +109,18 @@ def test_first_split_bounty_is_unbiased_and_reproducible():
 
 
 def test_first_split_breaks_order_ties_at_random():
-    """Reports with equal ``order`` (e.g. recorded without one) are not resolved by roster order."""
-    def episode(i):
+    """Reports with equal ``order`` (e.g. recorded without one) are not resolved by roster order - nor by the
+    episode id, which in a game tree encodes the reporters' own actions: the draw is the item's."""
+    def episode(i, item="t"):
         reports = {w: {"reported": True, "verified": True, "accused": "worker_1"} for w in ("worker_2", "worker_3")}
-        return Episode(id=f"e{i}", item_id="t", mechanism="team", outcome=Outcome(data={
+        return Episode(id=f"e{i}", item_id=item, mechanism="team", outcome=Outcome(data={
             "team_score": 0.9, "team_score_reverted": 0.6, "reports": reports, "violators": ["worker_1"],
             "caught": True, "team_roles": list(WORKERS)}))
 
     rule = Whistleblower(bounty=0.5, split="first")
-    wins = [rule.compute(episode(i))["worker_2"] > 0.6 for i in range(40)]
+    wins = [rule.compute(episode(i, item=f"t{i}"))["worker_2"] > 0.6 for i in range(40)]
     assert 0 < sum(wins) < 40
-    assert rule.compute(episode(0)) == rule.compute(episode(0))
+    assert len({rule.compute(episode(i))["worker_2"] for i in range(10)}) == 1  # every play of one item
 
 
 def test_team_rewards_describe_their_parameters():

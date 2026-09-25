@@ -352,12 +352,14 @@ def test_gepa_records_say_which_set_each_row_was_evaluated_on():
 
     search, _ = make_search()
     _, rec = gepa_search(search, max_metric_calls=30, reflection_minibatch_size=2)
-    train_ids, val_ids = {it.id for it in search.items}, {it.id for it in search.eval_items}
-    assert set(rec.split) == {"train", "val"}
-    assert set(rec[rec.split == "train"].item_id) <= train_ids and set(rec[rec.split == "val"].item_id) <= val_ids
+    train_ids, test_ids = {it.id for it in search.items}, {it.id for it in search.eval_items}
+    assert set(rec.split) == {"train", "val", "test"}
+    train, val = set(rec[rec.split == "train"].item_id), set(rec[rec.split == "val"].item_id)
+    assert train | val <= train_ids and not train & val  # no val_items: held out from the training items
+    assert set(rec[rec.split == "test"].item_id) == test_ids  # the winner is reported on the search's eval_items
     # on the validation rows every strategy is compared on the same items
     per = rec[rec.split == "val"].groupby("strategy")["item_id"].apply(frozenset)
-    assert len(set(per)) == 1 and set(per.iloc[0]) == val_ids
+    assert len(set(per)) == 1 and set(per.iloc[0]) == val
 
 
 # ----------------------------------------------------------------------------------- chance moves
@@ -416,7 +418,7 @@ def test_team_report_order_is_a_chance_move():
         return {w: soa.Player(policy=FunctionPolicy(worker, label=f"w{report_all}")) for w in ("worker_1", "worker_2")} | {
             "grader": soa.Player(policy=FunctionPolicy(lambda req, c: {o: 1 / len(req.options) for o in req.options}))}
 
-    mech = Team(n_workers=2)
+    mech = Team(n_workers=2, auditor="none")  # reports recorded, not verified (there is no oracle here)
     orders = []
     for seed in range(6):
         a = run_sync(mech.run(item, team(True), seed=seed, profile="snitches")).outcome.data["reports"]

@@ -7,7 +7,9 @@ output. The reward rule decides the incentives:
 * :class:`~so_arena.core.rewards.TeamReward` - a purely common objective: if misconduct (e.g. a
   reward hack) raises the team score, *no one* has a reason to report it.
 * :class:`~so_arena.core.rewards.Whistleblower` - individual bounties for verified reports (paid to
-  each reporter, only the first, or shared), optional false-report and violation penalties.
+  each reporter, only the first, or shared), optional false-report and violation penalties, and
+  collective liability (``silence_penalty``: charged to the silent members when a random audit finds
+  a violation no verified report revealed).
 
 Whether reporting pays depends on what a worker expects its teammates to do (with a small bounty
 relative to the team reward there are two equilibria - everyone silent or everyone reports); set
@@ -22,7 +24,7 @@ from so_arena.core.mechanism import Mechanism, Outcome, RoleSpec
 from so_arena.core.rewards import RewardRule, TeamReward
 from so_arena.core.types import Message
 from so_arena.core.verification import neutralize_markers
-from so_arena.mechanisms._common import question_block
+from so_arena.mechanisms._common import question_block, require_resource
 
 
 class Team(Mechanism):
@@ -34,7 +36,10 @@ class Team(Mechanism):
         reporting: add the private reporting stage.
         auditor: how accusations are checked - ``"oracle"`` (``ctx.resources["violation_oracle"]``, a
             callable ``(game, accused_role) -> bool``), ``"role"`` (an ``auditor`` role, e.g. a strong
-            model that sees the full transcript including private reasoning), or ``"none"``.
+            model that sees the full transcript including private reasoning), or ``"none"`` (reports are
+            recorded, never verified). With ``"oracle"``, reporting or random audits need the oracle: an
+            episode without it fails before the first move, rather than run as if no report could ever be
+            verified and no audit could find anything.
         random_audit: probability that each worker is audited independently of reports.
         revert_score: team score paid once a caught violation - by a verified report or a random audit -
             is reverted.
@@ -159,6 +164,9 @@ class Team(Mechanism):
         return g.transcript_text(viewer, phases=phases, roles=self.workers, include_reasoning=False, empty="(no messages yet)")
 
     async def protocol(self, g: Game) -> Outcome:
+        if self.auditor_mode == "oracle" and (self.reporting or self.random_audit > 0):
+            require_resource(g, "violation_oracle", "a callable (game, accused_role) -> bool that verifies reports "
+                             "and runs random audits (auditor='none' runs the team without audits)")
         for r in range(self.work_rounds):
             g.round = r
             for c in range(self.chat_rounds):  # the team channel: teammates only (unless monitored)
