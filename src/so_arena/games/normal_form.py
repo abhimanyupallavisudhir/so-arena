@@ -8,7 +8,9 @@ how robust they are, and how good they are by *ground truth* (not by the mechani
 
 Payoffs are stored as one tensor per player, indexed by the players' strategy indices. Additional
 per-profile statistics (``outcomes``; e.g. ground-truth welfare, violation rate, judge accuracy) let
-equilibria be evaluated by what actually matters.
+equilibria be evaluated by what actually matters; ``coverage`` records, per outcome and profile, the
+fraction of the profile's episodes that had a value (ground truth may be missing or pending), so an
+expectation over a mixed profile can say how much of its mass was measured (:meth:`expected_outcome`).
 """
 
 from __future__ import annotations
@@ -28,7 +30,8 @@ Mixed = list[np.ndarray]
 class NormalFormGame:
     def __init__(self, players: Sequence[str], strategies: dict[str, Sequence[str]], payoffs: dict[str, np.ndarray],
                  *, stderr: dict[str, np.ndarray] | None = None, counts: np.ndarray | None = None,
-                 outcomes: dict[str, np.ndarray] | None = None, name: str = "game"):
+                 outcomes: dict[str, np.ndarray] | None = None, name: str = "game",
+                 coverage: dict[str, np.ndarray] | None = None):
         self.players = list(players)
         self.strategies = {p: list(strategies[p]) for p in self.players}
         self.shape = tuple(len(self.strategies[p]) for p in self.players)
@@ -36,6 +39,8 @@ class NormalFormGame:
         self.stderr = {p: np.asarray(v, dtype=float).reshape(self.shape) for p, v in (stderr or {}).items()}
         self.counts = counts
         self.outcomes = {k: np.asarray(v, dtype=float).reshape(self.shape) for k, v in (outcomes or {}).items()}
+        # per outcome: fraction of each profile's episodes with a value (default: 1 where the outcome is finite)
+        self.coverage = {k: np.asarray(v, dtype=float).reshape(self.shape) for k, v in (coverage or {}).items()}
         self.name = name
 
     # ------------------------------------------------------------------ basics
@@ -81,7 +86,7 @@ class NormalFormGame:
             logging.getLogger("so_arena").warning(
                 "%s: %d missing payoff entries filled with each player's lowest observed payoff", self.name, missing)
         return NormalFormGame(self.players, self.strategies, payoffs, stderr=self.stderr, counts=self.counts,
-                              outcomes=self.outcomes, name=self.name)
+                              outcomes=self.outcomes, name=self.name, coverage=self.coverage)
 
     def pure(self, prof: Profile) -> Mixed:
         out = []
@@ -102,6 +107,37 @@ class NormalFormGame:
         T = self.payoffs[player] if player is not None else self.outcomes[key]  # type: ignore[index]
         return float(self._contract(T, mixed))
 
+    def expected_outcome(self, mixed: Mixed, key: str, *, min_coverage: float = 0.5,
+                         warn: bool = True) -> tuple[float, float]:
+        """(expectation, coverage) of outcome ``key`` under independent mixed strategies.
+
+        The expectation averages the profiles where the outcome was observed, renormalized; the coverage
+        is the probability mass of measured episodes, $\sum_s x(s)\,c(s)$ with $c(s)$ the fraction of
+        profile $s$'s episodes that had a value (:attr:`coverage`; 1 for every finite cell if not
+        recorded). A value averaged over little of the mass describes other behaviour than the profile's,
+        so below ``min_coverage`` the expectation is NaN (with a warning).
+        """
+        T = self.outcomes[key]
+        joint = mixed[0]
+        for x in mixed[1:]:
+            joint = np.multiply.outer(joint, x)
+        joint = np.asarray(joint, dtype=float).reshape(self.shape)
+        finite = np.isfinite(T)
+        cov_t = self.coverage.get(key)
+        cov_t = np.where(finite, 1.0, 0.0) if cov_t is None else np.where(finite, np.nan_to_num(cov_t), 0.0)
+        coverage = float((joint * cov_t).sum())
+        mass = float(joint[finite].sum())
+        value = float((joint[finite] * T[finite]).sum() / mass) if mass > 0 else math.nan
+        if coverage < min_coverage:
+            if warn and coverage > 0:
+                import logging
+
+                logging.getLogger("so_arena").warning(
+                    "%s: %r measured on %.0f%% of the profile's mass (< %.0f%%): reported as NaN", self.name, key,
+                    100 * coverage, 100 * min_coverage)
+            value = math.nan
+        return value, coverage
+
     def deviation_payoffs(self, player: str, mixed: Mixed) -> np.ndarray:
         a = self.players.index(player)
         return np.asarray(self._contract(self.payoffs[player], mixed, skip=a))
@@ -115,6 +151,116 @@ class NormalFormGame:
 
     def nash_conv(self, mixed: Mixed) -> float:
         return float(sum(self.regrets(mixed).values()))
+
+    def payoff_scale(self) -> float:
+        """The largest payoff range of any player: the unit in which regrets are compared to tolerances."""
+        return max(1e-12, max(float(np.nanmax(v) - np.nanmin(v)) if np.isfinite(v).any() else 0.0
+                              for v in self.payoffs.values()))
+
+    def _contract_pair(self, T: np.ndarray, mixed: Mixed, a: int, b: int) -> np.ndarray:
+        """Contract all players but ``a`` and ``b``: the matrix indexed by (strategy of a, strategy of b)."""
+        out = T
+        for c in reversed(range(self.n)):
+            if c not in (a, b):
+                out = np.tensordot(out, mixed[c], axes=([c], [0]))
+        return out if a < b else out.T
+
+    def nash_lyapunov(self, mixed: Mixed, *, grad: bool = False) -> float | tuple[float, Mixed]:
+        """$V(x) = \\sum_p \\sum_s \\max(0, u_p(s, x_{-p}) - u_p(x))^2$ on payoffs divided by
+        :meth:`payoff_scale`: nonnegative and zero exactly at the Nash equilibria, and continuously
+        differentiable - so equilibria of $n$-player games are the global minima of a smooth function
+        (with ``grad=True`` also returns $\\partial V / \\partial x_p$ per player)."""
+        scale = self.payoff_scale()
+        value = 0.0
+        g = [np.zeros(s) for s in self.shape]
+        for p_i, p in enumerate(self.players):
+            U = self.payoffs[p] / scale
+            d = np.asarray(self._contract(U, mixed, skip=p_i))
+            r = np.clip(d - d @ mixed[p_i], 0, None)
+            value += float(r @ r)
+            if not grad or not r.any():
+                continue
+            g[p_i] += -2 * r.sum() * d  # u_p(x) moves with x_p; each u_p(s, x_{-p}) does not
+            for q in range(self.n):
+                if q != p_i:
+                    M = self._contract_pair(U, mixed, p_i, q)
+                    g[q] += 2 * (r @ M - r.sum() * (mixed[p_i] @ M))
+        return (value, g) if grad else value
+
+    def _polish(self, x0: Mixed, groups: Sequence[Sequence[int]], maxiter: int = 500) -> Mixed:
+        """Minimize :meth:`nash_lyapunov` from ``x0`` on the product of simplices (SLSQP); players in one
+        of ``groups`` share one mixed strategy."""
+        from scipy.optimize import minimize
+
+        pops = [list(g) for g in groups] + [[a] for a in range(self.n) if not any(a in g for g in groups)]
+        sizes = [self.shape[pop[0]] for pop in pops]
+        starts = np.concatenate([[0], np.cumsum(sizes)[:-1]]).astype(int)
+        slices = [slice(int(s), int(s) + k) for s, k in zip(starts, sizes)]
+
+        def unpack(z: np.ndarray) -> Mixed:
+            out: list[np.ndarray] = [np.zeros(0)] * self.n
+            for pop, sl in zip(pops, slices):
+                v = np.clip(z[sl], 0, None)
+                v = v / v.sum() if v.sum() > 0 else np.full(len(v), 1 / len(v))
+                for a in pop:
+                    out[a] = v
+            return out
+
+        def f(z: np.ndarray) -> tuple[float, np.ndarray]:
+            val, g = self.nash_lyapunov(unpack(z), grad=True)  # type: ignore[misc]
+            return val, np.concatenate([sum(g[a] for a in pop) for pop in pops])
+
+        z0 = np.concatenate([np.mean([x0[a] for a in pop], axis=0) for pop in pops])
+        cons = []
+        for sl in slices:
+            ind = np.zeros(len(z0))
+            ind[sl] = 1.0
+            cons.append({"type": "eq", "fun": lambda z, sl=sl: float(z[sl].sum() - 1.0), "jac": lambda z, ind=ind: ind})
+        try:
+            res = minimize(f, z0, jac=True, method="SLSQP", bounds=[(0.0, 1.0)] * len(z0), constraints=cons,
+                           options={"maxiter": maxiter, "ftol": 1e-20})
+            z = res.x
+        except (ValueError, np.linalg.LinAlgError):  # pragma: no cover - numerical failure: keep the start
+            z = z0
+        return unpack(z)
+
+    def approximate_nash(self, x0: Mixed | None = None, *, restarts: int = 8, seed: int = 0, tol: float = 1e-4,
+                         shared: Sequence[Sequence[str]] | None = None, steps: int = 3000) -> Mixed:
+        """A Nash equilibrium of an $n$-player game, as nearly as can be found: the profile with the lowest
+        NashConv among several searches, stopping at the first within ``tol`` x :meth:`payoff_scale`.
+
+        Replicator dynamics alone need not converge for $n > 2$ (in three-player matching pennies they
+        spiral out to the boundary, NashConv 2 on payoffs of $\\pm 1$), and neither need fictitious play
+        (Jordan's counterexample). So the candidates are, in order: replicator dynamics from ``x0``
+        (uniform by default: the previous behaviour, kept when it reaches an equilibrium), then minima of
+        :meth:`nash_lyapunov` - whose zeros are exactly the equilibria - started from the replicator's end
+        point, its time average, uniform, fictitious play and ``restarts`` random profiles. Check the
+        result with :meth:`nash_conv`: it is an approximate equilibrium when that exceeds the tolerance.
+        ``shared`` groups of exchangeable players get one mixed strategy (a symmetric equilibrium).
+        """
+        groups = [[self.players.index(p) for p in g] for g in (shared or []) if len(g) > 1]
+        limit = tol * self.payoff_scale()
+        best: Mixed | None = None
+        best_nc = math.inf
+
+        def consider(x: Mixed) -> bool:
+            nonlocal best, best_nc
+            nc = self.nash_conv(x)
+            if nc < best_nc:
+                best, best_nc = [np.asarray(v, dtype=float).copy() for v in x], nc
+            return best_nc <= limit
+
+        xr, traj = self.replicator(x0, steps=steps, shared=shared)
+        if consider(xr):
+            return best  # type: ignore[return-value]
+        starts: list[Mixed] = [xr, [np.mean([t[a] for t in traj], axis=0) for a in range(self.n)], self.uniform(),
+                               self.fictitious_play(min(steps, 2000))]
+        rng = np.random.default_rng(seed)
+        starts += [[rng.dirichlet(np.ones(s)) for s in self.shape] for _ in range(restarts)]
+        for x in starts:
+            if consider(self._polish(x, groups)):
+                break
+        return best  # type: ignore[return-value]
 
     def is_nash(self, mixed_or_profile, tol: float = 1e-9) -> bool:
         mixed = self.pure(mixed_or_profile) if isinstance(mixed_or_profile, tuple) else mixed_or_profile
@@ -395,6 +541,7 @@ class NormalFormGame:
             row = {f"s_{p}": self.strategies[p][i] for p, i in zip(self.players, prof)}
             row.update({f"u_{p}": float(self.payoffs[p][prof]) for p in self.players})
             row.update({k: float(v[prof]) for k, v in self.outcomes.items()})
+            row.update({f"{k}_coverage": float(v[prof]) for k, v in self.coverage.items()})
             if self.counts is not None:
                 row["n"] = int(self.counts[prof])
             row["nash"] = self.is_nash(prof)

@@ -12,6 +12,7 @@ meta-strategy is what the mechanism incentivizes at (approximate) equilibrium.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -29,9 +30,16 @@ from so_arena.games.normal_form import NormalFormGame
 from so_arena.samplers.prompt_search import PromptSearch, SearchResult
 
 
-def solve_meta(game: NormalFormGame, solver: str = "nash", symmetric: Sequence[str] | None = None) -> list[np.ndarray]:
-    """Meta-strategy for PSRO: ``nash`` (2p support enumeration, max-entropy equilibrium; n-p replicator
-    from uniform), ``replicator``, ``fictitious`` or ``uniform``.
+def solve_meta(game: NormalFormGame, solver: str = "nash", symmetric: Sequence[str] | None = None, *,
+               tol: float = 1e-4) -> list[np.ndarray]:
+    """Meta-strategy for PSRO: ``nash``, ``replicator`` (from uniform), ``fictitious`` or ``uniform``.
+
+    ``nash`` with two players is exact: support enumeration, the max-entropy equilibrium. With more
+    players (or a degenerate two-player game) it is :meth:`NormalFormGame.approximate_nash`, the
+    lowest-NashConv profile of several searches - replicator dynamics alone can spiral away from every
+    equilibrium (three-player matching pennies). A ``nash`` result whose NashConv exceeds ``tol`` x the
+    largest payoff range is only an approximate equilibrium and is logged as one; :class:`PSRO` records
+    the NashConv of every meta-strategy (:attr:`PSROIteration.meta_nash_conv`).
 
     Missing payoffs (profiles whose episodes all errored) are filled with each player's lowest observed
     payoff, with a warning (:meth:`NormalFormGame.imputed`) - never with 0, the best possible log-score
@@ -45,15 +53,23 @@ def solve_meta(game: NormalFormGame, solver: str = "nash", symmetric: Sequence[s
     sym = sym if len(sym) > 1 else []
     if solver == "fictitious":
         return _symmetrize(game, clean.fictitious_play(3000), sym)
-    if solver == "nash" and game.n == 2:
-        eqs = clean.support_enumeration()
-        if sym:  # both players are one population: only symmetric equilibria
-            eqs = [m for m in eqs if np.allclose(m[0], m[1], atol=1e-6)]
-        if eqs:
-            def ent(m):
-                return -sum(float((x[x > 0] * np.log(x[x > 0])).sum()) for x in m)
+    if solver == "nash":
+        if game.n == 2:
+            eqs = clean.support_enumeration()
+            if sym:  # both players are one population: only symmetric equilibria
+                eqs = [m for m in eqs if np.allclose(m[0], m[1], atol=1e-6)]
+            if eqs:
+                def ent(m):
+                    return -sum(float((x[x > 0] * np.log(x[x > 0])).sum()) for x in m)
 
-            return max(eqs, key=ent)
+                return max(eqs, key=ent)
+        x = clean.approximate_nash(shared=[sym] if sym else None, tol=tol)
+        nc = clean.nash_conv(x)
+        if nc > tol * clean.payoff_scale():
+            logging.getLogger("so_arena").warning(
+                "%s: no equilibrium found within tolerance; the meta-strategy is approximate (NashConv %.3g, "
+                "%.2g of the payoff range)", game.name, nc, nc / clean.payoff_scale())
+        return x
     x, _ = clean.replicator(steps=3000, shared=[sym] if sym else None)
     return x
 
@@ -68,12 +84,24 @@ def _symmetrize(game: NormalFormGame, mixed: list[np.ndarray], sym: Sequence[str
 
 
 class PSROIteration(BaseModel):
+    """One PSRO iteration.
+
+    ``meta_nash_conv`` is the meta-strategy's NashConv in this iteration's empirical game (0 at an exact
+    equilibrium of it) and ``meta_equilibrium`` whether that is within ``nash_tol`` x the payoff range -
+    False marks an approximate equilibrium (or a non-equilibrium solver's output). ``nash_conv_prev`` is
+    the previous meta-strategy's NashConv against the strategies added since (its exploitability).
+    ``meta_value`` holds each outcome's expectation under the meta-strategy with its coverage
+    ``<key>_coverage``, the meta-strategy's mass of episodes that had a value (NaN below ``min_coverage``).
+    """
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     iteration: int
     populations: dict[str, list[str]]
     meta_strategy: dict[str, list[float]]
     nash_conv_prev: float | None = None
+    meta_nash_conv: float | None = None
+    meta_equilibrium: bool | None = None
     meta_value: dict[str, float] = Field(default_factory=dict)  # expected outcomes under the meta-strategy
     searches: dict[str, Any] = Field(default_factory=dict)
 
@@ -91,6 +119,9 @@ class PSRO:
             them, against a symmetric meta-strategy) and adds it to all of their populations under one
             name. The empirical game is then estimated on multisets of strategies - which is only valid
             because a name means the same strategy for every one of these roles.
+        nash_tol: NashConv, as a fraction of the largest payoff range, below which a meta-strategy counts
+            as an equilibrium of the empirical game (:attr:`PSROIteration.meta_equilibrium`).
+        min_coverage: outcome expectations measured on less of the meta-strategy's mass are NaN.
     """
 
     def __init__(self, mechanism: Mechanism, items: Sequence[TaskItem], *, roles: Sequence[str],
@@ -98,7 +129,8 @@ class PSRO:
                  fixtures: dict[str, Any], optimizer: Any, stances: dict[str, str | None] | None = None,
                  iterations: int = 2, meta_solver: str = "nash", search_kwargs: dict[str, Any] | None = None,
                  ground_truth: Sequence[GroundTruthScorer] | None = None, ctx: RunContext | None = None,
-                 symmetric: Sequence[str] | None = None, repeats: int = 1, concurrency: int | None = None, seed: int = 0):
+                 symmetric: Sequence[str] | None = None, repeats: int = 1, concurrency: int | None = None, seed: int = 0,
+                 nash_tol: float = 1e-4, min_coverage: float = 0.5):
         self.mechanism, self.items, self.roles = mechanism, list(items), list(roles)
         self.populations = {r: dict(initial[r]) for r in self.roles}
         self.factories, self.fixtures, self.optimizer = policy_factories, dict(fixtures), optimizer
@@ -114,6 +146,7 @@ class PSRO:
                                  f"(names and texts) and stance as {sym[0]!r}")
         self.ground_truth, self.ctx, self.symmetric = ground_truth, ctx, sym if len(sym) > 1 else []
         self.repeats, self.concurrency, self.seed = repeats, concurrency, seed
+        self.nash_tol, self.min_coverage = nash_tol, min_coverage
         self.history: list[PSROIteration] = []
         self.games: list[NormalFormGame] = []
         self._policies: dict[tuple[str, str], Policy] = {}
@@ -161,13 +194,19 @@ class PSRO:
                     x[: prev_sizes[r]] = prev_sigma[r]
                     padded.append(x)
                 nash_conv_prev = clean.nash_conv(padded)
-            sigma_list = solve_meta(clean, self.meta_solver, symmetric=self.symmetric)
+            sigma_list = solve_meta(clean, self.meta_solver, symmetric=self.symmetric, tol=self.nash_tol)
             sigma = dict(zip(game.players, sigma_list))
-            meta_value = {k: game.expected(sigma_list, key=k) for k in game.outcomes
-                          if np.isfinite(game.outcomes[k]).all()}
+            meta_nc = clean.nash_conv(sigma_list)
+            meta_value: dict[str, float] = {}
+            for k in game.outcomes:  # outcomes never measured in this game (coverage 0) do not apply to it
+                value, cov = game.expected_outcome(sigma_list, k, min_coverage=self.min_coverage)
+                if cov > 0:
+                    meta_value[k], meta_value[f"{k}_coverage"] = value, cov
             rec = PSROIteration(iteration=it, populations={r: list(self.populations[r]) for r in self.roles},
                                 meta_strategy={r: sigma[r].tolist() for r in self.roles},
-                                nash_conv_prev=nash_conv_prev, meta_value=meta_value)
+                                nash_conv_prev=nash_conv_prev, meta_nash_conv=meta_nc,
+                                meta_equilibrium=bool(meta_nc <= self.nash_tol * clean.payoff_scale()),
+                                meta_value=meta_value)
             self.history.append(rec)
             if it == self.iterations:
                 break
@@ -190,7 +229,8 @@ class PSRO:
                 res: SearchResult = await search.arun()
                 best = res.best
                 name = f"br{it + 1}"
-                info = {"best_reward": best.mean_reward, "best_value": best.mean_value, "strategy": best.strategy}
+                info = {"best_reward": best.mean_reward, "best_value": best.mean_value,
+                        "best_value_coverage": best.value_coverage, "strategy": best.strategy}
                 for r in (self.symmetric if role in self.symmetric else [role]):
                     self.populations[r][name] = best.strategy
                     rec.searches[r] = info

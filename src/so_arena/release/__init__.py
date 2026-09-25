@@ -57,13 +57,21 @@ def _pseudonym(salt: str, *parts: Any) -> str:
     return hmac.new(salt.encode(), "|".join(map(str, parts)).encode(), hashlib.sha256).hexdigest()[:16]
 
 
+# reward details safe to publish: whether an episode was audited is drawn from the item, repeat and seed alone
+# (:func:`so_arena.core.rewards.audit_draw`); what an audit found - audited values, the label a judge audit
+# returned - is ground truth (often simulated from it), and so is any detail a future rule adds: allowlist
+PUBLIC_REWARD_DETAILS = ("audited",)
+
+
 def _strip(ep: Episode, *, salt: str | None = None, public_labels: bool = False) -> Episode:
-    """The released form of an episode: no ground truth and, unless ``public_labels``, none of the
-    experimenter's annotations that can encode it (see the module docstring). Positions and assigned
-    stances are concrete answer labels - what the mechanism saw - and stay; so does ``item_id``."""
+    """The released form of an episode: no ground truth (nor audit findings in ``reward_details``) and,
+    unless ``public_labels``, none of the experimenter's annotations that can encode it (see the module
+    docstring). Positions and assigned stances are concrete answer labels - what the mechanism saw - and
+    stay; so does ``item_id``."""
     e = ep.model_copy(deep=True)
     e.ground_truth = {}
     e.gt_status = "pending" if ep.gt_status in ("pending", "unscored") else "unknown"
+    e.reward_details = {k: v for k, v in ep.reward_details.items() if k in PUBLIC_REWARD_DETAILS}
     if public_labels:
         return e
     salt = salt if salt is not None else secrets.token_hex(16)
@@ -155,6 +163,11 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
                          "pass exclude_restricted=True to leave them out of the release")
     items = [it for it in items if it.id not in restricted]
     episodes = [e for e in episodes if e.item_id not in restricted]
+    audited = sum(1 for e in episodes if (e.reward_details or {}).get("audited"))
+    if audited:  # the findings are withheld, but an audited reward is computed from them
+        log.warning("%d released episode(s) were audited: their rewards encode what the audit found (with "
+                    "truth_oracle, the ground truth itself) - release them only if the audit was a real check",
+                    audited)
     have = {k for it in items for k in it.private}
     if missing := [k for k in private_keys if k not in have]:
         raise ValueError(f"private_keys {missing} occur in no released item (private keys: {sorted(have)})")

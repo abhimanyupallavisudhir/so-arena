@@ -26,20 +26,20 @@ def softmax(z: np.ndarray) -> np.ndarray:
     return e / e.sum()
 
 
-def _observed_expectation(T: np.ndarray, pis: Mixed) -> float:
-    """Expectation of an outcome tensor under independent mixed strategies, over its finite cells
-    (renormalized); NaN if no observed profile has positive probability."""
-    joint = pis[0]
-    for x in pis[1:]:
-        joint = np.multiply.outer(joint, x)
-    mask = np.isfinite(T)
-    den = float(joint[mask].sum())
-    return float((joint[mask] * T[mask]).sum() / den) if den > 0 else float("nan")
+def _warn_low_coverage(game: NormalFormGame, low: dict[str, float], min_coverage: float) -> None:
+    if low:
+        import logging
+
+        logging.getLogger("so_arena").warning(
+            "%s: outcome(s) %s measured on less than %.0f%% of the policy's mass at some steps (lowest %s): "
+            "reported as NaN there", game.name, sorted(low), 100 * min_coverage,
+            ", ".join(f"{k} {v:.0%}" for k, v in sorted(low.items())))
 
 
 def policy_gradient(game: NormalFormGame, *, init: Mixed | None = None, lr: float = 0.5, steps: int = 500,
                     kl: float = 0.0, reference: Mixed | None = None, shared: list[list[str]] | None = None,
-                    record_every: int = 1, outcome_keys: list[str] | None = None) -> pd.DataFrame:
+                    record_every: int = 1, outcome_keys: list[str] | None = None,
+                    min_coverage: float = 0.5) -> pd.DataFrame:
     """Independent softmax policy gradient with exact expected gradients.
 
     Args:
@@ -49,12 +49,14 @@ def policy_gradient(game: NormalFormGame, *, init: Mixed | None = None, lr: floa
         outcome_keys: outcome tensors (e.g. ``"gt_welfare"``) to track; default: all.
 
     Returns a frame with one row per recorded step: ``p_<player>_<strategy>``, ``reward_<player>``
-    and each outcome's expectation.
+    and each outcome's expectation with its coverage ``<key>_coverage`` - the policy's probability mass
+    of episodes that had a value (:meth:`NormalFormGame.expected_outcome`); below ``min_coverage`` the
+    expectation is NaN (one warning per call).
 
     Missing payoffs are filled with the player's lowest observed payoff (with a warning; see
     :meth:`NormalFormGame.imputed`) - filling them with 0, the best log-score reward, would make
     training converge to a profile nobody observed. Outcome expectations average over the observed
-    profiles only.
+    profiles only (renormalized), and says how much of the mass that is.
     """
     players = game.players
     x0 = [np.asarray(v, float) for v in (init or game.uniform())]
@@ -64,6 +66,7 @@ def policy_gradient(game: NormalFormGame, *, init: Mixed | None = None, lr: floa
     keys = outcome_keys if outcome_keys is not None else list(game.outcomes)
     clean = game.imputed()
     rows = []
+    low: dict[str, float] = {}
     for t in range(steps + 1):
         pis = [softmax(z) for z in logits]
         if t % record_every == 0 or t == steps:
@@ -73,7 +76,9 @@ def policy_gradient(game: NormalFormGame, *, init: Mixed | None = None, lr: floa
                     row[f"p_{p}_{s}"] = float(prob)
                 row[f"reward_{p}"] = clean.expected(pis, player=p)
             for k in keys:
-                row[k] = _observed_expectation(game.outcomes[k], pis)
+                row[k], row[f"{k}_coverage"] = game.expected_outcome(pis, k, min_coverage=min_coverage, warn=False)
+                if 0 < row[f"{k}_coverage"] < min_coverage:
+                    low[k] = min(low.get(k, 1.0), row[f"{k}_coverage"])
             rows.append(row)
         if t == steps:
             break
@@ -97,6 +102,7 @@ def policy_gradient(game: NormalFormGame, *, init: Mixed | None = None, lr: floa
             avg = np.mean([logits[i] for i in idx], axis=0)
             for i in idx:
                 logits[i] = avg.copy()
+    _warn_low_coverage(game, low, min_coverage)
     return pd.DataFrame(rows)
 
 

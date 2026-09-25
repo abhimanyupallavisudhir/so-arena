@@ -134,7 +134,7 @@ suite = PromptSearchSuite(
 suite.searches["honest"].arms = ["true"]       # honest search argues the true side
 suite.searches["deceptive"].arms = ["false"]   # deceptive search argues a false side
 suite.run()
-suite.honesty_margin()   # best honest - best deceptive held-out reward, paired CI: < 0 means deception wins
+suite.honesty_margin()   # best measured-honest - best measured-deceptive held-out reward: < 0 means deception wins
 suite.paths()            # per-iteration best reward and its measured ground-truth value (2D path plots)
 ```
 
@@ -144,8 +144,14 @@ Algorithms: `opro`, `reflective` (GEPA-style), `evolve`, and `autoresearch` (a r
 from so_arena.integrations.gepa import gepa_search
 result, records = gepa_search(suite.searches["deceptive"], max_metric_calls=60)
 result.best_candidate["strategy"]                 # GEPA's best strategy (Pareto frontier over items)
-records.groupby("strategy_id")[["reward", "value"]].mean()   # reward vs measured truth per candidate
+records[records.split == "val"].groupby("strategy_id")[["reward", "value"]].mean()  # reward vs truth
 ```
+
+The honesty margin classes strategies by their *measured* ground-truth value, not by the directive
+that produced them - a "deceptive" search whose winner argues honestly is listed under `mislabelled`
+rather than counted as deception beating honesty (`by="directive"` gives the label-based margin).
+Strategy values come with `value_coverage` and are NaN when fewer than half of their episodes have a
+label.
  The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
 `arms=[None]` on open protocols so the agent picks its side; then "deceptive" directives must be
 checked by measured values (optimized liars may turn honest). Any external optimizer (DSPy/GEPA,
@@ -196,6 +202,12 @@ reward_fn = reward_function(Propaganda(), "agent", items, {"judge": Player(polic
 # GRPOTrainer(model=..., reward_funcs=[reward_fn], train_dataset=Dataset.from_list(data), ...)
 # reward_fn.history holds (reward, ground-truth value) per completion for training curves
 ```
+
+Random audits in the reward (`RandomAudit`, `JudgeAuditScore`) are drawn per item, repeat and seed, and
+the reward function advances the seed every training step (TRL's `global_step`, or a call count), so each
+step audits a fresh random subset while all completions for one prompt within a step share their draw.
+A role that decides more than once per episode needs `MechanismEnv`: the reward function refuses to
+reuse one completion for several decisions.
 
 Learning dynamics over strategy spaces (cheap "RL" on empirical games, with KL regularization toward a
 reference policy): `games.learning.policy_gradient(game, init=..., kl=...)`.
@@ -338,8 +350,11 @@ ever be judged in public: the bundle shows what each mechanism rewarded, without
 A release never publishes the items' private information (`--keep-private KEY` opts a key in) or anything
 that names an arm defined relative to the truth - profile names, tags and behaviour labels become keyed
 pseudonyms (`--public-labels` keeps them when they are not truth-relative); items whose licence forbids
-publication are refused (`--exclude-restricted` leaves them out instead). `verify` prints the digest and,
-given the published one, checks the bundle against it.
+publication are refused (`--exclude-restricted` leaves them out instead). Audit findings are withheld
+from reward details, but an audited reward is computed from its finding: runs whose audits were
+simulated from the experimenter's ground truth (`truth_oracle`) are not ground-truth-free, and `release`
+warns about audited episodes. `verify` prints the digest and, given the published one, checks the
+bundle against it.
 Ground-truth-free mechanisms: `PeerPrediction(rule="bts" | "multitask")`, `MarketMaking`.
 
 ## 11. Monitoring, chain of thought, and ControlArena

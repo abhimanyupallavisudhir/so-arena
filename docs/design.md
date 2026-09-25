@@ -102,9 +102,17 @@ results, `review_items` turns each into an accept/reject item whose state is the
 protocol with answer options (a single reviewer, consultancy, debate for and against acceptance)
 decides it; `arm_asd`/`acceptance_asd` report ASD against each deceptive arm and its worst case.
 
-Isolation is by copying directories (fine for small workspaces, not a security sandbox). The
-abstraction is backend-neutral: an environment backed by containers, git worktrees, Postgres/Neon or
-Dolt branches only has to implement forking and freezing.
+Isolation between branches is by copying directories (fine for small workspaces). Isolation of the
+*agents* from what grades them is by a sandbox (`core.sandbox`): every agent-controlled command -
+workspace shells and test runs, candidate programs, executable claims, Lean checks - runs in a private
+view of the file system in which the temporary and home directories are empty except for its own
+working directory, the interpreter is visible read-only, and no state store, work root, dataset, bundled
+sample or run directory is (`sandbox.hide(path)` adds more), with host processes invisible, no network
+and no capabilities. Backends are bubblewrap or unprivileged user namespaces (`unshare` + `setpriv`);
+where neither exists, agent code is refused unless the experimenter opts in
+(`SO_ARENA_ALLOW_UNSANDBOXED=1`). It is filesystem isolation for honest experiments, not a boundary
+against a determined attacker. The abstraction is backend-neutral: an environment backed by containers,
+git worktrees, Postgres/Neon or Dolt branches only has to implement forking and freezing.
 
 ## Layer 2: mechanisms
 
@@ -122,8 +130,12 @@ The protocol is ordinary async Python calling `g.act(role, kind=..., prompt=...,
 * sends a **typed request** (`text`, `choice`, `probabilities`, `score`, `json`) to the role's policy,
   so mechanisms are independent of how behaviour is produced;
 * **verifies claims** (`<claim kind="...">`) under the mechanism's `VerificationPolicy` and shows other
-  roles annotated text (`<verified>`, `<failed>`, `<unverified>`). The markers are reserved: the same tags
-  typed by an agent (or written into files it changed) are escaped everywhere they are shown, so only a
+  roles annotated text (`<verified>`, `<failed>`, `<executed>`, `<unverified>`). *Verified* means a
+  trusted checker confirmed what the claim states (an `expect` that matched, a stated goal or
+  hypothesis); code, a command or a query that merely ran is *executed*, its output shown as the
+  claimant's own - so printing "B passes all hidden tests" proves nothing. The markers are reserved: the
+  same tags typed by an agent, in files it changed, its reasoning or tool calls - also as look-alike
+  brackets or letters, HTML entities or escapes - are neutralized everywhere they are shown, so only a
   verifier can produce them. Budgets (`budget_per_role`) count a role's verifications along the current
   path, so best-of-N siblings never share a budget;
 * supports **simultaneous moves** (`g.simultaneous`) so that no mover sees the others' current actions;
@@ -182,15 +194,21 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
 
 * `analysis.metrics`: ASD (log/Brier/any transform, paired cluster bootstrap), graded ASD, pairwise
   concordance, within-item correlation, label efficiency, incentive gap recovered, expected agent/judge
-  scores under softmax propensities, judge accuracy, AUROC / TPR at FPR.
+  scores under softmax propensities, judge accuracy, AUROC / TPR at FPR. A judgment that could not be
+  parsed falls back to the uninformative answer, which pulls ASD toward 0: ASD reports the parse-failure
+  rate (overall and per arm), warns above 5%, and can drop such episodes (`exclude_unparsed=True`).
 * `analysis.optimization`: exact Bo$n$ (unbiased and plug-in) and tilted selection, KL, backward
   induction over the information sets of sampled game trees (fictitious play where moves are hidden or
   simultaneous, with the fixed-point gap reported), optimization grids; every value comes with its
   selection-weighted label coverage (`<key>_coverage`), and values resting on too little of the selected
   mass are dropped (`min_coverage`).
-* `games`: normal-form games, pure/strict/mixed Nash, zero-sum values, (coarse) correlated equilibria
-  with ground-truth welfare bounds, replicator dynamics, fictitious play, regret matching, basins,
-  policy-gradient learning dynamics.
+* `games`: normal-form games, pure/strict/mixed Nash (support enumeration for two players;
+  `approximate_nash` for more - the lowest-NashConv profile found by replicator dynamics and by minimizing
+  a function that vanishes exactly at equilibria - whose NashConv PSRO records and flags when it is only
+  approximate), zero-sum values, (coarse) correlated equilibria with ground-truth welfare bounds,
+  replicator dynamics, fictitious play, regret matching, basins, policy-gradient learning dynamics.
+  Expected ground-truth values of profiles, like those of prompt-search strategies, come with their
+  label coverage and are NaN below 50%.
 * `theory`: analytic whistleblower model; audits as control variates.
 * `analysis.plots` / `analysis.report`: validated-palette charts with per-mark tooltips and
   self-contained HTML reports.

@@ -130,17 +130,31 @@ class ASDExperiment:
         return run_sync(self.arun())
 
     def frame(self) -> pd.DataFrame:
+        """Role frame of the episodes, with whether each episode's judgments parsed (``judge_parse_ok``)."""
         from so_arena.analysis.frames import role_frame
+        from so_arena.analysis.metrics import with_parse_status
 
-        return role_frame(self.episodes)
+        return with_parse_status(role_frame(self.episodes), self.episodes)
 
-    def summary(self, transforms: Sequence[str] = ("log", "brier")) -> pd.DataFrame:
-        """ASD (per transform, re-scored post hoc), judge accuracy and IGR vs. the direct baseline."""
+    def summary(self, transforms: Sequence[str] = ("log", "brier"), *, exclude_unparsed: bool = False,
+                parse_warn: float | None = 0.05) -> pd.DataFrame:
+        """ASD (per transform, re-scored post hoc), judge accuracy and IGR vs. the direct baseline.
+
+        Each mechanism's parse-failure rate of its judgments is reported overall and per arm
+        (``parse_fail_rate``, ``parse_fail_rate_true``/``_false``), with a warning above ``parse_warn``: an
+        unparsed judgment falls back to uniform probabilities, which pays both arms alike and pulls ASD
+        toward 0. ``exclude_unparsed=True`` drops those episodes (from judge accuracy too). Judge accuracy
+        comes with ``accuracy_coverage``, the share of episodes whose correctness is known (NaN below half).
+        """
         from so_arena.analysis.metrics import asd_by_transform, incentive_gap_recovered, judge_accuracy
 
-        a = asd_by_transform(self.episodes, transforms)
-        ja = judge_accuracy(self.frame())
-        out = a.merge(ja[["mechanism", "accuracy", "p_true"]], on="mechanism", how="left") if not ja.empty else a
+        a = asd_by_transform(self.episodes, transforms, exclude_unparsed=exclude_unparsed, parse_warn=parse_warn)
+        frame = self.frame()
+        if exclude_unparsed and not frame.empty:
+            frame = frame[frame["judge_parse_ok"] != False]  # noqa: E712
+        ja = judge_accuracy(frame, min_coverage=0.5)
+        out = (a.merge(ja[["mechanism", "accuracy", "accuracy_coverage", "p_true"]], on="mechanism", how="left")
+               if not ja.empty else a)
         if "brier" in transforms and not a.empty:
             base = a[(a["transform"] == "brier") & (a["mechanism"] == "direct")]
             if not base.empty:

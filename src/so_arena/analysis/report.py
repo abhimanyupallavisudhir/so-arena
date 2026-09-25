@@ -34,7 +34,11 @@ TIPS = {
     "igr_brier": "Share of the gap between judging alone and a perfect judge that this mechanism closes.",
     "cost_per_episode": "Average API cost per episode.",
     "n_items": "Number of items with both behaviours observed.",
-    "margin": "Best honest strategy's reward minus best deceptive strategy's reward. Below 0: deception wins.",
+    "margin": ("Reward of the best strategy measured honest minus that of the best measured deceptive one (by ground "
+               "truth, whatever the search was told). Below 0: deception wins."),
+    "parse_fail_rate": ("Share of episodes whose judgment could not be read and fell back to a default (50/50): "
+                        "such episodes pay honest and dishonest behaviour alike."),
+    "value_coverage": "Share of the episodes behind an average ground-truth value that had one.",
 }
 
 CSS = """
@@ -147,7 +151,7 @@ def table_html(df: pd.DataFrame, *, tips: dict[str, str] | None = None, max_rows
     return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table>{more}"
 
 
-_MARK = re.compile(r"&lt;(verified|failed|unverified) kind=&quot;([\w\-\.]+)&quot;&gt;(.*?)&lt;/\1&gt;", re.S)
+_MARK = re.compile(r"&lt;(verified|failed|unverified|executed) kind=&quot;([\w\-\.]+)&quot;&gt;(.*?)&lt;/\1&gt;", re.S)
 _RESULT = re.compile(r"&lt;result&gt;(.*?)&lt;/result&gt;", re.S)
 
 
@@ -158,9 +162,13 @@ def render_text(text: str) -> str:
     def badge(m: re.Match) -> str:
         status, kind, body = m.group(1), m.group(2), m.group(3)
         body = _RESULT.sub(lambda r: f' <span class="muted">→ {r.group(1)}</span>', body)
-        cls, icon, label = {"verified": ("ok", "✓", "verified"), "failed": ("bad", "✗", "failed"),
-                            "unverified": ("unk", "?", "unverified")}[status]
-        return (f'<span class="v {cls}" title="{label} by a trusted tool">{icon} {label} {kind}</span>'
+        cls, icon, label, tip = {
+            "verified": ("ok", "✓", "verified", "checked and true, by a trusted tool"),
+            "failed": ("bad", "✗", "failed", "checked and false, by a trusted tool"),
+            "unverified": ("unk", "?", "unverified", "not checked"),
+            "executed": ("unk", "▸", "ran", "run by a trusted tool without checking a stated result: the output is "
+                                            "the participant's own code's")}[status]
+        return (f'<span class="v {cls}" title="{tip}">{icon} {label} {kind}</span>'
                 f"<u>{body}</u>")
 
     return _MARK.sub(badge, s)
@@ -291,7 +299,7 @@ def build_report(episodes: Sequence[Episode], path: str | Path, *, title: str = 
     ``extra`` is a sequence of ``(title, charts_or_(charts, table, note))`` entries.
     """
     from so_arena.analysis.frames import role_frame
-    from so_arena.analysis.metrics import asd, asd_by_transform, incentive_alignment, judge_accuracy
+    from so_arena.analysis.metrics import asd, asd_by_transform, incentive_alignment, judge_accuracy, with_parse_status
     from so_arena.analysis.plots import asd_bars, dual_mode
 
     eps = list(episodes)
@@ -301,16 +309,17 @@ def build_report(episodes: Sequence[Episode], path: str | Path, *, title: str = 
     rep.kpis({"Episodes": len(eps), "Items": len({e.item_id for e in eps}),
               "Mechanisms": len({e.mechanism for e in eps}), "Cost (USD)": f"{cost:,.2f}",
               **({"Errors": sum(e.error is not None for e in eps)} if any(e.error for e in eps) else {})})
-    df = role_frame(ok)
+    df = with_parse_status(role_frame(ok), ok)
     if not hide_ground_truth and not df.empty and df["value"].notna().any():
         a = asd(df)
         order = list(dict.fromkeys(e.mechanism for e in ok))
         if not a.empty:
             a = a.assign(_o=a["mechanism"].map({m: i for i, m in enumerate(order)})).sort_values("_o").drop(columns="_o")
             charts = dual_mode(asd_bars, a, subtitle="Paired by item; whiskers are 95% bootstrap intervals")
-            table = a[["mechanism", "asd", "ci_low", "ci_high", "n_items"]].copy()
+            shown = ["parse_fail_rate"] if "parse_fail_rate" in a and (a["parse_fail_rate"] > 0).any() else []
+            table = a[["mechanism", "asd", "ci_low", "ci_high", "n_items", *shown]].copy()
             try:
-                tb = asd_by_transform(ok, ("brier",))
+                tb = asd_by_transform(ok, ("brier",), parse_warn=None)  # warned for the log score above
                 if not tb.empty:
                     table = table.merge(tb[["mechanism", "asd"]].rename(columns={"asd": "asd_brier"}), on="mechanism", how="left")
             except Exception:

@@ -23,6 +23,15 @@ TRL warns); mask such samples in your trainer, or pass ``missing=`` to substitut
 
 Ground-truth values are recorded alongside rewards (``env.last_episode``, ``fn.history``) so that
 training curves can plot mechanism reward against ground truth - the point of the exercise.
+
+**Audits are redrawn every training step.** Nature's moves (reward-time audits, in-protocol audits,
+tie-breaks) are drawn from the item, repeat and seed only (:func:`so_arena.core.rewards.audit_draw`,
+:meth:`so_arena.core.game.Game.chance`), so that all completions of one prompt face the same audit (a
+group-relative advantage then compares behaviours, not audit luck). With one fixed seed the *same* items
+would be audited at every step - over epochs the trainee could learn which items are never checked. The
+reward function therefore runs step $t$ under its own seed (the trainer's ``global_step`` when TRL passes
+``trainer_state``, an explicit ``step=``, else a count of calls): one shared draw within a step, fresh draws
+across steps. Stances still resolve from the base seed, as in :func:`rollout_prompts`.
 """
 
 from __future__ import annotations
@@ -187,6 +196,25 @@ async def rollout(env: MechanismEnv, item: TaskItem, policy: Policy) -> Episode:
     return res.episode
 
 
+class MultipleDecisionsError(RuntimeError):
+    """A reward function's trainee role was asked for a second decision (see :class:`RewardFunction`)."""
+
+
+class _Completion(FixedPolicy):
+    """A trainee's completion, for its one decision; a second decision raises instead of reusing it."""
+
+    def __init__(self, output: Any, *, label: str | None = None):
+        super().__init__(output, label=label)
+        self.phases: list[str] = []
+
+    async def act(self, request, ctx):
+        self.phases.append(request.phase)
+        if len(self.phases) > 1:
+            raise MultipleDecisionsError(f"decision {len(self.phases)} ({request.phase or request.kind!r}) of a "
+                                         "single-completion trainee")
+        return await super().act(request, ctx)
+
+
 class RewardFunction:
     """TRL-style batch reward function for a single-decision trainee role (see module docstring).
 
@@ -194,20 +222,38 @@ class RewardFunction:
     emits it: the answer that sample's prompt assigned), else the spec in ``stances`` (by item id, else
     by role) resolved exactly as :class:`MechanismEnv` resolves it for the same ``seed``. Rewards that
     are missing (pending, unscored) are returned as ``missing`` - ``None`` by default, never a silent 0.
+
+    Audits and other chance moves are redrawn at every training step (``redraw_per_step=True``, see the
+    module docstring): step $t$ runs its episodes under :meth:`step_seed`, where $t$ is ``step=`` if given,
+    else ``trainer_state.global_step`` (TRL passes it), else the number of earlier calls - so pass all
+    completions of a prompt in one call (TRL does). ``fn.history`` rows record the step and seed.
+
+    A completion is one decision: if the role is asked again (a consultant with several speeches, a
+    debater with several rounds) the call raises :class:`MultipleDecisionsError` rather than reusing the
+    completion for decisions whose prompts the trainee never saw - train such roles with
+    :class:`MechanismEnv`.
     """
 
     def __init__(self, mechanism: Mechanism, role: str, items: Sequence[TaskItem], players: dict[str, Player], *,
                  stances: dict[str, str | None] | None = None, ctx: RunContext | None = None,
                  ground_truth: Sequence[GroundTruthScorer] | None = None, seed: int = 0,
-                 missing: float | None = None):
+                 missing: float | None = None, redraw_per_step: bool = True):
         self.mechanism, self.role = mechanism, role
         self.items = {it.id: it for it in items}
         self.players, self.stances = dict(players), dict(stances or {})
         self.ctx = ctx or RunContext()
         self.scorers = list(ground_truth) if ground_truth is not None else default_scorers()
-        self.seed, self.missing = seed, missing
+        self.seed, self.missing, self.redraw_per_step = seed, missing, redraw_per_step
         self.history: list[dict[str, Any]] = []
+        self.calls = 0
         self.__name__ = f"so_arena_{mechanism.name}_{role}"
+
+    def step_seed(self, step: int) -> int:
+        """The episode seed of training step ``step``: the base seed at step 0 (so a first call matches
+        an evaluation run with ``seed``), a hash of (seed, step) after it - unrelated across base seeds."""
+        if not self.redraw_per_step or step == 0:
+            return self.seed
+        return stable_hash("rl-step", self.seed, step) % 2**31
 
     @staticmethod
     def _text(completion: Any) -> str:
@@ -226,17 +272,29 @@ class RewardFunction:
         return resolve_stance(spec, item, trainee_rng(self.seed, item.id))
 
     async def ascore(self, completions: Sequence[Any], item_ids: Sequence[str],
-                     stances: Sequence[str | None] | None = None) -> list[float | None]:
+                     stances: Sequence[str | None] | None = None, *, step: int | None = None) -> list[float | None]:
+        """Rewards for one batch; the batch is training step ``step`` (default: the number of earlier calls)."""
+        step = self.calls if step is None else int(step)
+        self.calls += 1
+        seed = self.step_seed(step)
+
         async def one(c: Any, iid: str, given: Any) -> float | None:
             item = self.items[iid]
             players = dict(self.players)
             stance = self._stance(item, given)
-            players[self.role] = Player(policy=FixedPolicy(self._text(c), label="completion"), stance=stance)
-            ep = await self.mechanism.run(item, players, self.ctx, episode_id=f"{iid}:rl:{len(self.history)}", seed=self.seed)
+            policy = _Completion(self._text(c), label="completion")
+            players[self.role] = Player(policy=policy, stance=stance)
+            ep = await self.mechanism.run(item, players, self.ctx, episode_id=f"{iid}:rl:{len(self.history)}", seed=seed)
+            if len(policy.phases) > 1:
+                raise MultipleDecisionsError(
+                    f"{self.mechanism.name}: role {self.role!r} was asked for more than one decision on item {iid!r} "
+                    f"(phases {policy.phases}). A reward function scores one completion per episode; reusing it for "
+                    "later decisions would score behaviour the trainee never produced. Train multi-decision roles "
+                    "with MechanismEnv (one observation and completion per decision).")
             ep = await score_episode(ep, item, self.scorers, self.ctx)
             r = ep.rewards.get(self.role)
             self.history.append({"item_id": iid, "stance": stance, "reward": r, "value": ep.value(self.role),
-                                 "judge_correct": ep.ground_truth.get("judge_correct")})
+                                 "judge_correct": ep.ground_truth.get("judge_correct"), "step": step, "seed": seed})
             return float(r) if r is not None else self.missing
 
         given = list(stances) if stances is not None else [...] * len(item_ids)
@@ -244,10 +302,13 @@ class RewardFunction:
 
     def __call__(self, prompts: Sequence[Any] | None = None, completions: Sequence[Any] = (), *,
                  item_id: Sequence[str] | None = None, stance: Sequence[str | None] | None = None,
-                 **kwargs: Any) -> list[float | None]:
+                 step: int | None = None, trainer_state: Any = None, **kwargs: Any) -> list[float | None]:
         if item_id is None:
             raise ValueError("reward function needs the dataset column 'item_id'")
-        return run_sync(self.ascore(list(completions), list(item_id), None if stance is None else list(stance)))
+        if step is None and getattr(trainer_state, "global_step", None) is not None:
+            step = int(trainer_state.global_step)
+        return run_sync(self.ascore(list(completions), list(item_id), None if stance is None else list(stance),
+                                    step=step))
 
 
 def reward_function(mechanism: Mechanism, role: str, items: Sequence[TaskItem], players: dict[str, Player],

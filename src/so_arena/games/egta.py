@@ -122,6 +122,7 @@ class EmpiricalGameExperiment:
         # collect per-profile samples
         pay: dict[tuple, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
         outc: dict[tuple, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+        n_eps: dict[tuple, int] = defaultdict(int)  # episodes per profile: the denominator of outcome coverage
         for ep in eps:
             assign = ep.tags.get("profile_assign") or {r: ep.players[r].label for r in self.players}
             by_type: dict[str, list[float]] = defaultdict(list)
@@ -149,6 +150,7 @@ class EmpiricalGameExperiment:
                 prof_samples.append((prof, {r: ep.rewards.get(r, np.nan) for r in self.players}))
             ovals = {k: fn(ep) for k, fn in self.outcome_fns.items()}
             for prof, u in prof_samples:
+                n_eps[prof] += 1
                 for r, v in u.items():
                     if v is not None and np.isfinite(v):
                         pay[prof][r].append(float(v))
@@ -159,6 +161,7 @@ class EmpiricalGameExperiment:
         SE = {r: np.full(shape, np.nan) for r in self.players}
         counts = np.zeros(shape, dtype=int)
         O = {k: np.full(shape, np.nan) for k in self.outcome_fns}
+        C = {k: np.zeros(shape) for k in self.outcome_fns}
         for prof in itertools.product(*[range(s) for s in shape]):
             for r in self.players:
                 vals = pay[prof][r]
@@ -169,10 +172,11 @@ class EmpiricalGameExperiment:
             for k in self.outcome_fns:
                 if outc[prof][k]:
                     O[k][prof] = np.mean(outc[prof][k])
+                    C[k][prof] = len(outc[prof][k]) / n_eps[prof]
         missing = int(np.isnan(np.stack(list(U.values()))).sum())
         if missing:
             import logging
 
             logging.getLogger("so_arena").warning("%d payoff entries missing (unsimulated or errored profiles)", missing)
         return NormalFormGame(self.players, {r: list(self.strategies[r]) for r in self.players}, U, stderr=SE,
-                              counts=counts, outcomes=O, name=name or self.mechanism.name)
+                              counts=counts, outcomes=O, name=name or self.mechanism.name, coverage=C)
