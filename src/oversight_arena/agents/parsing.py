@@ -191,31 +191,52 @@ def parse_distribution(text: str, options: list[str]) -> dict[str, float] | None
     return {o: max(probs[o], 0.0) / s for o in options}
 
 
+_NUM = r"-?(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d*\.?\d+)"  # 1,200 · 12.5 · .5
+
+
+def _on_scale(v: float, lo: float, hi: float, pct: bool = False, den: float | None = None) -> float:
+    """A number as a value on [lo, hi]: fractions ("3/10") and percentages map proportionally; a
+    bare number above 1 on a probability scale is a percentage; anything else is clamped."""
+    if den:
+        v = lo + (v / den) * (hi - lo)
+    elif pct:
+        v = lo + (v / 100) * (hi - lo)
+    elif not lo <= v <= hi and hi <= 1 and lo >= 0 and 1 < v <= 100:
+        v = v / 100
+    return min(max(v, lo), hi)
+
+
+def _number_at(text: str, pos: int = 0) -> tuple[float, bool, float | None] | None:
+    """(value, percent?, denominator) for the number starting at ``pos`` (after markup)."""
+    m = re.match(rf"\s*[*_`]*\s*({_NUM})\s*[*_`]*\s*(%|/\s*[*_`]*\s*({_NUM}))?", text[pos:])
+    if not m:
+        return None
+    den = float(m.group(3).replace(",", "")) if m.group(3) else None
+    return float(m.group(1).replace(",", "")), m.group(2) == "%", den if den else None
+
+
 def parse_scalar(text: str, lo: float, hi: float, name: str = "value") -> float | None:
-    pats = [
-        rf"{re.escape(name)}\s*[:=]\s*(-?[0-9]*\.?[0-9]+)\s*(%?)",
-        r"(?:score|probability|rating|suspicion|value|forecast)\s*[:=]\s*(-?[0-9]*\.?[0-9]+)\s*(%?)",
-    ]
-    for p in pats:
-        ms = list(re.finditer(p, text, re.I))
-        if ms:
-            v = float(ms[-1].group(1))
-            if ms[-1].group(2) == "%":
-                v /= 100
-            return min(max(v, lo), hi)
+    """A number on the scale [lo, hi] from free text or JSON: a labelled value (``NAME: 7``,
+    ``**NAME**: 3/10``, ``NAME = 70%``), else a JSON field, else the last number in range."""
+    for label in (re.escape(name), r"(?:score|probability|rating|suspicion|value|forecast|confidence)"):
+        ms = list(re.finditer(rf"[*_`]*\b{label}\b[*_`]*\s*[:=]", text, re.I))
+        for m in reversed(ms):
+            got = _number_at(text, m.end())
+            if got is not None:
+                return _on_scale(got[0], lo, hi, got[1], got[2])
     obj = parse_json(text)
-    if obj:
-        for k in (name, "value", "score", "probability"):
-            if k in obj:
-                v = _to_prob(obj[k])
-                if v is not None:
-                    return min(max(v, lo), hi)
-    nums = re.findall(r"-?[0-9]*\.?[0-9]+", text)
-    for n in reversed(nums):
-        try:
-            v = float(n)
-        except ValueError:
-            continue
+    if isinstance(obj, dict):
+        for k in (name, "value", "score", "probability", "suspicion", "rating"):
+            v = obj.get(k)
+            if isinstance(v, bool) or v is None:
+                continue
+            if isinstance(v, (int, float)):
+                return _on_scale(float(v), lo, hi)
+            got = _number_at(str(v))
+            if got is not None:
+                return _on_scale(got[0], lo, hi, got[1], got[2])
+    for m in reversed(list(re.finditer(_NUM, text))):
+        v = float(m.group(0).replace(",", ""))
         if lo <= v <= hi:
             return v
     return None

@@ -1,7 +1,15 @@
-"""Transcripts: ordered entries with per-role visibility, evidence and (private) reasoning."""
+"""Transcripts: ordered entries with per-role visibility, evidence and (private) reasoning.
+
+Provenance is marked by construction, not by pattern matching: everything the *system* writes
+(speaker labels, moderator lines, trusted tool output, verification verdicts) is labelled in
+reserved brackets ⟦…⟧, and participant-written text (messages, reasoning, tool arguments and
+results, claim text) is passed through :func:`untrusted`, which cannot produce those brackets.
+"""
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -11,6 +19,30 @@ from .types import ToolTrace, Usage
 EntryKind = Literal[
     "message", "evidence", "tool", "system", "verdict", "probe", "audit", "report", "action", "note"
 ]
+
+
+OPEN, CLOSE = "⟦", "⟧"  # reserved for text written by the system
+_BRACKET_LOOKALIKES = str.maketrans({c: "[" for c in "⟦〚【〖［⟬"} | {c: "]" for c in "⟧〛】〗］⟭"})
+# invisible and bidirectional control characters: they hide or reorder text
+_INVISIBLE = re.compile("[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e"
+                        "\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\U000e0000-\U000e007f]")
+
+
+def label(text: str) -> str:
+    """A system-written label, e.g. ``⟦Moderator⟧``."""
+    return f"{OPEN}{text}{CLOSE}"
+
+
+def untrusted(text: Any) -> str:
+    """Participant-written text as it may appear in a transcript: no reserved brackets (or their
+    look-alikes), no invisible or direction-changing characters."""
+    s = unicodedata.normalize("NFC", str(text))
+    return _INVISIBLE.sub("", s).translate(_BRACKET_LOOKALIKES)
+
+
+def _indented(text: str, pad: str = "      ") -> str:
+    """Continuation lines of a block, indented so they cannot pose as new transcript lines."""
+    return text.replace("\n", "\n" + pad)
 
 
 class Evidence(BaseModel):
@@ -28,8 +60,9 @@ class Evidence(BaseModel):
 
     def render(self) -> str:
         mark = {True: "VERIFIED", False: "REFUTED", None: "CHECKED"}[self.verified]
-        body = f"{self.claim} -> {self.result}" if self.claim else self.result
-        return f"[{mark} by {self.verifier}] {body}"
+        claim, result = untrusted(self.claim), untrusted(self.result)  # claims (and echoed data) come from agents
+        body = f"{claim} -> {result}" if claim else result
+        return f"{label(f'{mark} by {self.verifier}')} {_indented(body)}"
 
 
 class Entry(BaseModel):
@@ -85,28 +118,28 @@ class Transcript(BaseModel):
         include_reasoning: bool = True,
         include_tools: bool = True,
     ) -> str:
-        """Plain-text rendering of the entries visible to ``for_role`` (all if None)."""
+        """Plain-text rendering of the entries visible to ``for_role`` (all if None). System-written
+        parts are labelled ⟦…⟧; participant-written parts cannot contain those brackets."""
         titles = titles or {}
         lines: list[str] = []
         for e in self.entries:
             if for_role is not None and not e.visible(for_role):
                 continue
             who = titles.get(e.role or "", e.role or "Moderator") if e.role else "Moderator"
-            if e.kind == "system":
-                lines.append(f"[Moderator]: {e.content}")
+            if e.kind == "system" or e.role is None:
+                lines.append(f"{label('Moderator')}: {e.content}")
             elif e.kind == "evidence":
                 lines.append(e.content)
             else:
-                label = who if e.kind == "message" else f"{who} ({e.kind})"
-                lines.append(f"[{label}]: {e.content}")
+                name = who if e.kind == "message" else f"{who} ({e.kind})"
+                lines.append(f"{label(name)}: {untrusted(e.content)}")
             shared = e.data.get("_share_tools") or (for_role is not None and for_role in (e.data.get("_tools_visible_to") or []))
             if include_tools and e.tool_trace and shared:
                 for t in e.tool_trace:
-                    lines.append(
-                        f"    [trusted tool output] {t.name}({_fmt_args(t.arguments)}) -> {t.result}"
-                    )
+                    lines.append(f"    {label('trusted tool output')} {t.name}({_fmt_args(t.arguments)}) -> "
+                                 f"{_indented(untrusted(t.result))}")
             if include_reasoning and for_role is not None and e.reasoning_visible(for_role) and e.role != for_role:
-                lines.append(f"    [{who}'s private reasoning]: {e.reasoning}")
+                lines.append(f"    {label(f'private reasoning of {who}')}: {_indented(untrusted(e.reasoning))}")
             for ev in e.evidence:
                 if e.kind != "evidence" and (
                     for_role is None or ev.visible_to is None or for_role in ev.visible_to
@@ -115,6 +148,6 @@ class Transcript(BaseModel):
         return "\n\n".join(lines)
 
 
-def _fmt_args(args: dict[str, Any]) -> str:
-    s = ", ".join(f"{k}={v!r}" for k, v in args.items())
-    return s if len(s) < 300 else s[:297] + "..."
+def _fmt_args(args: dict[str, Any], limit: int = 2000) -> str:
+    s = untrusted(", ".join(f"{k}={v!r}" for k, v in args.items()))
+    return s if len(s) <= limit else s[:limit] + f"... [{len(s) - limit} more characters]"

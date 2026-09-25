@@ -85,7 +85,7 @@ def record_messages(rec: EpisodeRecord, task: OATask | None = None) -> list[Any]
         meta = {"oa_role": e.role, "kind": e.kind, "step": e.step, "turn": e.turn,
                 "visible_to": e.visible_to, "data": {k: v for k, v in e.data.items() if not k.startswith("_")}}
         if e.role is None:
-            msgs.append(ChatMessageUser(content=f"[Moderator] {body}", metadata=meta))
+            msgs.append(ChatMessageUser(content=f"⟦Moderator⟧ {body}", metadata=meta))
         else:
             msgs.append(ChatMessageAssistant(content=f"**{titles.get(e.role, e.role)}**: {body}", metadata=meta,
                                              model=rec.bound[e.role].agent if e.role in rec.bound else None))

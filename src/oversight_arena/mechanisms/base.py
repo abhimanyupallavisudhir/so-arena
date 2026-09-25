@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import re
+import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -45,7 +46,7 @@ from ..core.roles import RoleSpec
 from ..core.strategy import BoundStrategy, fill_placeholders
 from ..core.task import Task, TaskView
 from ..core.tools import Tool
-from ..core.transcript import Entry, Evidence, Transcript
+from ..core.transcript import Entry, Evidence, Transcript, untrusted
 from ..core.types import Usage
 from ..core.util import rng_for, stable_hash
 
@@ -328,10 +329,13 @@ class EpisodeContext:
         observation: Observation | None = None,
         verify: bool = True,
         tools_visible_to: list[str] | None = None,
+        data_visible_to: list[str] | None = None,
     ) -> Entry:
         """Ask ``role`` to act; verify its claims (unless ``verify=False``); append (and return)
         the transcript entry. ``tools_visible_to``: roles that see this turn's tool calls and
-        outputs (e.g. a monitor watching the actor's actions)."""
+        outputs (e.g. a monitor watching the actor's actions). ``data_visible_to``: roles that see
+        the structured fields of the response (default: everyone who sees the entry); e.g. a
+        programmatic actor's action label must not reach its monitor."""
         agent = self.agents[role]
         obs = observation or self.observe(role, prompt, response, step=step, turn=turn, tools=tools, extra_brief=extra_brief)
         action = await agent.act(obs)
@@ -339,7 +343,7 @@ class EpisodeContext:
         entry = Entry(
             kind=kind,  # type: ignore[arg-type]
             role=role,
-            content=strip_status_marks(action.text),  # only trusted code may mark claims as checked
+            content=strip_status_marks(untrusted(action.text)),  # only trusted code may mark claims as checked
             visible_to=visible_to,
             reasoning=action.reasoning,
             reasoning_visible_to=reasoning_visible_to,
@@ -353,6 +357,8 @@ class EpisodeContext:
             entry.data["_parse_error"] = action.error
         if tools_visible_to:
             entry.data["_tools_visible_to"] = list(tools_visible_to)
+        if data_visible_to is not None:
+            entry.data["_data_visible_to"] = list(data_visible_to)
         self.usage[role] = self.usage.get(role, Usage()) + action.usage
         pol = self.mechanism.evidence
         if pol is not None:
@@ -533,11 +539,17 @@ class EpisodeContext:
 
 _STATUS_ATTR = re.compile(r"""(<[A-Za-z_][\w\-]*\b[^<>]*?)\s+status\s*=\s*(?:"[^"]*"|'[^']*'|[^\s<>"']+)""", re.I)
 _FAKE_VERDICT = re.compile(r"\[(\s*)(VERIFIED|REFUTED|CHECKED)(\s+by\b)", re.I)
+_TAG = re.compile(r"<[^<>]{1,500}>")
+# Latin look-alikes (Cyrillic, Greek, fullwidth) folded inside markup tags, where only ASCII syntax belongs
+_LOOKALIKES = str.maketrans("аеорсухіјѕԁԛԝАВЕКМНОРСТХЅІЈαοτυνρκιΑΒΕΖΗΙΚΜΝΟΡΤΥΧ", "aeopcyxijsdqwABEKMHOPCTXSIJaotuvpkiABEZHIKMNOPTYX")
 
 
 def strip_status_marks(text: str) -> str:
     """Only trusted code may mark claims as checked: remove ``status`` attributes from claim
-    markup (any case or quoting) and defuse text imitating trusted verdict lines."""
+    markup (any case or quoting, look-alike letters included) and defuse text imitating trusted
+    verdict lines. (Genuine verdicts are labelled ⟦…⟧, which agents cannot write: see
+    :func:`~oversight_arena.core.transcript.untrusted`.)"""
+    text = _TAG.sub(lambda m: unicodedata.normalize("NFKC", m.group(0)).translate(_LOOKALIKES), text)
     prev = None
     while prev != text:
         prev, text = text, _STATUS_ATTR.sub(r"\1", text)
@@ -548,11 +560,12 @@ def _sanitize(e: Entry, role: str) -> Entry:
     """A copy of ``e`` as ``role`` may see it."""
     own = e.role == role
     tools_ok = own or e.data.get("_share_tools") or role in (e.data.get("_tools_visible_to") or [])
+    data_ok = own or "_data_visible_to" not in e.data or role in e.data["_data_visible_to"]
     return e.model_copy(update={
         "reasoning": e.reasoning if (own or e.reasoning_visible(role)) else None,
         "tool_trace": list(e.tool_trace) if tools_ok else [],
         "evidence": [ev for ev in e.evidence if ev.visible_to is None or role in ev.visible_to],
-        "data": {k: v for k, v in e.data.items() if not str(k).startswith("_")},
+        "data": {k: v for k, v in e.data.items() if not str(k).startswith("_") and (data_ok or k == "claims")},
     })
 
 

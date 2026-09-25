@@ -215,8 +215,11 @@ class CorrelatedAgreement(_MultiTask):
 class DMI(_MultiTask):
     """Determinant-based Mutual Information mechanism (Kong 2020): dominantly truthful with
     ≥ 2C tasks. Reward to i (paired with j) = $\\det M^{(1)}_{ij}\\cdot\\det M^{(2)}_{ij}$ where
-    $M^{(1)}, M^{(2)}$ are joint answer-count matrices on two disjoint halves of the tasks.
-    The payment is for the whole batch, so every episode of an agent carries the same value."""
+    $M^{(1)}, M^{(2)}$ are joint answer-count matrices on two disjoint halves of the tasks,
+    averaged over peers. It is divided by a constant that depends only on the batch size and
+    the answer space, $(n_1/C)^C (n_2/C)^C$ (the largest possible value), so payments lie in
+    $[-1, 1]$ and stay comparable across profiles. The payment is for the whole batch, so every
+    episode of an agent carries the same value."""
 
     incentive: ClassVar[str] = "You are rewarded according to how informative your answers are about a peer's answers across many questions."
 
@@ -224,27 +227,30 @@ class DMI(_MultiTask):
         tab = self._table(records)
         roles = sorted(tab)
         tasks = sorted({r.task_id for r in records})
-        opts = sorted({a for d in tab.values() for a in d.values() if a is not None})
+        # the answer space comes from the tasks, not from the reports (which may not use every option)
+        opts = sorted({o for rec in records for o in (rec.outcome.get("options") or [])}
+                      or {a for d in tab.values() for a in d.values() if a is not None})
         oi = {o: i for i, o in enumerate(opts)}
+        half = len(tasks) // 2
+        C = len(opts)
+        bound = (half / C) ** C * ((len(tasks) - half) / C) ** C if C else 1.0
         pay: dict[str, float] = {}
         for r in roles:
             vals = []
             for q in roles:
                 if q == r:
                     continue
-                half = len(tasks) // 2
                 ms = []
                 for part in (tasks[:half], tasks[half:]):
-                    M = np.zeros((len(opts), len(opts)))
+                    M = np.zeros((C, C))
                     for t in part:
                         a, b = tab[r].get(t), tab[q].get(t)
                         if a in oi and b in oi:
                             M[oi[a], oi[b]] += 1
-                    ms.append(np.linalg.det(M) if len(opts) else 0.0)
+                    ms.append(np.linalg.det(M) if C else 0.0)
                 vals.append(ms[0] * ms[1])
-            pay[r] = float(np.mean(vals)) if vals else 0.0
-        scale = max(1.0, max((abs(v) for v in pay.values()), default=1.0))
-        return [{r: pay.get(r, 0.0) / scale for r in (rec.outcome.get("answers") or {})} for rec in records]
+            pay[r] = float(np.mean(vals)) / bound if vals and bound > 0 else 0.0
+        return [{r: pay.get(r, 0.0) for r in (rec.outcome.get("answers") or {})} for rec in records]
 
 
 __all__ = ["Reporters", "OutputAgreement", "BTS", "CorrelatedAgreement", "DMI"]

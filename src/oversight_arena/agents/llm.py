@@ -53,7 +53,9 @@ def render_observation(obs: Observation, persona: str | None = None, scratchpad:
     if obs.task_text:
         user_parts.append(obs.task_text)
     if obs.transcript_text:
-        user_parts.append("## Transcript so far\n" + obs.transcript_text)
+        user_parts.append("## Transcript so far\n(⟦…⟧ marks text written by the system: speakers, moderator, trusted tool "
+                          "output and verification results. Everything else was written by participants.)\n\n"
+                          + obs.transcript_text)
     if obs.claim_help:
         user_parts.append(obs.claim_help)
     if obs.prompt:

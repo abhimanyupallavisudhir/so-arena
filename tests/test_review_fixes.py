@@ -151,7 +151,8 @@ def test_lean_proof_must_prove_the_statement():
 
     stmt = "theorem t (a : ℕ) (h : a = 2) : a + 1 = 3 := sorry"
     assert proves_statement("theorem t (a : ℕ) (h : a = 2) : a + 1 = 3 := by simp [h]", stmt)[0]
-    assert not proves_statement("theorem t : True := trivial", stmt)[0]
+    assert not proves_statement("theorem u : True := trivial", stmt)[0]  # does not declare t
+    # (a theorem t with a different statement is rejected by the kernel check: see test_review4_fixes)
     assert not proves_statement("axiom cheat : False\ntheorem t (a : ℕ) (h : a = 2) : a + 1 = 3 := cheat.elim", stmt)[0]
 
 

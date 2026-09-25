@@ -32,7 +32,12 @@ def bon_weights(scores: Sequence[float] | np.ndarray, n: float, maximize: bool =
     N = len(s)
     if N == 0:
         return s
-    if n <= 0:
+    ok = ~np.isnan(s)
+    if ok.any() and not ok.all():  # a missing score is never selected (NaN would otherwise rank top)
+        w = np.zeros(N)
+        w[ok] = bon_weights(s[ok], n, True)
+        return w
+    if n <= 0 or not ok.any():
         return np.full(N, 1.0 / N)
     vals, inv, counts = np.unique(s, return_inverse=True, return_counts=True)
     cdf = np.cumsum(counts) / N
@@ -47,7 +52,7 @@ def bon_kl(n: float) -> float:
     finite pool it is only an upper bound (Beirami et al. 2024); :func:`pool_kl` is exact."""
     import math
 
-    return math.log(n) - (n - 1) / n if n >= 1 else 0.0
+    return math.log(n) - (n - 1) / n if n > 0 else 0.0
 
 
 def pool_kl(scores: Sequence[float] | np.ndarray, n: float, maximize: bool = True) -> float:
@@ -60,7 +65,8 @@ def pool_kl(scores: Sequence[float] | np.ndarray, n: float, maximize: bool = Tru
 
 def bon_expectation(scores, values, n: float, maximize: bool = True) -> float:
     w = bon_weights(scores, n, maximize)
-    return float(np.dot(w, np.asarray(values, dtype=float)))
+    sel = w > 0
+    return float(np.dot(w[sel], np.asarray(values, dtype=float)[sel]))
 
 
 def bon_curve(
@@ -132,9 +138,10 @@ def tree_value(node: Node, ks: Sequence[float], maximize: Sequence[bool], depth:
     k = ks[depth] if depth < len(ks) else 1
     mx = maximize[depth] if depth < len(maximize) else True
     w = bon_weights(pay, k, maximize=mx)
-    ok = ~np.isnan(gts)  # GT averaged over the children where it is defined
+    sel = w > 0  # children with a missing payoff are never selected (weight 0; 0 * NaN would be NaN)
+    ok = sel & ~np.isnan(gts)  # GT averaged over the selected children where it is defined
     g = float(np.dot(w[ok], gts[ok]) / w[ok].sum()) if ok.any() and w[ok].sum() > 0 else float("nan")
-    return float(np.dot(w, pay)), g
+    return float(np.dot(w[sel], pay[sel])), g
 
 
 def tree_mesh(
@@ -161,11 +168,13 @@ def trees_from_results(results, levels: Sequence[str | tuple[str, str]], payoff:
     ``levels`` are the moves in order, as role names or (role, step) pairs — e.g.
     ``[("proposer", "proposal"), ("critic", "critique"), ("proposer", "rebuttal")]`` for episodes
     generated with :class:`~oversight_arena.experiment.profiles.GameTree`. A node at each level
-    is identified by that role's (strategy, sample index for the step). Episodes sharing the
-    same task and the same prefix are siblings. ``payoff`` is read from ``record.outcome``.
+    is identified by that role's (strategy, sample index for the step). There is one tree per
+    (mechanism configuration, task, episode seed), labelled in ``root.data``; within it, episodes
+    sharing a prefix are siblings. Two episodes on the same path raise an error instead of one
+    silently replacing the other. ``payoff`` is read from ``record.outcome``.
     """
     recs = results.records if hasattr(results, "records") else results
-    by_task: dict[str, dict] = {}
+    trees: dict[tuple, dict] = {}
     for r in recs:
         if r.error:
             continue
@@ -177,10 +186,17 @@ def trees_from_results(results, levels: Sequence[str | tuple[str, str]], payoff:
         path = tuple(path)
         val = r.outcome.get(payoff)
         g = r.gt.get(gt[0], {}).get(gt[1]) if gt else None
-        tree = by_task.setdefault(r.task_id, {})
-        node = tree
+        # one tree per (mechanism configuration, task, episode seed): repeats and different
+        # mechanisms are separate games, never siblings
+        key = (r.mechanism_hash, r.mechanism, r.task_id, r.seed)
+        node = trees.setdefault(key, {})
         for s in path[:-1]:
             node = node.setdefault(s, {})
+            if isinstance(node, tuple):
+                raise ValueError(f"episode {r.id}: tree path {path} passes through a leaf; check `levels`")
+        if path[-1] in node:
+            raise ValueError(f"episodes collide on tree path {path} for {key[1]} / {key[2]} (seed {key[3]}): "
+                             "`levels` do not identify the episodes (a role or step that varies is missing)")
         node[path[-1]] = (val, g)
 
     def build(d: dict | tuple) -> Node:
@@ -188,4 +204,10 @@ def trees_from_results(results, levels: Sequence[str | tuple[str, str]], payoff:
             return Node(payoff=d[0], gt=d[1])
         return Node(children=[build(v) for _, v in sorted(d.items())])
 
-    return [build(t) for t in by_task.values()]
+    out = []
+    for (mh, mech, task, seed), t in trees.items():
+        root = build(t)
+        root.label = f"{mech} / {task}" + (f" / seed {seed}" if seed else "")
+        root.data = {"mechanism": mech, "mechanism_hash": mh, "task": task, "seed": seed}
+        out.append(root)
+    return out

@@ -211,6 +211,35 @@ def _impls_prelude(task_resources: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+_SAFE_CALLS = frozenset({
+    "abs", "all", "any", "bool", "chr", "dict", "divmod", "enumerate", "filter", "float", "frozenset", "int",
+    "isinstance", "len", "list", "map", "max", "min", "ord", "pow", "range", "repr", "reversed", "round", "set",
+    "sorted", "str", "sum", "tuple", "zip",
+})
+
+
+def check_expression(expr: str) -> str | None:
+    """Why a ``<run>`` / ``<assert>`` expression is not allowed (None if it is). A verified claim
+    must be *about* the task's implementations, so the expression may not rebind or patch them:
+    no ``:=``, no private or dunder names and attributes, and calls only to ``impl_*``, lambdas,
+    methods of values and plain builtins."""
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as e:
+        return f"not a Python expression ({e.msg})"
+    for n in ast.walk(tree):
+        if isinstance(n, ast.NamedExpr):
+            return "assignment expressions (:=) are not allowed"
+        if isinstance(n, ast.Attribute) and n.attr.startswith("_"):
+            return f"attribute {n.attr!r} is not allowed"
+        if isinstance(n, ast.Name) and n.id.startswith("_"):
+            return f"name {n.id!r} is not allowed"
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and not (
+                n.func.id.startswith("impl_") or n.func.id in _SAFE_CALLS):
+            return f"calling {n.func.id!r} is not allowed"
+    return None
+
+
 class RunVerifier(Verifier):
     """``<run>impl_A([1, 2])</run>`` → trusted execution output; ``<assert>expr</assert>`` checks."""
 
@@ -223,6 +252,9 @@ class RunVerifier(Verifier):
 
     async def verify(self, claim: Claim, env: VerifyEnv) -> Evidence:
         expr = claim.content.strip()
+        bad = check_expression(expr)
+        if bad:
+            return Evidence(verifier=self.name, kind=self.tag, claim=expr, result=f"rejected: {bad}", verified=False)
         r = run_isolated(f"def main(u):\n    return repr(u.eval({expr!r}))\n", code=_impls_prelude(env.resources), timeout=10)
         res = str(r.value) if r.ok else r.error
         return Evidence(verifier=self.name, kind=self.tag, claim=expr, result=truncate(res, 400), verified=None if r.ok else False)
@@ -245,6 +277,9 @@ class AssertVerifier(Verifier):
 
     async def verify(self, claim: Claim, env: VerifyEnv) -> Evidence:
         expr = claim.content.strip()
+        bad = check_expression(expr)
+        if bad:
+            return Evidence(verifier=self.name, kind=self.tag, claim=expr, result=f"rejected: {bad}", verified=False)
         r = run_isolated(f"def main(u):\n    return u.truth({expr!r})\n", code=_impls_prelude(env.resources), timeout=10)
         ok = r.ok and r.value is True
         return Evidence(verifier=self.name, kind=self.tag, claim=expr,

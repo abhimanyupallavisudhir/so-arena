@@ -30,7 +30,7 @@ from ..core.episode import EpisodeRecord
 from ..core.task import Answer, InfoBlock, Task
 from ..core.tools import Tool, tool
 from ..core.transcript import Evidence
-from ..core.util import rng_for
+from ..core.util import rng_for, stable_hash
 from ..ground_truth.base import GTScorer
 from .base import Domain
 
@@ -177,15 +177,17 @@ def nonstandard_axioms(msg: str) -> set[str]:
     return out
 
 
-def kernel_check(checker: LeanChecker, header: str, code: str) -> tuple[bool, str]:
-    """Static screen (:data:`FORBIDDEN`), then the kernel, then an axiom audit: every theorem the
-    code declares must depend only on the standard axioms (``#print axioms``)."""
+def kernel_check(checker: LeanChecker, header: str, code: str, before: str = "", after: str = "") -> tuple[bool, str]:
+    """Static screen (:data:`FORBIDDEN`) of the untrusted ``code``, then the kernel on
+    ``header + before + code + after`` (``before``/``after``: trusted checks), then an axiom audit:
+    every theorem the code declares must depend only on the standard axioms (``#print axioms``)."""
     bad = FORBIDDEN.search(code)
     if bad:
         return False, f"uses {bad.group(0)!r}, which is not allowed"
     names = _DECL.findall(code)
     audit = "".join(f"\n#print axioms {n}" for n in names)
-    ok, msg = checker.check((header + "\n\n" + code).strip() + "\n" + audit)
+    parts = [header, before, code, after]
+    ok, msg = checker.check("\n\n".join(x.strip() for x in parts if x.strip()) + "\n" + audit)
     if ok and nonstandard_axioms(msg):
         return False, f"depends on non-standard axioms: {', '.join(sorted(nonstandard_axioms(msg)))}"
     return ok, msg
@@ -200,13 +202,51 @@ def statement_head(stmt: str) -> str:
     return _ws(re.sub(r":=\s*(?:by\s+)?sorry\s*$", "", stmt.strip()))
 
 
+_OPEN, _CLOSE = "([{⦃", ")]}⦄"
+
+
+def split_statement(stmt: str) -> tuple[str, str, str] | None:
+    """``theorem NAME BINDERS : GOAL := sorry`` → (NAME, BINDERS, GOAL); None if unparseable."""
+    m = re.match(r"\s*(?:theorem|lemma)\s+(\S+)(.*)$", statement_head(stmt), re.S)
+    if not m:
+        return None
+    name, rest = m.group(1), m.group(2)
+    depth = 0
+    for i, ch in enumerate(rest):
+        if ch in _OPEN:
+            depth += 1
+        elif ch in _CLOSE:
+            depth -= 1
+        elif ch == ":" and depth == 0 and rest[i + 1:i + 2] != "=":
+            return name, rest[:i].strip(), rest[i + 1:].strip()
+    return None
+
+
+def statement_checks(stmt: str, tag: str) -> tuple[str, str] | None:
+    """Trusted Lean text around a proof of ``stmt``: the statement elaborated as a definition
+    *before* the proof (so notations or instances the proof declares cannot change its meaning),
+    and an ``example`` after it that the declared theorem has exactly that type."""
+    parts = split_statement(stmt)
+    if parts is None:
+        return None
+    name, binders, goal = parts
+    prop = f"∀ {binders}, {goal}" if binders else goal
+    ref = f"_root_.OAStatement_{tag}"
+    return f"def {ref} : Prop :=\n  {prop}", f"example : {ref} := @{name}"
+
+
 def proves_statement(code: str, stmt: str) -> tuple[bool, str]:
-    """Static checks before the kernel: the exact given statement appears (up to whitespace) and
-    no escape hatches (sorry, admit, new axioms, unsafe/extern implementations) are used."""
+    """Static screen before the kernel: no escape hatches (sorry, new axioms, unsafe/extern code,
+    metaprogramming, ...) and the given theorem is declared. That the declared theorem has the
+    given statement is then checked by the kernel (:func:`statement_checks`), not by matching
+    text: a weakened theorem, or the statement in a comment or string, would pass a text match."""
     if FORBIDDEN.search(code):
         return False, f"uses a forbidden construct ({FORBIDDEN.search(code).group(0)!r})"
-    if statement_head(stmt) not in _ws(code):
-        return False, "does not contain the given theorem statement verbatim"
+    parts = split_statement(stmt)
+    if parts is None:
+        return False, "could not parse the given statement"
+    if parts[0] not in _DECL.findall(code):
+        return False, f"does not declare the theorem {parts[0]}"
     return True, ""
 
 
@@ -225,10 +265,12 @@ class LeanProofGT(GTScorer):
         for role, art in (record.outcome.get("artifacts") or {}).items():
             m = re.search(r"```(?:lean4?|)\n(.*?)```", str(art), re.S)
             code = m.group(1) if m else str(art)
-            ok, _ = proves_statement(code, task.resources.get("statement", ""))
-            if ok:
-                ok, _ = kernel_check(checker, task.resources.get("header", ""), code)
-            out[role] = float(ok)
+            stmt = task.resources.get("statement", "")
+            ok, _ = proves_statement(code, stmt)
+            checks = statement_checks(stmt, stable_hash(stmt, getattr(record, "id", ""), role, length=12))
+            if ok and checks is not None:
+                ok, _ = kernel_check(checker, task.resources.get("header", ""), code, before=checks[0], after=checks[1])
+            out[role] = float(ok and checks is not None)
         return out
 
 

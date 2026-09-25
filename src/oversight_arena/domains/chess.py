@@ -187,10 +187,11 @@ def apply_line(fen: str, line: str) -> tuple[Any, list[str], str | None]:
         except Exception:
             try:
                 mv = chess.Move.from_uci(tok)
-                if mv not in board.legal_moves:
-                    raise ValueError
             except Exception:
-                return board, applied, f"illegal or unparseable move {tok!r} after {' '.join(applied) or 'start'}"
+                mv = None
+        # python-chess parses "--", "Z0" and "0000" as a null move (passing the turn): not a legal move
+        if not mv or mv not in board.legal_moves:
+            return board, applied, f"illegal or unparseable move {tok!r} after {' '.join(applied) or 'start'}"
         applied.append(board.san(mv))
         board.push(mv)
     return board, applied, None

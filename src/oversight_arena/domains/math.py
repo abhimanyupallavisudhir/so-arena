@@ -11,6 +11,7 @@ import ast
 import json
 import math
 import operator
+import re
 from typing import ClassVar
 
 from ..channels.evidence import Claim, Verifier, VerifyEnv, perturb_output
@@ -48,7 +49,32 @@ def safe_eval(expr: str) -> float:
             return _FUNCS[n.func.id](*[ev(a) for a in n.args])
         raise ValueError(f"unsupported expression: {ast.dump(n)[:60]}")
 
-    return ev(ast.parse(expr.replace("^", "**").replace(",", ""), mode="eval"))
+    return ev(ast.parse(_drop_thousands_separators(expr.strip().replace("^", "**")), mode="eval"))
+
+
+def _drop_thousands_separators(expr: str) -> str:
+    """``1,000`` → ``1000`` outside function calls; commas separating call arguments stay."""
+    out: list[str] = []
+    calls: list[bool] = []  # per open parenthesis: does it belong to a function call?
+    for i, ch in enumerate(expr):
+        if ch == "(":
+            prev = "".join(out).rstrip()
+            calls.append(bool(prev) and (prev[-1].isalnum() or prev[-1] == "_"))
+        elif ch == ")" and calls:
+            calls.pop()
+        elif ch == "," and not (calls and calls[-1]) and expr[i - 1:i].isdigit() and re.match(r"\d{3}(?!\d)", expr[i + 1:]):
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+def fmt_number(v: float) -> str:
+    """Numbers as a person would write them: integers without exponent, others to 10 significant digits."""
+    if isinstance(v, bool):
+        return str(v)
+    if float(v).is_integer() and abs(v) < 1e15:
+        return str(int(v))
+    return f"{v:.10g}"
 
 
 def calculator_tool() -> Tool:
@@ -60,8 +86,7 @@ def calculator_tool() -> Tool:
             expression: the arithmetic expression to evaluate
         """
         try:
-            v = safe_eval(expression)
-            return f"{expression} = {v:g}" if isinstance(v, float) else f"{expression} = {v}"
+            return f"{expression} = {fmt_number(safe_eval(expression))}"
         except Exception as e:
             return f"error: {e}"
 
@@ -79,22 +104,22 @@ class CalcVerifier(Verifier):
         self.cost = cost
 
     async def verify(self, claim: Claim, env: VerifyEnv) -> Evidence:
-        text = claim.content
+        text = claim.content.strip().replace("==", "=")
         if "=" in text:
-            lhs, rhs = text.rsplit("=", 1)
+            lhs, rhs = (x.strip() for x in text.rsplit("=", 1))
             try:
                 val, claimed = safe_eval(lhs), safe_eval(rhs)
                 ok = math.isclose(val, claimed, rel_tol=1e-6, abs_tol=1e-9)
-                return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"{lhs.strip()} = {val:g}", verified=ok)
+                return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"{lhs} = {fmt_number(val)}", verified=ok)
             except Exception as e:
                 return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"error: {e}", verified=False)
         try:
-            return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"= {safe_eval(text):g}", verified=None)
+            return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"= {fmt_number(safe_eval(text))}", verified=None)
         except Exception as e:
             return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"error: {e}", verified=False)
 
     def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
-        text = claim.content
+        text = claim.content.strip().replace("==", "=")
         if "=" not in text:
             if shown.verified is None:  # a computed value, shown slightly wrong
                 return shown.model_copy(update={"result": perturb_output(shown.result, text)})
@@ -107,7 +132,7 @@ class CalcVerifier(Verifier):
         try:  # a true claim reported as wrong: report a nearby wrong value
             v = safe_eval(lhs)
             wrong = v + 1 if float(v).is_integer() else v * 1.1
-            return shown.model_copy(update={"result": f"{lhs} = {wrong:g}"})
+            return shown.model_copy(update={"result": f"{lhs} = {fmt_number(wrong)}"})
         except Exception:
             return shown.model_copy(update={"result": "error: could not evaluate"})
 
