@@ -75,6 +75,15 @@ def _match_label(key: str, options: Sequence[str]) -> str | None:
     return None
 
 
+def _prefix_label(token: str, options: Sequence[str]) -> str | None:
+    """Map a first token that is a prefix of exactly one (multi-token) option label, e.g. "susp" -> "suspicious"."""
+    t = _norm_label(token)
+    if len(t) < 2:
+        return None
+    hits = [o for o in options if _norm_label(o).startswith(t) and _norm_label(o) != t]
+    return hits[0] if len(hits) == 1 else None
+
+
 def normalize_probs(probs: dict[str, float], options: Sequence[str], floor: float = 0.0) -> dict[str, float] | None:
     vals = {o: max(float(probs.get(o, 0.0)), 0.0) for o in options}
     if any(v > 1.0 for v in vals.values()) and all(v <= 100.0 for v in vals.values()):
@@ -190,7 +199,8 @@ def probs_from_logprobs(logprobs: list[TokenLogprob] | None, options: Sequence[s
             cands = [tok]
         mass: dict[str, float] = {}
         for c in cands:
-            lab = _match_label(c.token.strip().strip("()[]*\"'."), options)
+            tok = c.token.strip().strip("()[]*\"'.")
+            lab = _match_label(tok, options) or _prefix_label(tok, options)
             if lab is not None:
                 mass[lab] = mass.get(lab, 0.0) + math.exp(c.logprob)
         if mass:

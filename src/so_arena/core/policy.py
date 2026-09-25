@@ -127,10 +127,10 @@ def format_instructions(request: ActionRequest, elicitation: str = "ask") -> str
         opts = request.options or []
         if elicitation == "logprobs":
             return f"Reply with only the label of the correct answer ({', '.join(opts)}) and nothing else."
-        example = "{" + ", ".join(f'"{o}": {round(1 / len(opts), 2)}' for o in opts) + "}"
+        example = "{" + ", ".join(f'"{o}": <probability>' for o in opts) + "}"
         return (
             "Think it through, then end your reply with your probability for each answer as a JSON "
-            f"object on the last line, e.g. {example}. The probabilities must sum to 1."
+            f"object on the last line: {example}. The probabilities must sum to 1."
         )
     if k == "score":
         lo, hi = request.score_range or (0, 10)

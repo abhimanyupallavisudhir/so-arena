@@ -210,3 +210,10 @@ def test_repeats_draw_independent_samples_under_cache(tmp_path):
     assert len(texts) == 3  # three distinct samples, not one cached completion replayed
     eps2 = soa.run_sync(soa.run_episodes(Propaganda(), [item], [prof], repeats=3))
     assert {e.turns[0].text for e in eps2} == texts and len(calls) == 3  # re-running hits the cache
+
+
+def test_logprob_prefix_labels():
+    lp = [TokenLogprob(token="susp", logprob=-0.3, top=[TopLogprob(token="susp", logprob=-0.3),
+                                                        TopLogprob(token="ben", logprob=-1.5)])]
+    p = probs_from_logprobs(lp, ["suspicious", "benign"])
+    assert p["suspicious"] == pytest.approx(math.exp(-0.3) / (math.exp(-0.3) + math.exp(-1.5)))
