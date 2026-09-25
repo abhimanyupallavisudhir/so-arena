@@ -47,8 +47,15 @@ class CrossExamination(Mechanism):
 ```
 
 Knobs every mechanism has: `affordances=`/`tools=` per role (information and capability gaps),
-`sees_reasoning=` (CoT visibility), `trainable=` (e.g. train the judge), `verification=` (verified
-claims), `reward=` (any `RewardRule`, e.g. `ZeroSum(JudgeScore("brier"), "debater_a", "debater_b")`).
+`sees_reasoning=` (CoT visibility), `trainable=` (e.g. train the judge), `state_access=` (who may act on
+or inspect a stateful task's state), `verification=` (verified claims), `reward=` (any `RewardRule`, e.g.
+`ZeroSum(JudgeScore("brier"), "debater_a", "debater_b")`).
+
+Training the judge needs a reward the mechanism can compute: `JudgeAuditScore(oracle, p)` pays the judge a
+proper score of its verdict against a costly audit run on a random fraction `p` of episodes
+(inverse-probability weighted, so honest beliefs are optimal in expectation). Train debaters and judge
+together with `Debate(trainable={"judge": True}, reward=JudgeScore("log") + JudgeAuditScore(truth_oracle(items), p=0.2))`
+(`truth_oracle` simulates a perfect audit from the experimenter's ground truth).
 
 ## 2. Agent score difference (instructed arms) - *offline with synthetic policies*
 

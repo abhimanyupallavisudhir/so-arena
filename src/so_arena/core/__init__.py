@@ -27,6 +27,7 @@ from so_arena.core.rewards import (
     Constant,
     FromOutcome,
     FunctionReward,
+    JudgeAuditScore,
     JudgeScore,
     MonitorPenalty,
     NoReward,
@@ -37,6 +38,7 @@ from so_arena.core.rewards import (
     Whistleblower,
     ZeroSum,
     rescore,
+    truth_oracle,
     score_probability,
 )
 from so_arena.core.runner import PlayerSpec, Profile, run_episodes, run_sync

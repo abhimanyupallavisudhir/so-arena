@@ -414,6 +414,62 @@ class RandomAudit(RewardRule):
                 f"(inverse-probability weighted)")
 
 
+class JudgeAuditScore(RewardRule):
+    """Rewards for a *trainable judge*: a proper score of its final probabilities against an audit.
+
+    Training the judge (``trainable={"judge": True}``) needs a reward the mechanism can compute. Here
+    it is a costly check - an expert review, a stronger model, hidden tests, the eventual resolution -
+    run on a random fraction ``p`` of episodes (reproducible from the episode id). The judge earns the
+    inverse-probability-weighted score $\mathbb 1[\text{audited}]\, s(p_{\text{judge}}, \text{label}) / p$
+    (0 when not audited), whose expectation is its score under a full audit, so reporting its honest
+    belief is optimal in expectation; with ``p=1`` every judgment is scored. Combine with the agents'
+    rule to train both sides: ``JudgeScore("log") + JudgeAuditScore(oracle, p=0.2)``.
+
+    ``oracle(ep) -> label`` (sync or async) returns the audited correct answer, or None if it cannot
+    tell. In experiments it is often simulated from the experimenter's ground truth
+    (:func:`truth_oracle`), which models a perfect audit.
+    """
+
+    def __init__(self, oracle: Callable[..., Any], p: float = 1.0, *, transform: str = "log", role: str = "judge",
+                 eps: float = 1e-4):
+        if not 0 < p <= 1:
+            raise ValueError("p must be in (0, 1]")
+        if transform not in TRANSFORMS:
+            raise ValueError(f"unknown transform {transform!r}")
+        self.oracle, self.p, self.transform, self.role, self.eps = oracle, p, transform, role, eps
+        self.name = f"judge_audit_{transform}(p={p:g})"
+
+    def audited(self, ep: "Episode") -> bool:
+        return self.p >= 1 or (stable_hash("judge-audit", ep.id) % 10**6) / 10**6 < self.p
+
+    def compute(self, ep):
+        raise RuntimeError("JudgeAuditScore may call an async oracle; use acompute")
+
+    async def acompute(self, ep, g=None):
+        probs = ep.outcome.probs
+        if probs is None:
+            return {self.role: None}
+        if not self.audited(ep):
+            return {self.role: 0.0}
+        label = self.oracle(ep)
+        if asyncio.iscoroutine(label):
+            label = await label
+        ep.reward_details[f"{self.role}_audit_label"] = label
+        if label is None or label not in probs:
+            return {self.role: None}
+        return {self.role: score_probability(probs, label, self.transform, self.eps) / self.p}
+
+    def describe(self):
+        audit = "every judgment is checked" if self.p >= 1 else f"a random {self.p:.0%} of judgments are checked"
+        return (f"{self.role}: the {self.transform} score of its final probability on the answer a trusted audit finds "
+                f"correct ({audit}; checked scores are divided by the audit probability, unchecked ones pay 0)")
+
+
+def truth_oracle(items: Sequence[Any]) -> Callable[["Episode"], str | None]:
+    """An audit simulated from the experimenter's ground truth: ``ep -> the item's correct label``."""
+    truth = {it.id: it.true_label for it in items}
+    return lambda ep: truth.get(ep.item_id)
+
 class ResolutionScore(RewardRule):
     """Proper-scoring-rule rewards against a resolution that may arrive later (deferred reward).
 
