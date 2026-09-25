@@ -116,7 +116,7 @@ def asd(df: pd.DataFrame, *, roles: Sequence[str] | None = None, by: Sequence[st
         row.update({
             "asd": float(diffs.mean()), "ci_low": lo, "ci_high": hi, "se": se, "n_items": len(diffs),
             "reward_true": float(per[pos].mean()), "reward_false": float(per[neg].mean()),
-            "p_asd_le_0": float(sps.ttest_1samp(diffs, 0.0, alternative="greater").pvalue) if len(diffs) > 2 and np.std(diffs) > 0 else math.nan,
+            "p_asd_le_0": float(sps.ttest_1samp(diffs, 0.0, alternative="greater").pvalue) if len(diffs) > 2 and np.std(diffs) > 1e-12 else math.nan,
         })
         out.append(row)
     return pd.DataFrame(out)

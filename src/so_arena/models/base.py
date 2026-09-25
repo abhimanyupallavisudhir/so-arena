@@ -136,6 +136,13 @@ class MockModel(FunctionModel):
 # ---------------------------------------------------------------------------------------------
 
 _MODEL_CACHE: dict[tuple, Model] = {}
+_NAMED: dict[str, Model] = {}
+
+
+def register_model_instance(name: str, model: Model) -> Model:
+    """Make an in-process model resolvable by name (e.g. a scripted fixture referenced from a config)."""
+    _NAMED[name] = model
+    return model
 
 
 def get_model(model: "str | Model", **model_args: Any) -> Model:
@@ -155,6 +162,8 @@ def get_model(model: "str | Model", **model_args: Any) -> Model:
 
     if isinstance(model, Model):
         return model
+    if model in _NAMED:
+        return _NAMED[model]
     key = (model, tuple(sorted((k, repr(v)) for k, v in model_args.items())), settings.simulate,
            str(settings.cache_dir))
     if key in _MODEL_CACHE:
