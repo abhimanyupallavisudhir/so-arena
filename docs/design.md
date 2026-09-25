@@ -136,7 +136,8 @@ rebuttal -> reviewer: single-judge RLAIF, the proposal/critique/rebuttal protoco
 self-play debate, and realistic work review with a dossier of state changes), `Work` (the work stage
 alone, for reviewing each result under many protocols), `MonitoredWork` (action/CoT/tool-call/probe monitors
 with suspicion penalties or audits), `Team` (swarms with private reporting, auditing, belief
-elicitation), `MarketMaking`, `PredictionMarket` (LMSR, deferred resolution), `PeerPrediction`
+elicitation, team channels that overseers may or may not read, shared stateful workspaces whose violators'
+changes can be reverted), `MarketMaking`, `PredictionMarket` (LMSR, deferred resolution), `PeerPrediction`
 (output agreement, BTS, multi-task) and `Confession` (a separately rewarded honesty channel).
 
 Reward rules compose (`JudgeScore("log") + 0.5 * MonitorPenalty()`, `ZeroSum`, `RandomAudit`,
