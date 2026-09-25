@@ -351,15 +351,69 @@ def threshold_curves(df: pd.DataFrame, *, x: str, y: str, series: str, title: st
 # ------------------------------------------------------------------------------------ heatmap
 
 
+def _to_oklab(color: str) -> np.ndarray:
+    def lin(c: float) -> float:
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = (lin(c) for c in matplotlib.colors.to_rgb(color))
+    lms = np.cbrt([0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b,
+                   0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b,
+                   0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b])
+    return np.array([0.2104542553 * lms[0] + 0.7936177850 * lms[1] - 0.0040720468 * lms[2],
+                     1.9779984951 * lms[0] - 2.4285922050 * lms[1] + 0.4505937099 * lms[2],
+                     0.0259040371 * lms[0] + 0.7827717662 * lms[1] - 0.8086757660 * lms[2]])
+
+
+def _from_oklab(lab: np.ndarray) -> str:
+    l_, m_, s_ = (lab[0] + 0.3963377774 * lab[1] + 0.2158037573 * lab[2],
+                  lab[0] - 0.1055613458 * lab[1] - 0.0638541728 * lab[2],
+                  lab[0] - 0.0894841775 * lab[1] - 1.2914855480 * lab[2])
+    lin = np.array([4.0767416621 * l_**3 - 3.3077115913 * m_**3 + 0.2309699292 * s_**3,
+                    -1.2684380046 * l_**3 + 2.6097574011 * m_**3 - 0.3413193965 * s_**3,
+                    -0.0041960863 * l_**3 - 0.7034186147 * m_**3 + 1.7076147010 * s_**3])
+
+    def enc(c: float) -> float:
+        c = min(1.0, max(0.0, c))
+        return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+    return matplotlib.colors.to_hex([enc(c) for c in lin])
+
+
+def diverging_color(v: float, span: float, t: dict, steps: int = 6) -> str:
+    """Diverging encoding: the neutral midpoint at 0, blue (positive) and red (negative) poles at
+    ``+-span``, interpolated in OKLab in ``steps`` equal steps per arm (monotone lightness per arm)."""
+    frac = 0.0 if span <= 0 else min(1.0, abs(v) / span)
+    k = round(frac * steps) / steps
+    mid, pole = _to_oklab(t["mid"]), _to_oklab(t["pos"] if v >= 0 else t["neg"])
+    return _from_oklab(mid + k * (pole - mid))
+
+
 def heatmap(df: pd.DataFrame, *, x: str, y: str, value: str, title: str = "", subtitle: str | None = None,
             xlabel: str = "", ylabel: str = "", value_label: str = "", vmin: float | None = None,
-            vmax: float | None = None, mode: str = "light") -> Chart:
-    """Sequential one-hue heatmap with 2px surface gaps and in-cell labels where they fit."""
+            vmax: float | None = None, center: float | None = None, order_x: Sequence | None = None,
+            order_y: Sequence | None = None, tip_extra: dict[tuple, str] | None = None, decimals: int | None = None,
+            mode: str = "light") -> Chart:
+    """Heatmap with 2px surface gaps and in-cell labels: sequential one-hue by default; with ``center``
+    (e.g. 0 for ASD) diverging - blue above, red below, neutral gray at the center.
+
+    ``order_x``/``order_y`` fix the column/row order (rows are drawn top to bottom in ``order_y``);
+    ``tip_extra[(x, y)]`` appends text to a cell's tooltip (e.g. a confidence interval); ``decimals``
+    fixes the in-cell number format. The figure is sized from the row labels and the number of columns."""
+    import textwrap
+
     piv = df.pivot_table(index=y, columns=x, values=value, aggfunc="mean")
-    fig, ax, t = _setup(mode, figsize=(max(3.6, 0.8 * piv.shape[1] + 2.4), max(2.8, 0.6 * piv.shape[0] + 1.6)))
+    if order_x is not None:
+        piv = piv.reindex(columns=[c for c in order_x if c in piv.columns])
+    if order_y is not None:
+        piv = piv.reindex(index=[r for r in order_y if r in piv.index][::-1])
+    label_in = 0.068 * max((len(str(r)) for r in piv.index), default=4) + 0.5
+    width = max(3.6, label_in + 0.95 * piv.shape[1] + 0.6, 0.075 * len(title) + 0.6)
+    fig, ax, t = _setup(mode, figsize=(width, max(2.8, 0.42 * piv.shape[0] + 1.9)))
+    cell = (lambda v: f"{v:.{decimals}f}") if decimals is not None else _fmt
     ramp = t["seq"]
     lo = np.nanmin(piv.values) if vmin is None else vmin
     hi = np.nanmax(piv.values) if vmax is None else vmax
+    span = max(abs(lo - center), abs(hi - center)) if center is not None else 0.0
     tips: dict[str, str] = {}
     gap = 0.04
     for i, yv in enumerate(piv.index):
@@ -367,21 +421,26 @@ def heatmap(df: pd.DataFrame, *, x: str, y: str, value: str, title: str = "", su
             v = piv.loc[yv, xv]
             if not np.isfinite(v):
                 continue
-            frac = 0.0 if hi == lo else (v - lo) / (hi - lo)
-            color = ramp[min(len(ramp) - 1, int(round(frac * (len(ramp) - 1))))]
+            if center is not None:
+                color = diverging_color(v - center, span, t)
+            else:
+                frac = 0.0 if hi == lo else (v - lo) / (hi - lo)
+                color = ramp[min(len(ramp) - 1, int(round(frac * (len(ramp) - 1))))]
             r = Rectangle((j + gap, i + gap), 1 - 2 * gap, 1 - 2 * gap, facecolor=color, linewidth=0)
             ax.add_patch(r)
             gid = f"c{i}_{j}"
             r.set_gid(gid)
-            tips[gid] = f"{xlabel or x}={xv}, {ylabel or y}={yv}: {value_label or value} {_fmt(v)}"
+            tips[gid] = f"{xlabel or x}={xv}, {ylabel or y}={yv}: {value_label or value} {_fmt(v)}" + (
+                f" {tip_extra[(xv, yv)]}" if tip_extra and (xv, yv) in tip_extra else "")
             rgb = matplotlib.colors.to_rgb(color)
             lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
-            ax.text(j + 0.5, i + 0.5, _fmt(v), ha="center", va="center", fontsize=8,
+            ax.text(j + 0.5, i + 0.5, cell(v), ha="center", va="center", fontsize=8,
                     color="#0b0b0b" if lum > 0.55 else "#ffffff")
     ax.set_xlim(0, piv.shape[1])
     ax.set_ylim(0, piv.shape[0])
     ax.set_xticks(np.arange(piv.shape[1]) + 0.5)
-    ax.set_xticklabels([f"{c:g}" if isinstance(c, (int, float)) else str(c) for c in piv.columns])
+    ax.set_xticklabels([f"{c:g}" if isinstance(c, (int, float)) else "\n".join(textwrap.wrap(str(c), 12))
+                        for c in piv.columns])
     ax.set_yticks(np.arange(piv.shape[0]) + 0.5)
     ax.set_yticklabels([f"{c:g}" if isinstance(c, (int, float)) else str(c) for c in piv.index])
     ax.grid(False)
@@ -389,9 +448,20 @@ def heatmap(df: pd.DataFrame, *, x: str, y: str, value: str, title: str = "", su
         s.set_visible(False)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    sub = subtitle or (f"{value_label or value}: lighter = lower ({_fmt(lo)}), darker = higher ({_fmt(hi)})")
-    _title(ax, t, title, sub)
-    fig.tight_layout()
+    if center is not None:
+        sub = subtitle or (f"{value_label or value}: blue above {_fmt(center)}, red below, gray near {_fmt(center)}")
+    else:
+        sub = subtitle or (f"{value_label or value}: lighter = lower ({_fmt(lo)}), darker = higher ({_fmt(hi)})")
+    # title block anchored to the figure (not the axes), so long row labels never push it off the canvas
+    w_in, h_in = fig.get_size_inches()
+    lines = textwrap.wrap(sub, max(30, int((w_in - 0.3) / 0.066))) if sub else []
+    top_in = (0.42 if title else 0.12) + 0.2 * len(lines)
+    fig.tight_layout(rect=(0, 0, 1, 1 - top_in / h_in))
+    if title:
+        fig.text(0.1 / w_in, 1 - 0.12 / h_in, title, ha="left", va="top", fontsize=10.5, fontweight="bold", color=t["ink"])
+    if lines:
+        fig.text(0.1 / w_in, 1 - (0.4 if title else 0.1) / h_in, "\n".join(lines), ha="left", va="top", fontsize=8.5,
+                 color=t["ink2"], linespacing=1.3)
     return Chart(fig, tips, piv.reset_index(), title)
 
 

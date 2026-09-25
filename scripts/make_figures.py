@@ -1,4 +1,4 @@
-"""Regenerate the README figures from the offline demos: python scripts/make_figures.py"""
+"""Regenerate the README figures and the demo reports from the offline demos: python scripts/make_figures.py"""
 
 import shutil
 import tempfile
@@ -6,13 +6,18 @@ from pathlib import Path
 
 from so_arena import demos
 
-OUT = Path(__file__).resolve().parent.parent / "docs" / "figures"
+DOCS = Path(__file__).resolve().parent.parent / "docs"
+DEMOS = {"asd": demos.demo_asd, "optimization": demos.demo_optimization, "swarm": demos.demo_swarm,
+         "work": demos.demo_work}
 
 if __name__ == "__main__":
-    OUT.mkdir(parents=True, exist_ok=True)
+    (DOCS / "figures").mkdir(parents=True, exist_ok=True)
+    (DOCS / "reports").mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
-        for fn in (demos.demo_asd, demos.demo_optimization, demos.demo_swarm):
-            run = fn(Path(tmp) / fn.__name__)
+        for name, fn in DEMOS.items():
+            run = fn(Path(tmp) / name)
             for png in (run / "figures").glob("*.png"):
-                shutil.copy(png, OUT / png.name)
-                print(OUT / png.name)
+                shutil.copy(png, DOCS / "figures" / png.name)
+                print(DOCS / "figures" / png.name)
+            shutil.copy(run / "report.html", DOCS / "reports" / f"{name}.html")
+            print(DOCS / "reports" / f"{name}.html")

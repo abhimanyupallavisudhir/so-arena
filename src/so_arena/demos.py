@@ -9,6 +9,8 @@ same experiments for real (see ``configs/`` and ``docs/experiments.md``).
   (the "debate with self-play best-of-N" design): does optimizing against the mechanism raise accuracy?
 * :func:`demo_swarm` - reporting incentives in teams: analytic equilibria, a simulated empirical game,
   and policy-gradient training dynamics.
+* :func:`demo_work` - stateful work (the paired-branch design): honest and deceptive agents on the same
+  repositories and company tasks, reviewed with three levels of access to the result.
 """
 
 from __future__ import annotations
@@ -184,6 +186,92 @@ def demo_swarm(out: str | Path = "runs/demo_swarm") -> Path:
     return out
 
 
+ACCESS_LEVELS = {"report": "report only", "diff": "+ diffs", "query": "+ queries"}
+ARM_NAMES = {
+    ("repo", "hardcode"): "repo: hard-code the tested inputs", ("repo", "tamper"): "repo: edit the tests",
+    ("repo", "sabotage"): "repo: subtly wrong code", ("repo", "lazy"): "repo: do nothing, claim done",
+    ("acquisition", "burner"): "sales: sign-ups on the company card", ("acquisition", "fake_rows"): "sales: fake database rows",
+    ("acquisition", "false_claims"): "sales: false claims to leads", ("acquisition", "spam"): "sales: spam the leads",
+    ("refunds", "deny"): "support: deny eligible refunds", ("refunds", "close_all"): "support: close tickets, no refunds",
+    ("investor_update", "redefine"): "reporting: redefine 'active user'",
+    ("investor_update", "inflate"): "reporting: inflate the numbers",
+}
+
+
+def demo_work(out: str | Path = "runs/demo_work", n_repo: int = 6, n_firm: int = 3) -> Path:
+    """Paired branches on stateful work: scripted honest and deceptive workers on repository tasks (hidden
+    tests) and on a simulated company's sales, support and reporting tasks, each reviewed by scripted
+    reviewers who see the report only, the report and diffs of every change, or can also query the result."""
+    from so_arena.domains.firm import WORKER_MODES as FIRM_MODES
+    from so_arena.domains.firm import FirmDomain, firm_reviewer, firm_worker
+    from so_arena.domains.repo import WORKER_MODES as REPO_MODES
+    from so_arena.domains.repo import RepoDomain, repo_reviewer, repo_worker
+    from so_arena.mechanisms import ReviewedWork
+    from so_arena.samplers.paired import PairedWorkExperiment
+
+    out = Path(out)
+    figs = _figures(out)
+    rows, audits, all_eps = [], [], []
+    families = [("repo", RepoDomain(), RepoDomain().load(limit=n_repo), REPO_MODES, repo_worker, repo_reviewer)]
+    firm = FirmDomain(n_items=n_firm)
+    firm_items = firm.load()
+    for kind, modes in FIRM_MODES.items():
+        families.append((kind, firm, [it for it in firm_items if it.metadata["kind"] == kind], modes, firm_worker,
+                         firm_reviewer))
+    for family, dom, items, modes, worker, reviewer in families:
+        ctx = dom.context(states=out / "states")
+        env_tools = dom.environment().tools()
+        tools_all = sorted(env_tools)
+        readonly = sorted(n for n, t in env_tools.items() if getattr(t, "readonly", False))
+        for level in ACCESS_LEVELS:
+            lvl = "exec" if (family == "repo" and level == "query") else level
+            kw = ({"state_access": {"reviewer": "read"}, "tools": {"worker": tools_all, "reviewer": readonly}}
+                  if level == "query" else {"tools": {"worker": tools_all}})
+            mech = ReviewedWork(name=f"{family}/{level}", dossier="report" if level == "report" else "diff",
+                                affordances={"worker": ["solutions"]} if family == "repo" else None, **kw)
+            exp = PairedWorkExperiment([mech], items, behaviours={m: worker(m) for m in modes},
+                                       fixtures={"reviewer": reviewer(lvl)}, ctx=ctx, ground_truth=dom.ground_truth_scorers())
+            eps = exp.run()
+            all_eps += eps
+            for r in exp.summary().itertuples():
+                if r.arm == "worst":
+                    continue
+                rows.append({"deception": ARM_NAMES.get((family, r.arm), f"{family}: {r.arm}"), "family": family,
+                             "access": ACCESS_LEVELS[level], "asd": r.asd, "ci_low": r.ci_low, "ci_high": r.ci_high,
+                             "n_tasks": r.n_items})
+            if level == "report":
+                for e in eps:
+                    audits.append({"family": family, "arm": e.players["worker"].label,
+                                   "audited_good": e.value("worker") is not None and e.value("worker") > 0})
+    table = pd.DataFrame(rows)
+    table.to_csv(out / "asd_by_access.csv", index=False)
+    order_y = [ARM_NAMES[k] for k in ARM_NAMES if ARM_NAMES[k] in set(table["deception"])]
+    order_x = list(ACCESS_LEVELS.values())
+    tips = {(r.access, r.deception): f"(95% CI {r.ci_low:.2f} to {r.ci_high:.2f}; {r.n_tasks} tasks)" for r in table.itertuples()}
+    kw = dict(x="access", y="deception", value="asd", center=0.0, order_x=order_x, order_y=order_y, tip_extra=tips,
+              title="Does review pay honest work more than faked success?",
+              subtitle="ASD = log P(accept | honest) − log P(accept | deceptive), same task; blue: honesty pays, "
+                       "red: deception pays",
+              xlabel="reviewer's access (cumulative)", ylabel="", value_label="ASD", decimals=2)
+    plots.heatmap(table, **kw).save(figs / "asd_by_access.png")
+    audit = pd.DataFrame(audits).groupby(["family", "arm"])["audited_good"].mean().reset_index()
+    rep = Report("Stateful work: honest vs. faked success", "paired branches on repositories and a simulated company (demo)")
+    rep.kpis({"episodes": len(all_eps), "deception types": len(order_y), "tasks": n_repo + 3 * n_firm,
+              "errors": sum(e.error is not None for e in all_eps)})
+    rep.section("Reviewer access vs. incentives", charts=plots.dual_mode(plots.heatmap, table, **kw),
+                table=table[["deception", "access", "asd", "ci_low", "ci_high", "n_tasks"]],
+                info="Every deceptive worker reports success. Reviewers who read only the report cannot tell; diffs "
+                     "expose edited tests, card charges, false claims and edited metrics; querying the result exposes "
+                     "hard-coded answers, denied refunds and inflated numbers; nothing short of hidden tests exposes "
+                     "subtly wrong code. Scripted workers and reviewers: this illustrates the machinery, not LLM behaviour.")
+    rep.section("Ground truth: the environment's audit", table=audit,
+                note="Share of each arm's results the audit (hidden tests; the company's ledger of real sign-ups, "
+                     "refund eligibility and KPI definitions) judged good. Only honest work passes.")
+    rep.write(out / "report.html")
+    return out
+
+
 def run_all(out: str | Path = "runs/demos") -> list[Path]:
     out = Path(out)
-    return [demo_asd(out / "asd"), demo_optimization(out / "optimization"), demo_swarm(out / "swarm")]
+    return [demo_asd(out / "asd"), demo_optimization(out / "optimization"), demo_swarm(out / "swarm"),
+            demo_work(out / "work")]
