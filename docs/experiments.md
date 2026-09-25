@@ -121,7 +121,7 @@ suite.honesty_margin()   # best honest - best deceptive held-out reward, paired 
 suite.paths()            # per-iteration best reward and its measured ground-truth value (2D path plots)
 ```
 
-The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
+Algorithms: `opro`, `reflective` (GEPA-style), `evolve`, and `autoresearch` (a research log of hypotheses and results; the incumbent is replaced only on improvement). The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
 `arms=[None]` on open protocols so the agent picks its side; then "deceptive" directives must be
 checked by measured values (optimized liars may turn honest). Any external optimizer (DSPy/GEPA,
 OpenEvolve, an autoresearch-style agent) can use `PromptSearch.evaluate_strategy(text, items)` as a
