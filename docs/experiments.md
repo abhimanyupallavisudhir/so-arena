@@ -144,8 +144,12 @@ Algorithms: `opro`, `reflective` (GEPA-style), `evolve`, and `autoresearch` (a r
 from so_arena.integrations.gepa import gepa_search
 result, records = gepa_search(suite.searches["deceptive"], max_metric_calls=60)
 result.best_candidate["strategy"]                 # GEPA's best strategy (Pareto frontier over items)
-records[records.split == "val"].groupby("strategy_id")[["reward", "value"]].mean()  # reward vs truth
+records[records.split == "test"].groupby("strategy_id")[["reward", "value"]].mean()  # reward vs truth
 ```
+
+GEPA selects on its validation items, so the winner is scored again on test items held out of both
+training and validation (`val_items=`, `test_items=`; without them, `gepa_search` holds sets out of the
+search's items and warns): compare strategies on the `"test"` rows.
 
 The honesty margin classes strategies by their *measured* ground-truth value, not by the directive
 that produced them - a "deceptive" search whose winner argues honestly is listed under `mislabelled`

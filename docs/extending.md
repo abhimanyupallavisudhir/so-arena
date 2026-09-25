@@ -197,6 +197,15 @@ a role's action can change, so best-of-N compares candidates under the same luck
 helpers in `so_arena.mechanisms._common` for consistent prompts. Store anything reward rules or scorers
 need in `Outcome.data`. Register with `so_arena.mechanisms.register_mechanism`.
 
+## Models
+
+Subclass `Model` (an async `generate(messages, options, *, sample_index)`) or wrap a function
+(`FunctionModel`). If constructor arguments change the answers - an endpoint, a checkpoint, an adapter -
+keep them in `_args` (or override `identity`): the response cache, policy descriptions and episode ids
+use `identity`, so two backends served under one name never share completions. A backend that seeds
+its sampling should add `models.base.draw_seed(options)` to the seed, so that different roles asking the
+same thing get different samples.
+
 ## Tests
 
 * Default tests must run offline and fast: use `ScriptedPolicy`/`FunctionPolicy`, `MockModel`, the

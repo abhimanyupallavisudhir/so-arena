@@ -154,8 +154,12 @@ The protocol is ordinary async Python calling `g.act(role, kind=..., prompt=...,
   audits (common random numbers). Reward-time audits (`RandomAudit`, `JudgeAuditScore`) draw the same way.
 
 Episode ids hash the mechanism's full configuration (including its verification policy and the structure
-of its reward rule), the item's censored content, each player's policy description, stance and label,
-and the seed: resuming a run store reuses an episode only if all of these match. Per-role overrides
+of its reward rule, with the parameters its functions close over - an oracle's noise level, a penalty's
+weight), the item's censored content, each player's policy description (for a model, its name and the
+constructor arguments that change its answers, such as a `base_url`), stance and label, and the seed:
+resuming a run store reuses an episode only if all of these match. Episodes whose ground-truth scoring
+failed (`gt_status="error"`) are scored again when the store is resumed. Analyses label each
+configuration of a mechanism separately (`debate(transform="prob")`) whenever a name covers several. Per-role overrides
 (`affordances=`, `tools=`, ...) only add to a role's spec, and keys must name a role, `"agents"` or
 `"all"`.
 
@@ -216,8 +220,11 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
 ## Infrastructure
 
 * **Models**: `get_model("provider/model")` (Inspect backend), `mock`, `sim/` (dry runs for cost
-  estimation), `human`, named in-process models; on-disk response cache; `ModelSpec` registry with
-  prices and capability metadata for scaling plots.
+  estimation), `human`, named in-process models; on-disk response cache, keyed by the model's identity
+  (name and answer-relevant arguments), the messages, the options and the *draw* - the role, item and
+  decision making the call - so identical prompts from different roles are separate samples (also for
+  backends seeded from the sample index) and a warm cache replays each role's own draw; `ModelSpec`
+  registry with prices and capability metadata for scaling plots.
 * **Runs**: `RunStore` directories (items, append-only episodes, metrics, figures, report), resumable.
 * **Specs + CLI**: YAML experiment specs; `so-arena run | estimate | report | release | verify | resolve | list | demo`.
 * **Releases**: ground-truth-free bundles with a SHA-256 commitment; later resolution and scoring.
