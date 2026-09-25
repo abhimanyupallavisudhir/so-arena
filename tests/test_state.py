@@ -282,3 +282,54 @@ def test_state_claims_on_the_database(tmp_path):
     assert [v.status for v in ep.verifications("worker")] == ["verified", "refuted"]
     assert store.view(ep.final_state).query("data/app.db", "SELECT SUM(paying) FROM users") == [(2,)]
     assert store.view(s0).query("data/app.db", "SELECT SUM(paying) FROM users") == [(1,)]
+
+
+def test_state_access_grants_environment_tools(tmp_path):
+    ctx = ctx_for(tmp_path)
+    seen = {}
+
+    async def worker(req, c):
+        seen["worker_tools"] = sorted(c.tools)
+        return await c.call_tool("write_file", "solution.py\ndef add(a, b):\n    return a + b\n")
+
+    async def reviewer(req, c):
+        seen["reviewer_tools"] = sorted(c.tools)
+        seen["write"] = await c.call_tool("write_file", "solution.py\nbroken")
+        seen["read"] = await c.call_tool("read_file", "solution.py")
+        return {"accept": 0.5, "reject": 0.5}
+
+    mech = ReviewedWork(state_access={"reviewer": "read"})   # no tools= needed: access implies them
+    players = {"worker": Player(policy=soa.FunctionPolicy(worker)), "reviewer": Player(policy=soa.FunctionPolicy(reviewer))}
+    ep = run_sync(mech.run(repo_item(), players, ctx))
+    assert ep.error is None, ep.error
+    assert {"shell", "write_file", "read_file", "run_tests", "diff"} <= set(seen["worker_tools"])
+    assert "read_file" in seen["reviewer_tools"] and "write_file" not in seen["reviewer_tools"]
+    assert "shell" not in seen["reviewer_tools"]  # the shell can write, so it is not a read-only tool
+    assert "unknown tool" in seen["write"] and "return a + b" in seen["read"]
+    assert "return a + b" in ctx.states.view(ep.final_state).read_text("solution.py")
+
+
+def test_decisions_can_cap_state_access(tmp_path):
+    from so_arena import Mechanism, Outcome, RoleSpec
+
+    class WorkThenReport(Mechanism):
+        name = "work_then_report"
+
+        def roles(self):
+            return {r: RoleSpec(name=r, state_access="write") for r in ("a", "b")}
+
+        async def protocol(self, g):
+            await g.act("a", prompt="work")
+            await g.simultaneous([(r, {"prompt": "report", "access": "read"}) for r in ("a", "b")])
+            return Outcome()
+
+    def scribbler(req, c):
+        c.workspace.write_text(f"{c.role}_{req.prompt[-1].content}.txt", "x")
+        return "done"
+
+    ctx = ctx_for(tmp_path)
+    players = {r: Player(policy=soa.FunctionPolicy(scribbler)) for r in ("a", "b")}
+    ep = run_sync(WorkThenReport().run(repo_item(), players, ctx))
+    assert ep.error is None, ep.error  # read-capped simultaneous reports are allowed
+    files = ctx.states.view(ep.final_state).files()
+    assert "a_work.txt" in files and "a_report.txt" not in files and "b_report.txt" not in files

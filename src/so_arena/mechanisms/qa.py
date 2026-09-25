@@ -192,6 +192,7 @@ class Debate(Mechanism):
         a = await ensure_position(g, "debater_a", setting=setting)
         await ensure_position(g, "debater_b", setting=setting,
                               options=[lab for lab in g.item.labels if lab != a] or None)
+        g.publish_positions("debater_a", "debater_b")  # each debater's prompt names the other's side
         for r in range(self.rounds):
             g.round = r
             phase = f"round{r + 1}"

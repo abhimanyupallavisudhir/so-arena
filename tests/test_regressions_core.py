@@ -339,8 +339,8 @@ def test_views_show_positions_only_once_their_holder_has_spoken():
     assert views["consultancy:judge:judgment"][0]["consultant"] == truth
     run_sync(Debate(rounds=2).run(item, {"debater_a": p(truth), "debater_b": p(false), "judge": p()}, ctx))
     assert views["debate:judge:judgment"][0] == {"debater_a": truth, "debater_b": false, "judge": None}
-    # simultaneous speeches: the opponent's position appears once its first speech is visible
-    assert views["debate:debater_a:round1"][0] == {"debater_a": truth}
+    # debate publishes both sides up front (each debater's prompt names the opponent's side)
+    assert views["debate:debater_a:round1"][0] == {"debater_a": truth, "debater_b": false}
     assert views["debate:debater_a:round2"][0] == {"debater_a": truth, "debater_b": false}
     # a mechanism can publish positions up front
     run_sync(_JudgeFirst().run(item, {"agent": p(false), "judge": p()}, ctx))

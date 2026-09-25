@@ -45,6 +45,9 @@ if TYPE_CHECKING:
     from so_arena.core.mechanism import Mechanism
 
 
+_ACCESS_ORDER = {"none": 0, "read": 1, "write": 2}
+
+
 class Player(BaseModel):
     """A policy filling a role, with an optional assigned stance (answer label to argue for)."""
 
@@ -104,7 +107,8 @@ class RunContext:
         self.seed = seed
         self.verifiers = dict(verifiers or {})
         self.environment = environment
-        self.tools = {**(environment.tools() if environment is not None else {}), **dict(tools or {})}
+        self.environment_tools = environment.tools() if environment is not None else {}
+        self.tools = {**self.environment_tools, **dict(tools or {})}
         self.resources = dict(resources or {})
         self._states = StateStore(states) if isinstance(states, (str, Path)) else states
 
@@ -326,10 +330,16 @@ class Game:
             parts.append(f"<{k}>\n{v}\n</{k}>")
         return "Private information available to you:\n" + "\n".join(parts)
 
-    def tools_for(self, role: str) -> dict[str, Tool]:
+    def tools_for(self, role: str, access: str | None = None) -> dict[str, Tool]:
+        """The role's granted tools, plus - on stateful tasks - the environment's tools its state access
+        allows: all of them with write access, the read-only ones (``readonly = True``) with read access."""
         spec = self.roles.get(role)
-        names = spec.tools if spec else []
-        return {n: self.ctx.tools[n] for n in names if n in self.ctx.tools}
+        names = list(spec.tools if spec else [])
+        access = self.state_access(role) if access is None else access
+        if access != "none":
+            names += [n for n, t in self.ctx.environment_tools.items()
+                      if access == "write" or getattr(t, "readonly", False)]
+        return {n: self.ctx.tools[n] for n in dict.fromkeys(names) if n in self.ctx.tools}
 
     def verifiers_for(self, role: str) -> dict[str, Verifier]:
         vp = self.mechanism.verification
@@ -355,12 +365,18 @@ class Game:
     def states(self) -> StateStore:
         return self.ctx.states
 
-    def state_access(self, role: str) -> str:
-        """``"none"``, ``"read"`` or ``"write"``: how ``role`` may act on the episode's state (none without state)."""
+    def state_access(self, role: str, limit: str | None = None) -> str:
+        """``"none"``, ``"read"`` or ``"write"``: how ``role`` may act on the episode's state (none without
+        state), at most ``limit`` (a mechanism may restrict a single decision, e.g. read-only reporting)."""
         if self.state is None:
             return "none"
         spec = self.roles.get(role)
-        return spec.state_access if spec is not None else "none"
+        access = spec.state_access if spec is not None else "none"
+        if limit is not None:
+            if limit not in _ACCESS_ORDER:
+                raise ValueError(f"access must be one of {tuple(_ACCESS_ORDER)}, got {limit!r}")
+            access = min(access, limit, key=_ACCESS_ORDER.__getitem__)
+        return access
 
     def state_diff(self, since: str | None = None, **kw: Any) -> str:
         """Reviewer-readable changes from ``since`` (default: the task's starting state) to the current state.
@@ -384,7 +400,7 @@ class Game:
         return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
     async def _produce(self, role: str, request: ActionRequest, sample_index: int, key: str = "",
-                       budget_used: int = 0) -> _Produced:
+                       budget_used: int = 0, access: str | None = None) -> _Produced:
         """Sample one candidate action; ``budget_used`` is how many verifications ``role`` has already
         used on this play (each candidate is charged separately: siblings never share a budget)."""
         player = self.players[role]
@@ -394,12 +410,13 @@ class Game:
         eid = "" if self.branch is not None else self.episode_id
         # A role with state access acts in its own working copy of the current state (one per sampled
         # candidate); with write access the frozen copy becomes the state the rest of the play sees.
-        access = self.state_access(role)
+        access = self.state_access(role, access)
         parent = self.state
         slot = WorkspaceSlot(self.states, parent, access) if access != "none" and parent else None
         # repeats draw fresh samples (distinct cache keys) rather than replaying cached completions
         actx = ActContext(role=role, sample_index=self.repeat * 10_000 + sample_index, game=self,
-                          tools=self.tools_for(role), seed=stable_hash(self.seed, self.item.id, key, eid), workspace=slot)
+                          tools=self.tools_for(role, access), seed=stable_hash(self.seed, self.item.id, key, eid),
+                          workspace=slot)
         new_state: str | None = None
         try:
             with using_workspace(slot):
@@ -460,13 +477,15 @@ class Game:
         visible_to: Sequence[str] | None = None,
         record: bool = True,
         group: str | None = None,
+        access: str | None = None,
         **fields: Any,
     ) -> Action:
         """Ask ``role`` for an action and record the turn.
 
         Either pass a full ``request`` or its fields (``kind``, ``prompt``, ``options``, ...). A string
         prompt becomes a single user message. ``visible_to`` restricts who sees the turn (the author
-        always does); None means everyone.
+        always does); None means everyone. ``access`` caps the role's state access for this decision
+        (e.g. ``"read"`` for a worker's private report, so simultaneous reporters never write).
         """
         if role not in self.players:
             raise KeyError(f"no player for role {role!r}")
@@ -475,7 +494,7 @@ class Game:
                 prompt = [Message.user(prompt)]
             request = ActionRequest(kind=kind, prompt=list(prompt or []), phase=phase, **fields)
         # everything up to the first await runs synchronously: slot, key and view are deterministic
-        if group is not None and self.state_access(role) == "write":
+        if group is not None and self.state_access(role, access) == "write":
             other = self._group_writers.setdefault(group, role)
             if other != role:
                 raise ValueError(f"{self.mechanism.name}: roles {other!r} and {role!r} move simultaneously and both write "
@@ -490,7 +509,7 @@ class Game:
         used = sum(n for s, (r, n) in self._verif_used.items() if r == role and s < slot)
 
         async def sample(i: int) -> _Produced:
-            return await self._produce(role, request, i, key, used)
+            return await self._produce(role, request, i, key, used, access)
 
         if self.branch is not None:
             produced, idx = await self.branch.decide(key, role, request.phase, group, slot, sample)
