@@ -8,6 +8,11 @@ information (affordances, visibility, others' chain of thought), capabilities (t
 claims are configured per role. Reward rules are separate objects, so one protocol can be paired with
 many reward rules, and rules can be re-applied to logged episodes.
 
+**Judges need not be fixtures.** Making a judge trainable (`trainable={"judge": True}`) only makes sense
+with a reward the mechanism can compute: `JudgeAuditScore` pays the judge a proper score of its verdict
+against a costly audit on a random fraction of episodes, inverse-probability weighted so that reporting
+its honest belief is optimal in expectation; monitors in `MonitoredWork` are paid the same way.
+
 **Bespoke or general?** General mechanisms plus domain adapters, as in ControlArena's settings ×
 micro-protocols. Mechanisms render items generically and delegate domain logic to *verifiers* (trusted
 checks) and *tools* (capability gaps); domain-specific mechanisms remain possible by subclassing.
