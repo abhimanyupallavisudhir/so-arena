@@ -198,8 +198,9 @@ class OptimizationExperiment:
 
         return run_sync(self.arun())
 
-    def grid(self, grid: dict[str, Sequence[int | float]], *, kind: str = "bon", mode: str = "unbiased") -> pd.DataFrame:
-        return optimization_grid(self.trees, grid, kind=kind, mode=mode)
+    def grid(self, grid: dict[str, Sequence[int | float]], *, kind: str = "bon", mode: str = "unbiased",
+             min_coverage: float = 0.5) -> pd.DataFrame:
+        return optimization_grid(self.trees, grid, kind=kind, mode=mode, min_coverage=min_coverage)
 
 
 def save_trees(path: Any, trees: Sequence[GameTree], *, mechanism: str | None = None) -> None:

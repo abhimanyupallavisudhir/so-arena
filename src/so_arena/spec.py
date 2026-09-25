@@ -68,7 +68,8 @@ class Spec(BaseModel):
 # experiment type -> {key: required}; "type" is always allowed
 EXPERIMENT_KEYS: dict[str, dict[str, bool]] = {
     "asd": {"agent": True, "fixtures": False, "arms": False, "repeats": False, "all_false": False},
-    "pools": {"players": True, "pool_sizes": True, "grid": True, "kind": False, "value": False, "max_leaves": False},
+    "pools": {"players": True, "pool_sizes": True, "grid": True, "kind": False, "value": False, "max_leaves": False,
+              "min_coverage": False},
     "prompt_search": {"policy": True, "role": True, "optimizer": True, "others": False, "directives": False,
                       "arms": False, "train_fraction": False, "iterations": False, "candidates_per_iter": False,
                       "algorithm": False},
@@ -500,7 +501,8 @@ def run_spec(spec: Spec, *, out: str | Path | None = None, limit: int | None = N
                                        ground_truth=gt, ctx=ctx, max_leaves=exp.get("max_leaves", 20000),
                                        seed=spec.seed)
             trees += o.run()
-            grid = o.grid({r: v for r, v in exp["grid"].items()}, kind=exp.get("kind", "bon"))
+            grid = o.grid({r: v for r, v in exp["grid"].items()}, kind=exp.get("kind", "bon"),
+                          min_coverage=float(exp.get("min_coverage", 0.5)))
             grid.insert(0, "mechanism", mech.name)
             grid.to_csv(run_dir / f"grid_{mech.name}.csv", index=False)
             roles = list(exp["grid"])
