@@ -9,7 +9,7 @@ import logging
 from so_arena.domains.base import Domain, get_domain, list_domains, register_domain
 from so_arena.domains import synthetic  # noqa: F401
 
-_OPTIONAL = ("chess", "sql", "code", "repo", "forecasting", "qa", "lean", "controlarena")
+_OPTIONAL = ("chess", "sql", "code", "repo", "firm", "forecasting", "qa", "lean", "controlarena")
 for _mod in _OPTIONAL:
     try:
         importlib.import_module(f"so_arena.domains.{_mod}")
