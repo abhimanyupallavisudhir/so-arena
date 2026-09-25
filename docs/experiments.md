@@ -121,7 +121,15 @@ suite.honesty_margin()   # best honest - best deceptive held-out reward, paired 
 suite.paths()            # per-iteration best reward and its measured ground-truth value (2D path plots)
 ```
 
-Algorithms: `opro`, `reflective` (GEPA-style), `evolve`, and `autoresearch` (a research log of hypotheses and results; the incumbent is replaced only on improvement). The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
+Algorithms: `opro`, `reflective` (GEPA-style), `evolve`, and `autoresearch` (a research log of hypotheses and results; the incumbent is replaced only on improvement). The reference GEPA optimizer (`pip install gepa`) runs on the same search - its reflection model is told the mechanism, the directive and the rewarded transcripts, never ground truth:
+
+```python
+from so_arena.integrations.gepa import gepa_search
+result, records = gepa_search(suite.searches["deceptive"], max_metric_calls=60)
+result.best_candidate["strategy"]                 # GEPA's best strategy (Pareto frontier over items)
+records.groupby("strategy_id")[["reward", "value"]].mean()   # reward vs measured truth per candidate
+```
+ The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
 `arms=[None]` on open protocols so the agent picks its side; then "deceptive" directives must be
 checked by measured values (optimized liars may turn honest). Any external optimizer (DSPy/GEPA,
 OpenEvolve, an autoresearch-style agent) can use `PromptSearch.evaluate_strategy(text, items)` as a

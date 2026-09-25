@@ -38,7 +38,8 @@ resolution, a stronger-model audit `ModelAudit`, manipulation checks `PositionFo
   including simultaneous moves. Outputs the 1D "worm" curves and 2D meshes.
 * **Prompt optimization** (`samplers.prompt_search`): an optimizer LLM that knows the mechanism (rules,
   rewards, the agent's view) proposes strategies scored by mechanism reward only (OPRO-style,
-  GEPA-style reflective, evolutionary, autoresearch-style research log with a ratchet). **Directives** ("honest only", "deceptive only", "sandbag",
+  GEPA-style reflective, evolutionary, autoresearch-style research log with a ratchet, and the reference
+  GEPA optimizer itself via `integrations.gepa`). **Directives** ("honest only", "deceptive only", "sandbag",
   "collude", custom) sample a spread of strategies; the gap between the best honest and best deceptive
   strategy (held-out, paired CI) is a worst-case IC measure. Measured ground truth guards against
   "deceptive" strategies that became honest.

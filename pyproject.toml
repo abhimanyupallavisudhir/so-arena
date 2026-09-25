@@ -30,8 +30,9 @@ inspect = ["inspect-ai>=0.3.100"]
 controlarena = ["control-arena>=19", "inspect-ai>=0.3.100"]
 chess = ["chess>=1.10", "zstandard>=0.22"]
 hf = ["datasets>=2.18"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.100", "chess>=1.10", "zstandard>=0.22"]
-all = ["inspect-ai>=0.3.100", "control-arena>=19", "chess>=1.10", "zstandard>=0.22", "datasets>=2.18"]
+gepa = ["gepa>=0.1.4"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.100", "chess>=1.10", "zstandard>=0.22", "gepa>=0.1.4"]
+all = ["inspect-ai>=0.3.100", "control-arena>=19", "chess>=1.10", "zstandard>=0.22", "datasets>=2.18", "gepa>=0.1.4"]
 
 [project.scripts]
 so-arena = "so_arena.cli:main"
