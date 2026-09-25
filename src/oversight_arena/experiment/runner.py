@@ -305,12 +305,15 @@ class Experiment:
                         async with lock:
                             write_jsonl(path, [rec], append=True)
                 n_done += 1
-                if self.progress and (n_done % max(1, len(jobs) // 20) == 0 or n_done == len(jobs)):
+                if tty and (n_done % max(1, len(jobs) // 20) == 0 or n_done == len(jobs)):
                     print(f"\r[{self.name}] {n_done}/{len(jobs)} episodes", end="", file=sys.stderr, flush=True)
 
+        tty = self.progress and sys.stderr.isatty()
         await asyncio.gather(*[one(i, *job) for i, job in enumerate(jobs)])
-        if self.progress:
+        if tty:
             print(file=sys.stderr)
+        elif self.progress:
+            print(f"[{self.name}] {len(jobs)} episodes", file=sys.stderr)
         recs = [r for r in results if r is not None]
         res = Results(recs, tasks={t.id: t for t in self.tasks()})
         # batch reward rules (e.g. multi-task peer prediction) need all episodes

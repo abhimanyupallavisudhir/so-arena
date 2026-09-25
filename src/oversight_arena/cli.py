@@ -146,7 +146,7 @@ def theory_swarm(n: int, g: float, b: float, P: float, a: float, c: float, o: fl
 
 
 @main.command()
-@click.argument("name", type=click.Choice(["hiddenbits", "chess", "swarm", "bon", "optimize", "release", "all"]))
+@click.argument("name", type=click.Choice(["hiddenbits", "chess", "swarm", "bon", "optimize", "monitoring", "release", "all"]))
 @click.option("--out", type=click.Path(), default="runs/demos")
 def demo(name: str, out: str) -> None:
     """Run a built-in demo that needs no API keys (figures + HTML reports)."""

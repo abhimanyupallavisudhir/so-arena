@@ -30,6 +30,7 @@ REGISTRY: dict[str, dict[str, str | Callable[..., Any]]] = {
         "minif2f": f"{_P}.domains.lean:MiniF2F",
         "abstract_swarm": f"{_P}.domains.swarm:AbstractSwarm",
         "simops": f"{_P}.domains.swarm:SimOps",
+        "abstract_monitoring": f"{_P}.domains.monitoring_sim:AbstractMonitoring",
         "tasklist": f"{_P}.domains.base:TaskListDomain",
     },
     "mechanism": {
@@ -108,6 +109,8 @@ REGISTRY: dict[str, dict[str, str | Callable[..., Any]]] = {
         "engine_advocate": f"{_P}.sim.chess_agents:EngineAdvocate",
         "engine_judge": f"{_P}.sim.chess_agents:EngineJudge",
         "swarm_worker": f"{_P}.sim.swarm_agents:SwarmWorker",
+        "action_actor": f"{_P}.sim.monitoring_agents:ActionActor",
+        "keyword_monitor": f"{_P}.sim.monitoring_agents:KeywordMonitor",
     },
 }
 

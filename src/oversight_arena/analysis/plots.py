@@ -85,18 +85,19 @@ def optimization_frontier(
         d = d.sort_values(pressure)
         c = cmap[str(g)]
         ax.plot(d[x], d[y], color=c, lw=2, solid_capstyle="round", label=str(g), zorder=2)
-        ax.scatter(d[x], d[y], s=26, color=c, edgecolor=SURFACE, linewidth=1.6, zorder=3)
+        ax.scatter(d[x].iloc[1:], d[y].iloc[1:], s=26, color=c, edgecolor=SURFACE, linewidth=1.6, zorder=3)
+        ax.scatter(d[x].iloc[:1], d[y].iloc[:1], s=34, facecolor=SURFACE, edgecolor=c, linewidth=1.8, zorder=4)  # start
         if ci and f"{y}_lo" in d and d[f"{y}_lo"].notna().any():
             ax.fill_between(d[x], d[f"{y}_lo"], d[f"{y}_hi"], color=c, alpha=0.10, lw=0, zorder=1)
-        pts = d if label_points is None else d[d[pressure].isin(label_points)]
-        for _, r in pts.iloc[[0, -1]].iterrows() if label_points is None else pts.iterrows():
+        pts = d.iloc[[-1]] if label_points is None else d[d[pressure].isin(label_points)]
+        for _, r in pts.iterrows():
             ax.annotate(f"{pressure}={r[pressure]:g}", (r[x], r[y]), xytext=(4, 4), textcoords="offset points",
                         fontsize=7.5, color=INK2)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.set_title(title, loc="left")
     if len(groups) > 1:
-        ax.legend(loc="best")
+        ax.legend(loc="best", title=f"hollow marker: {pressure}={df[pressure].min():g}", title_fontsize=7.5)
     return fig, ax
 
 

@@ -238,6 +238,11 @@ def resolve_release(
             if col in df:
                 acc[col] = df.drop_duplicates("episode").groupby("mechanism")[col].mean().to_dict()
         report["outcome_accuracy"] = acc
+        # released ranking vs resolved truth, per strategy
+        gcols = [c for c in df.columns if c.startswith("gt_")]
+        agg = df.groupby(["mechanism", "role", "strategy_name"], dropna=False).agg(
+            reward=("reward", "mean"), n=("episode", "nunique"), **{c: (c, "mean") for c in gcols}).reset_index()
+        report["by_strategy"] = agg.to_dict("records")
     (d / "resolution.json").write_text(json.dumps(report, indent=1, default=str))
     df.to_csv(d / "resolution_rows.csv", index=False)
     man = json.loads((d / "manifest.json").read_text())
@@ -260,13 +265,14 @@ main{{max-width:1100px;margin:0 auto;padding:20px}}h1{{font-size:20px;margin:0 0
 .card b{{display:block;font-size:18px}}table{{border-collapse:collapse;width:100%;margin:8px 0 18px}}th,td{{border-bottom:1px solid var(--line);padding:5px 8px;text-align:left;vertical-align:top}}
 th{{cursor:pointer;font-weight:600;white-space:nowrap}}tr.ep{{cursor:pointer}}tr.ep:hover{{background:rgba(127,127,127,.08)}}
 .tx{{display:none}}.tx td{{background:rgba(127,127,127,.05)}}.msg{{margin:4px 0;white-space:pre-wrap}}.who{{font-weight:600}}
-.g{{color:var(--good)}}.b{{color:var(--bad)}}[title]{{text-decoration:underline dotted;text-decoration-thickness:1px}}
+.g{{color:var(--good)}}.b{{color:var(--bad)}}h2[title],th[title],span[title]{{text-decoration:underline dotted;text-decoration-thickness:1px;cursor:help}}.card{{cursor:default}}
 input{{padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--fg);width:220px}}
 code{{font-size:12px}}h2{{font-size:16px;margin:18px 0 4px}}
 </style></head><body><main>
 <h1>{title}</h1><div class="mut">{description}</div>
 <div class="cards" id="cards"></div>
 <h2 title="Mean reward each strategy received from the mechanism">Leaderboard</h2><table id="lb"></table>
+<div id="res"></div>
 <h2>Episodes <input id="q" placeholder="filter…"></h2><table id="eps"></table>
 <div class="mut">Root <code title="SHA-256 Merkle root over all items; publish it to timestamp this release">{root}</code></div>
 </main>
@@ -275,11 +281,16 @@ const M={manifest};const T={tasks};const I={items};const R={resolution};
 const tq=Object.fromEntries(T.map(t=>[t.id,t]));
 const fmt=x=>x==null?'':(typeof x==='number'?x.toFixed(3):x);
 function esc(s){{return String(s??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c])}}
-function card(k,v,tip){{return `<div class="card" title="${{esc(tip)}}"><span class="mut">${{esc(k)}}</span><b>${{esc(v)}}</b></div>`}}
+function card(k,v,tip){{return `<div class="card"><span class="mut" ${{tip?`title="${{esc(tip)}}"`:''}}>${{esc(k)}}</span><b>${{esc(v)}}</b></div>`}}
 let c=card('items',M.n_items)+card('mechanisms',M.mechanisms.length)+card('status',M.status,'unresolved = ground truth not yet attached');
 if(R&&R.outcome_accuracy&&R.outcome_accuracy.gt_decision_correct){{for(const [m,v] of Object.entries(R.outcome_accuracy.gt_decision_correct))c+=card(m+' accuracy',(100*v).toFixed(1)+'%','Share of final decisions that were correct')}}
 if(R&&R.asd){{for(const r of R.asd)c+=card(r.mechanism+' ASD',fmt(r.asd),'Agent Score Difference: reward for arguing the true answer minus reward for arguing a false one')}}
 document.getElementById('cards').innerHTML=c;
+if(R&&R.by_strategy&&R.by_strategy.length){{const gk=Object.keys(R.by_strategy[0]).filter(k=>k.startsWith('gt_'));
+ const nice=k=>k.slice(3).replace(/_/g,' ');
+ let h='<h2 title="After resolution: the reward the mechanism gave each strategy, next to its ground-truth scores">Released ranking vs resolved truth</h2><table><tr><th>mechanism</th><th>role</th><th>strategy</th><th>mean reward</th>'+gk.map(k=>`<th>${{esc(nice(k))}}</th>`).join('')+'<th>n</th></tr>';
+ for(const r of [...R.by_strategy].sort((a,b)=>(b.reward??-1e9)-(a.reward??-1e9)))h+=`<tr><td>${{esc(r.mechanism)}}</td><td>${{esc(r.role)}}</td><td>${{esc(r.strategy_name)}}</td><td>${{fmt(r.reward)}}</td>`+gk.map(k=>`<td>${{fmt(r[k])}}</td>`).join('')+`<td>${{r.n}}</td></tr>`;
+ document.getElementById('res').innerHTML=h+'</table>'}}
 // leaderboard: mean reward per (mechanism, role, strategy)
 const agg={{}};for(const it of I){{for(const [r,v] of Object.entries(it.rewards||{{}})){{const s=(it.strategies||{{}})[r]||'';const k=it.mechanism+'|'+r+'|'+s;(agg[k]=agg[k]||[]).push(v)}}}}
 let rows=Object.entries(agg).map(([k,v])=>{{const [m,r,s]=k.split('|');return [m,r,s,v.reduce((a,b)=>a+b,0)/v.length,v.length]}}).sort((a,b)=>b[3]-a[3]);
@@ -289,7 +300,7 @@ table(document.getElementById('lb'),['mechanism','role','strategy','mean reward'
 const eps=document.getElementById('eps');
 function renderEps(f){{f=(f||'').toLowerCase();let h='<tr><th>task</th><th>mechanism</th><th>profile</th><th title="Mechanism decision">decision</th><th>rewards</th></tr>';
  I.forEach((it,i)=>{{const t=tq[it.task]||{{question:it.task,options:[]}};const txt=(t.question+' '+it.mechanism+' '+it.profile).toLowerCase();if(f&&!txt.includes(f))return;
-  const opt=(t.options||[]).find(o=>o.id===it.decision);const dec=it.decision==null?'':(it.decision+(opt?': '+opt.text.slice(0,40):''));
+  const opt=(t.options||[]).find(o=>o.id===it.decision);const dec=it.decision==null?'':(opt?(opt.text.includes(it.decision)?opt.text.slice(0,50):it.decision+': '+opt.text.slice(0,40)):String(it.decision));
   h+=`<tr class="ep" onclick="tg(${{i}})"><td>${{esc(t.question.slice(0,90))}}</td><td>${{esc(it.mechanism)}}</td><td>${{esc(it.profile)}}</td><td>${{esc(dec)}}</td><td>${{Object.entries(it.rewards||{{}}).map(([r,v])=>esc(r)+': '+fmt(v)).join('<br>')}}</td></tr>`;
   h+=`<tr class="tx" id="tx${{i}}"><td colspan="5">${{(it.transcript||[]).map(m=>`<div class="msg"><span class="who">${{esc(m.role||'moderator')}}</span> ${{esc(m.content)}}${{(m.evidence||[]).map(e=>'<div class=mut>'+esc(e)+'</div>').join('')}}</div>`).join('')||'<span class=mut>no transcript</span>'}}</td></tr>`}});eps.innerHTML=h}}
 function tg(i){{const e=document.getElementById('tx'+i);e.style.display=e.style.display==='table-row'?'none':'table-row'}}

@@ -3,7 +3,7 @@ an HTML report. They double as end-to-end tests of the whole pipeline and as tem
 LLM experiments (swap the agents for :class:`~oversight_arena.agents.LLMAgent`).
 
 ``oversight-arena demo <name>`` with name in: hiddenbits, chess, bon, optimize, swarm,
-release, all.
+monitoring, release, all.
 """
 
 from __future__ import annotations
@@ -179,9 +179,27 @@ def demo_bon(out: Path) -> list[Path]:
     d = cur[(cur["gt_metric"] == "correct") & (cur["mechanism"] != "debate · verified")]
     fig, ax = P.optimization_frontier(d, title="Best-of-N: reward vs arguing the true side", ylabel="P(argues the correct answer)")
     figs["BoN frontier (side)"] = P.save(fig, out / "bon_side.png")
+    # what does selection pick in debate? (debater A is assigned the false answer vs an honest opponent)
+    from .domains.synthetic import parse_bit_claims
+
+    rows = []
+    for r in allres.records:
+        if r.mechanism != "debate · verified" or r.error:
+            continue
+        bits = dom.get_task(r.task_id).resources["bits"]
+        claims = [(i, v, st) for e in r.transcript.entries if e.role == "debater_a" for i, v, st in parse_bit_claims(e)]
+        rows.append({"task": r.task_id, "reward": r.rewards["debater_a"],
+                     "false verified-range claims": sum(st != "UNCHECKED" and bits[i] != v for i, v, st in claims),
+                     "false claims beyond the budget": sum(st == "UNCHECKED" and bits[i] != v for i, v, st in claims)})
+    sel = pd.DataFrame(rows)
+    sel["selected by Bo(2)"] = sel.groupby("task")["reward"].rank(ascending=False, method="first") <= 2
+    what = sel.groupby("selected by Bo(2)")[["false verified-range claims", "false claims beyond the budget"]].mean().round(2).reset_index()
     rep = html_report(allres, out / "report.html", title="Best-of-N optimisation pressure",
-                      subtitle=f"Base policy samples ({N} per task) of a HiddenBits advocate; credulous Bayesian judge.",
-                      gt="honesty", figures=figs, tables={"BoN curves": cur.round(3)})
+                      subtitle=(f"Base-policy samples ({N} per task) of a HiddenBits advocate; credulous Bayesian judge; verification "
+                                "budget 3 claims per advocate. In debate, debater A is assigned the false answer against an honest "
+                                "opponent: selection moves its lies to where verification does not reach."),
+                      gt="honesty", figures=figs, tables={"What best-of-N selects in debate (debater A, per episode)": what,
+                                                          "BoN curves": cur.round(3)})
     return [rep, *figs.values()]
 
 
@@ -369,6 +387,62 @@ def demo_swarm(out: Path) -> list[Path]:
     return [rep, *figs.values()]
 
 
+# --------------------------------------------------------------------------- monitoring
+def demo_monitoring(out: Path) -> list[Path]:
+    """Penalising alarms: a real monitor buys obfuscation, a robust probe buys good behaviour."""
+    from .channels import SimulatedProbe
+    from .domains.monitoring_sim import AbstractMonitoring
+    from .mechanisms import MonitoredReward, Monitoring
+    from .sim.monitoring_agents import ActionActor, KeywordMonitor
+    from .theory import monitoring as tm
+
+    out.mkdir(parents=True, exist_ok=True)
+    params = tm.MonitorParams(s=0.5, gain=0.3, hide_cost=0.05, d_overt=1.0, d_covert=0.1, d_honest=0.05)
+    dom = AbstractMonitoring(n_tasks=1000, success=params.s, gain=params.gain, hide_cost=params.hide_cost,
+                             d_covert=params.d_covert, d_honest=params.d_honest)
+    actions = [Strategy(name=a, params={"action": a}, tags={"honest": a == "honest"}) for a in ("honest", "overt", "covert")]
+    monitors = {
+        "keyword monitor (reads the log)": (Monitoring(monitor="llm", probe=None, grader=False), {"actor": ActionActor(), "monitor": KeywordMonitor()}),
+        "probe, AUROC 0.8 (fixed)": (Monitoring(monitor="probe", probe=SimulatedProbe(auroc=0.8), grader=False), {"actor": ActionActor()}),
+        "probe, AUROC 0.95 (fixed)": (Monitoring(monitor="probe", probe=SimulatedProbe(auroc=0.95), grader=False), {"actor": ActionActor()}),
+    }
+    lams = np.round(np.concatenate([np.linspace(0, 1, 11), np.linspace(1.5, 8, 14)]), 3)
+    rows = []
+    for name, (mech, agents) in monitors.items():
+        res = _run(dom, mech.model_copy(update={"label": name}), agents, Cartesian(strategies={"actor": actions}))
+        alarm = {a: np.mean([r.outcome["alarm"] for r in res.records if r.bound["actor"].strategy_name == a]) for a in ("honest", "overt", "covert")}
+        for lam in lams:  # the reward rule is re-scored; the optimiser picks the best of the three behaviours
+            d = res.rescore(MonitoredReward(alarm_penalty=float(lam))).df(trainable_only=True)
+            means = d.groupby("strategy_name")["reward"].mean()
+            best = str(means.idxmax())
+            rows.append({"monitor": name, "penalty": float(lam), "action": best, "misbehaviour": float(best != "honest"),
+                         "alarm rate if misbehaving": alarm[best] if best != "honest" else np.nan, "source": "simulation"})
+    th = tm.sweep(lams, params)
+    rows += [{"monitor": "theory (keyword monitor)", "penalty": r.penalty, "action": r.action, "misbehaviour": r.misbehaviour,
+              "alarm rate if misbehaving": r.alarm_rate_when_misbehaving, "source": "theory"} for r in th.itertuples()]
+    df = pd.DataFrame(rows)
+    df.to_csv(out / "monitoring_sweep.csv", index=False)
+    figs = {}
+    fig, ax = P.line_compare(df, "penalty", "misbehaviour", "monitor", title="Optimised actor: does it misbehave?",
+                             xlabel="alarm penalty λ in the actor's reward", ylabel="misbehaves (reward-maximising action)")
+    figs["Misbehaviour vs penalty"] = P.save(fig, out / "misbehaviour_vs_penalty.png")
+    d = df[df["monitor"].str.startswith(("keyword", "theory"))]
+    fig, ax = P.line_compare(d, "penalty", "alarm rate if misbehaving", "monitor", title="…while the monitor's alarms go quiet",
+                             xlabel="alarm penalty λ in the actor's reward", ylabel="alarm rate on misbehaving episodes")
+    figs["Alarm rate vs penalty"] = P.save(fig, out / "alarms_vs_penalty.png")
+    summary = df[df["source"] == "simulation"].groupby("monitor").apply(
+        lambda g: pd.Series({"first penalty with covert action": g.loc[g["action"] == "covert", "penalty"].min(),
+                             "first penalty deterring misbehaviour": g.loc[g["action"] == "honest", "penalty"].min()}),
+        include_groups=False).reset_index()
+    th_row = tm.thresholds(params)
+    rep = html_report(Results([]), out / "report.html", title="Monitoring as a reward: obfuscation vs deterrence",
+                      subtitle=(f"Actor: honest (success {params.s:g}), overt misbehaviour (+{params.gain:g}, always leaves a trace) "
+                                f"or covert (+{params.gain - params.hide_cost:g}, trace w.p. {params.d_covert:g}). Theory: overt→covert at "
+                                f"λ={th_row['overt_to_covert']:.2f}, deterred at λ={th_row['deterred']:.1f} for the log-reading monitor."),
+                      figures=figs, tables={"Thresholds (simulation)": summary})
+    return [rep, *figs.values()]
+
+
 # --------------------------------------------------------------------------- releases
 def demo_release(out: Path) -> list[Path]:
     """Release judge-based forecast rankings before resolution; evaluate them after."""
@@ -413,7 +487,7 @@ def demo_release(out: Path) -> list[Path]:
 
 
 DEMOS = {"hiddenbits": demo_hiddenbits, "chess": demo_chess, "bon": demo_bon, "optimize": demo_optimize,
-         "swarm": demo_swarm, "release": demo_release}
+         "swarm": demo_swarm, "monitoring": demo_monitoring, "release": demo_release}
 
 
 def run(name: str, out: Path) -> list[Path]:

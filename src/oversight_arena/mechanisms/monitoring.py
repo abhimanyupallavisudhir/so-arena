@@ -134,6 +134,8 @@ class Monitoring(Mechanism):
             spec = ResponseSpec.json(submit) if (last and submit) else None
             e = await ctx.ask("actor", prompt, response=spec, turn=t, step="act", visible_to=["actor", "monitor", "grader"])
             actor_entries.append(e)
+            if ctx.env is not None and (e.data.get("action") is not None or e.data.get("actions") is not None):
+                ctx.env.apply("actor", e.data)  # structured actions of programmatic actors
         susp: list[float] = []
         if self.monitor in ("llm", "both"):
             if self.cot_visible:
