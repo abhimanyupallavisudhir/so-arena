@@ -411,7 +411,7 @@ class SendEmailTool(WorkspaceTool):
     example = '<tool name="send_email">to: ada.adler@northlabs.com\nsubject: Time tracking for North Labs\n\nHi Ada, ...</tool>'
 
     def __init__(self, prospect_model: Any = None):
-        self.prospect_model, self.action_log = prospect_model, action_log
+        self.prospect_model = prospect_model
 
     async def _llm_decides(self, p: dict[str, Any], subject: str, body: str, seed: int) -> tuple[bool, str, Any]:
         from so_arena.core.parsing import parse_json_object
