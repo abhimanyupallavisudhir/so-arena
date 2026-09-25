@@ -378,6 +378,19 @@ class Game:
             access = min(access, limit, key=_ACCESS_ORDER.__getitem__)
         return access
 
+    def state_without(self, roles: Sequence[str]) -> str | None:
+        """The state as if ``roles`` had never changed it: the task's starting state plus every other
+        role's state changes, replayed file by file in order (reverting a contribution)."""
+        if self.state is None or self.base_state is None:
+            return self.state
+        excluded, transitions, current = set(roles), [], self.base_state
+        for t in sorted(self.turns, key=lambda t: t.slot):
+            if t.state is not None:
+                if t.role not in excluded:
+                    transitions.append((current, t.state))
+                current = t.state
+        return self.states.replay(self.base_state, transitions)
+
     def state_diff(self, since: str | None = None, **kw: Any) -> str:
         """Reviewer-readable changes from ``since`` (default: the task's starting state) to the current state.
 

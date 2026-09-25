@@ -115,6 +115,8 @@ class Team(Mechanism):
                                  include_reasoning=False, empty="(nothing yet)")
 
     async def _grade(self, g: Game, exclude: set[str] | None = None, phase: str = "grade") -> float:
+        if exclude and g.state is not None:  # stateful task: revert the excluded workers' changes to the state
+            g.state = g.state_without(sorted(exclude))
         body = question_block(g, "grader") + "\n\nTeam output:\n" + self._team_log(g, "grader", exclude)
         a = await g.act("grader", kind="probabilities", options=["success", "failure"], phase=phase,
                         visible_to=["grader"],
@@ -201,6 +203,7 @@ class Team(Mechanism):
                         caught = True
         verified_report = any(r.get("verified") for r in reports.values())
         reverted = self.revert_score
+        team_state = g.state  # stateful tasks: the team's work before any revert (for audits and scoring)
         if violators and self.regrade_on_report:  # a violation caught by a report or by a random audit
             reverted = await self._grade(g, exclude=violators, phase="regrade")
         return Outcome(
@@ -208,5 +211,5 @@ class Team(Mechanism):
             output=self._team_log(g, "grader"),
             data={"team_score": team_score, "team_score_reverted": reverted, "reports": reports,
                   "violators": sorted(violators), "caught": caught or verified_report, "team_roles": self.workers,
-                  "beliefs": beliefs},
+                  "beliefs": beliefs, **({"team_state": team_state} if team_state is not None else {})},
         )

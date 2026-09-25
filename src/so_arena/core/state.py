@@ -459,6 +459,28 @@ class StateStore:
         """What changed from snapshot ``a`` to snapshot ``b`` (see :func:`diff_trees`)."""
         return diff_trees(self.files_dir(a), self.files_dir(b), **kw)
 
+    def replay(self, base: str, transitions: Sequence[tuple[str, str]]) -> str:
+        """``base`` plus the file-level changes of each ``(before, after)`` transition, in order: e.g. a
+        team's work with some members' contributions reverted. Hidden keys whose values a transition
+        changed are carried over too. Changes to the same file by an omitted and a kept transition do
+        not merge - the kept transition's version of the file wins."""
+        ws = self.fork(base)
+        for before, after in transitions:
+            b, a = self.view(before), self.view(after)
+            fb, fa = set(b.files()), set(a.files())
+            for rel in fa:
+                if rel not in fb or b.path(rel).read_bytes() != a.path(rel).read_bytes():
+                    dst = ws.path(rel)
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(a.path(rel), dst)
+            for rel in fb - fa:
+                ws.delete(rel)
+            hb, ha = b.hidden, a.hidden
+            for k, v in ha.items():
+                if hb.get(k) != v:
+                    ws.hidden[k] = v
+        return self.freeze(ws)
+
     @contextlib.contextmanager
     def scratch(self, sid: str) -> Iterator[Workspace]:
         """A throwaway working copy (e.g. to run hidden tests on a final state), discarded on exit."""
