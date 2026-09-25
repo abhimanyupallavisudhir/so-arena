@@ -200,3 +200,18 @@ def test_best_of_n_policy_ranks_nan_scores_last():
     assert run_sync(pol.act(act, ActContext(role="agent"))).text == "candidate 0"
     scores[:] = [math.nan] * 4
     assert run_sync(pol.act(act, ActContext(role="agent"))).text == "candidate 0"  # all unscored: the first
+
+
+# ------------------------------------------------------------------------------------ displays
+
+
+def test_reports_show_what_a_verdict_was_checked_against():
+    from so_arena.analysis.report import render_text
+    from so_arena.core.verification import Verification, annotate, parse_claims
+    from so_arena.rating import PAGE
+
+    text = 'There are 42. <claim kind="sql" expect="42">SELECT COUNT(*) FROM orders</claim>'
+    shown = annotate(text, [Verification(claim=parse_claims(text, "agent")[0], status="verified", output="42")])
+    html = render_text(shown)
+    assert "expect=42" in html and "&lt;checked" not in html  # shown compactly, not as escaped markup
+    assert "chk" in PAGE and "&lt;checked" in PAGE  # the rating page does the same

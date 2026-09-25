@@ -176,7 +176,11 @@ and return it from `Domain.environment()`; `domain.context(states=...)` wires it
   check's exit status is no evidence (the code under test can call `sys.exit(0)`), so its runner must
   confirm success: take the per-run token first thing
   (`token = os.environ.pop("SO_ARENA_CHECK_TOKEN", None)`, before importing code under test) and print
-  `so-arena-check-ok <token>` only once every check passed (see `domains/repo.py`'s runner).
+  `so-arena-check-ok <token>` only once every check passed (see `domains/repo.py`'s runner). Run it with
+  an isolated interpreter (`python -I run_tests.py`: no `PYTHONPATH`, user site or script directory), so
+  a `sitecustomize.py` or a module shadowing the standard library in the work cannot take over the runner,
+  and count such files as tampering in the audit. Code under test still shares the runner's process (it
+  could read the token from memory); a runner in a separate process closes that gap.
 * **Ground truth** audits `ep.final_state` (`core.state.final_view(ep, ctx)` or
   `episode_store(ep, ctx).view(...)`), e.g. hidden tests run on a scratch copy
   (`store.scratch(ep.final_state)`), or the environment's hidden ledger.

@@ -375,7 +375,7 @@ border-radius:8px;font-size:13px;z-index:9;pointer-events:none}
 .h{font-weight:600;margin-top:.6em}
 .claim{border-radius:6px;padding:1px 6px;border:1px solid var(--line);white-space:normal}
 .claim code{font-size:13px}.claim.verified{border-color:#0ca30c}.claim.failed{border-color:var(--warn)}
-.claim .mark{font-weight:600}.claim.verified .mark{color:#0ca30c}.claim.failed .mark{color:var(--warn)}.claim.unverified .mark,.claim.executed .mark{color:var(--muted)}
+.claim .chk{color:var(--muted);font-size:12px}.claim .mark{font-weight:600}.claim.verified .mark{color:#0ca30c}.claim.failed .mark{color:var(--warn)}.claim.unverified .mark,.claim.executed .mark{color:var(--muted)}
 [data-tip]{position:relative;cursor:help;border-bottom:1px dotted var(--muted)}
 [data-tip]:hover::after,[data-tip]:focus::after{content:attr(data-tip);position:absolute;left:0;top:1.6em;width:260px;background:var(--ink);color:var(--card);
 padding:6px 8px;border-radius:6px;font-size:12px;font-weight:400;z-index:5;white-space:normal}
@@ -412,10 +412,13 @@ function body(text){ // plain text, with code blocks, headings and verified-clai
     .replace(/```[a-z0-9]*\n?([\s\S]*?)```/gi, (m, c) => "<pre>" + c + "</pre>")
     .replace(/^### (.*)\n?/gm, '<div class="h">$1</div>')
     .replace(/&lt;(verified|failed|unverified|executed) kind=&quot;([^&]*)&quot;&gt;([\s\S]*?)&lt;\/\1&gt;/g, (m, tag, kind, inner) => {
-      let res = "";
+      let res = "", chk = "";
       inner = inner.replace(/&lt;result&gt;([\s\S]*?)&lt;\/result&gt;/, (mm, r) => { res = r; return ""; });
+      // what the verdict was checked against (expect=, goal=, of=, ...), shown compactly before the claim
+      inner = inner.replace(/&lt;checked\s*([\s\S]*?)\s*\/&gt;/, (mm, a) => {
+        chk = [...a.matchAll(/([\w-]+)=&quot;([\s\S]*?)&quot;/g)].map(x => x[1] + "=" + x[2]).join(" "); return ""; });
       return `<span class="claim ${tag}" data-tip="${MARKS[tag][1]} (${kind})" tabindex="0"><span class="mark">${MARKS[tag][0]}</span> ` +
-        `<code>${inner.trim()}</code>${res ? " \u2192 " + res.trim() : ""}</span>`;
+        `${chk ? '<span class="chk">' + chk + "</span> " : ""}<code>${inner.trim()}</code>${res ? " \u2192 " + res.trim() : ""}</span>`;
     });
 }
 function status(s){ $("queue").textContent = `${s.waiting + s.in_progress} waiting · ${s.done} done`; }

@@ -49,6 +49,13 @@ forecasting (Manifold; pending resolutions), QA sets (GSM8K, MMLU, TruthfulQA, G
 verified quotes), and two *stateful* domains: repository work with hidden tests and a simulated software
 company (see "Stateful work" below).
 
+Items must not be answerable without reading them. Generated options and mutants are built so that
+position and shape carry no signal (GSM8K options are an evenly spaced run with the answer at a random
+place; code and Lean mutations come in pairs that add and remove structure), and blind baselines report
+what rules that never read the question would score (`domains.code.blind_baselines`,
+`domains.qa.blind_baseline`) - compare a judge against them, not only against chance. One tell is known
+and documented: chess `eval_claim` items, whose answer depends on the position's source.
+
 ### Bespoke per domain, or general mechanisms with adapters?
 
 General mechanisms with domain adapters - the same answer ControlArena gives with its

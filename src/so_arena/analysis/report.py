@@ -154,6 +154,9 @@ def table_html(df: pd.DataFrame, *, tips: dict[str, str] | None = None, max_rows
 
 _MARK = re.compile(r"&lt;(verified|failed|unverified|executed) kind=&quot;([\w\-\.]+)&quot;&gt;(.*?)&lt;/\1&gt;", re.S)
 _RESULT = re.compile(r"&lt;result&gt;(.*?)&lt;/result&gt;", re.S)
+# what the verdict was checked against (expect=, goal=, of=, ...): shown before the claim, compactly
+_CHECKED = re.compile(r"&lt;checked\s*(.*?)\s*/&gt;", re.S)
+_ATTR = re.compile(r"([\w-]+)=&quot;(.*?)&quot;", re.S)
 
 
 def render_text(text: str) -> str:
@@ -163,6 +166,8 @@ def render_text(text: str) -> str:
     def badge(m: re.Match) -> str:
         status, kind, body = m.group(1), m.group(2), m.group(3)
         body = _RESULT.sub(lambda r: f' <span class="muted">→ {r.group(1)}</span>', body)
+        body = _CHECKED.sub(lambda c: '<span class="muted">' + " ".join(f"{k}={v}" for k, v in _ATTR.findall(c.group(1)))
+                            + "</span> " if _ATTR.search(c.group(1)) else "", body)
         cls, icon, label, tip = {
             "verified": ("ok", "✓", "verified", "checked and true, by a trusted tool"),
             "failed": ("bad", "✗", "failed", "checked and false, by a trusted tool"),
