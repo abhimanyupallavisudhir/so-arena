@@ -45,8 +45,9 @@ capabilities that create capability gaps) and **ground-truth scorers**. Built in
 and team worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool),
 text-to-SQL over a private database, code with hidden tests (including a hackable team task), Lean
 statement faithfulness (miniF2F formalizations vs. single-edit mutants; a rules-only structure verifier),
-forecasting (Manifold; pending resolutions), and QA sets (GSM8K, MMLU, TruthfulQA, GPQA, QuALITY with
-verified quotes).
+forecasting (Manifold; pending resolutions), QA sets (GSM8K, MMLU, TruthfulQA, GPQA, QuALITY with
+verified quotes), and two *stateful* domains: repository work with hidden tests and a simulated software
+company (see "Stateful work" below).
 
 ### Bespoke per domain, or general mechanisms with adapters?
 
@@ -58,6 +59,43 @@ class; "chess debate with the legal-line rule and engine-backed debaters" is
 `Debate(tools={"agents": ["engine"]}, verification=VerificationPolicy(verifiers=["chess_line"]))` on the
 chess domain. Domain-*specific* mechanisms remain possible (subclass `Mechanism`) when a protocol's
 structure itself depends on the domain, e.g. a decomposition protocol that splits a proof into lemmas.
+
+## Stateful work: the paired-branch design
+
+Oversight of real work is oversight of *state changes*: an agent edits a repository, writes to a
+database, sends mail, moves money. `core.state` makes state a first-class part of an episode:
+
+* A **snapshot** is an immutable, content-addressed state in a `StateStore`: a tree of agent-visible
+  files (repository, SQLite databases, mailbox, card statement) plus `hidden` JSON that only the
+  environment reads (simulated customers' willingness to pay, which sign-ups really came through the
+  product). Identical states have identical ids, so unchanged work maps back to its parent.
+* An `Environment` (`Domain.environment()`) builds each item's starting state $S_0$ from the
+  *uncensored* item - hidden state may come from ground truth - and supplies tools that act on
+  **workspaces** (`shell`, `read_file`, `write_file`, `sql`, `diff`, and domain tools such as
+  `send_email` or `refund`).
+* `RoleSpec.state_access` is `"none"`, `"read"` or `"write"` (per-role override `state_access=`). Each
+  decision of a role with access runs in its own working copy, forked on first use: with `write` the
+  frozen copy becomes the episode's current state; with `read` it is discarded, so a reviewer can run
+  the tests without changing the work under review. In best-of-N trees every sampled candidate gets its
+  own branch, so "sample N attempts at the task and keep the one the reviewer likes" is exact.
+* Reviewers see a **dossier**: the report plus `g.state_diff()` - text diffs, database rows added,
+  deleted and changed, appended mail and ledger records (never hidden state). Access levels - report
+  only, report and diffs, querying the result - are crossed with the protocol.
+* Claims about the work are **verifiable on the claimant's own result**: `CommandClaimVerifier` runs a
+  command on it, `ProtectedCommandVerifier` runs trusted checks with protected files (tests, runner)
+  restored from $S_0$, `QueryClaimVerifier` runs read-only SQL.
+* Episodes record `initial_state` and `final_state`; ground-truth scorers audit the final state
+  (hidden tests, the environment's fraud ledger) via `core.state.final_view`.
+
+`samplers.paired` runs the design: behaviour arms (honest, and deceptive in several ways) on the same
+tasks, reviewed live by any work mechanism, or **worked once and reviewed many times**: `Work` produces
+results, `review_items` turns each into an accept/reject item whose state is the result, and any
+protocol with answer options (a single reviewer, consultancy, debate for and against acceptance)
+decides it; `arm_asd`/`acceptance_asd` report ASD against each deceptive arm and its worst case.
+
+Isolation is by copying directories (fine for small workspaces, not a security sandbox). The
+abstraction is backend-neutral: an environment backed by containers, git worktrees, Postgres/Neon or
+Dolt branches only has to implement forking and freezing.
 
 ## Layer 2: mechanisms
 
@@ -84,7 +122,8 @@ The protocol is ordinary async Python calling `g.act(role, kind=..., prompt=...,
 Built-in mechanisms: `DirectJudge` (naive judge), `Propaganda`, `Consultancy`, `Debate`
 (simultaneous/sequential, judge questions, zero-sum option), `ReviewedWork` (worker -> critique ->
 rebuttal -> reviewer: single-judge RLAIF, the proposal/critique/rebuttal protocol of best-of-N
-self-play debate, and realistic work review), `MonitoredWork` (action/CoT/tool-call/probe monitors
+self-play debate, and realistic work review with a dossier of state changes), `Work` (the work stage
+alone, for reviewing each result under many protocols), `MonitoredWork` (action/CoT/tool-call/probe monitors
 with suspicion penalties or audits), `Team` (swarms with private reporting, auditing, belief
 elicitation), `MarketMaking`, `PredictionMarket` (LMSR, deferred resolution), `PeerPrediction`
 (output agreement, BTS, multi-task) and `Confession` (a separately rewarded honesty channel).
@@ -100,6 +139,7 @@ To measure $(u, v)$ we need behaviours with a range of $v$. From weakest to stro
 | Sampler | Module | Ground truth | Reaches |
 |---|---|---|---|
 | Instructed arms (ASD) | `samplers.arms` | by construction (+ manipulation checks) | what agents do when told |
+| Behaviour arms on stateful tasks (paired branches) | `samplers.paired` | by construction + audit of the final state | honest vs. several ways of faking success |
 | Natural pools, best-of-N / tilting over game trees | `samplers.pools`, `analysis.optimization` | measured | re-weightings of the base policy |
 | Prompt search with directives (OPRO / reflective / evolutionary) | `samplers.prompt_search` | measured | behaviour far from the base policy |
 | PSRO with prompt-search best responses | `samplers.psro` | measured | approximate equilibria |

@@ -180,6 +180,14 @@ revelation in equilibrium. Predictions the library is built to test:
   disputes that reduce to rules or facts; evaluative disputes still rest on the judge.
 * With strong verification, debate's advantage over consultancy should shrink (a single agent's claims
   can be checked directly).
+* **Access to the work is verification too.** On stateful tasks the reviewer's access - the report
+  alone, a dossier of diffs, the right to query the result - determines which deceptions leave hard
+  evidence: edited tests and company-card charges appear in a diff; a denied refund or an inflated KPI
+  only shows when the data is queried; a subtly wrong implementation shows under none of them without
+  an oracle. The prediction is that ASD rises with access, steeply for deceptions that leave traces in
+  the state, and that the *worst case* over deception types - the quantity that matters when one
+  accepted sabotage outweighs many correct rejections - is set by the deception that leaves none
+  (`samplers.paired.arm_asd`, `core.state`).
 
 Verification is therefore a first-class experimental axis: which verifiers exist, whose claims are
 checked, the budget, and how results are displayed (`core.verification`).

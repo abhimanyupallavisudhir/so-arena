@@ -64,6 +64,16 @@ and Goodhart is the covariance turning negative along it.
   single-edit mutants), forecasting with delayed resolution, QuALITY's hidden passage, plus
   ControlArena's agentic settings via the bridge. Chemistry and security, the remaining row of the
   proposal's table, are left out as dual-use.
+* **Real work is stateful**, and the protocols stop looking like Q&A. `core.state` gives episodes a
+  forkable, content-addressed state (files, databases, mail, a card ledger, hidden environment state);
+  honest and deceptive agents act on it in separate branches (best-of-N gets a branch per sample);
+  reviewers see a dossier of diffs and can be given read access to query the result; claims about the
+  work are verified by executing them on the claimant's own result. Two stateful domains ship: repository
+  work with hidden tests (faking success by hard-coding, editing tests, subtle bugs, doing nothing) and a
+  simulated software company (burner sign-ups on the company card, fabricated rows, false claims in
+  outreach, denied refunds, redefined metrics), each audited by the environment rather than by the
+  instruction alone. `samplers.paired` runs the proposal's paired-branch design, including "work once,
+  review many".
 * **Verified claims** are systematic: a `VerificationPolicy` per mechanism chooses verifiers (quotes,
   chess legal lines - rules only, no evaluation - engine evals, SQL execution, code execution, tests,
   Lean statement structure - what a statement says, never whether it is faithful - Lean typechecking,
@@ -122,7 +132,7 @@ The library implements the proposal's "Strand 5" build-out list:
 | Proposal item | Status |
 |---|---|
 | protocols as first-class objects over agentic episodes, incl. ControlArena micro-protocols | done (mechanisms; ControlArena bridge both ways) |
-| paired-arm runner | done for item-based tasks; forking git/database/payment state for long-horizon firm tasks is future work (use Inspect/ControlArena sandboxes) |
+| paired-arm runner | done: forkable content-addressed state (files incl. git repositories, SQLite databases, mail, a card ledger, simulated counterparties with hidden state), per-decision branches, dossiers of diffs, access levels, work once / review many (`core.state`, `samplers.paired`, domains `repo` and `firm`); container isolation and Postgres/Neon/Dolt or Stripe-sandbox backends plug in as environments |
 | judge interface for LLMs and humans with evaluation budget as a parameter | done (LLM policies, `HumanModel(time_budget_s=)`, `CallbackModel` for a rating UI; budget sweeps); a hosted rating UI is future work |
 | metrics with uncertainty: ASD both forms, expected scores, judge accuracy, discrimination at fixed FPR, control safety/usefulness | done (PGR requires weak-to-strong training runs - compute it from their outputs) |
 | model registry with parameters, compute, inference settings | done (`ModelSpec`, `samplers.sweeps.capability`) |
@@ -132,7 +142,8 @@ The library implements the proposal's "Strand 5" build-out list:
 
 Other proposal items it directly supports: ASD from existing ControlArena logs (the first milestone);
 the chess setting with Lichess data; scaling grids and breakdown gaps; evaluation-time (Kinniment)
-curves; RL-vs-prompted validity tests; honest/deceptive paired work review for firm-like tasks.
+curves; RL-vs-prompted validity tests; honest/deceptive paired work review on firm-like tasks with the
+reviewer's access (report, diffs, queries) as a protocol dimension.
 
 Two notes on the ASD paper: the Brier-form ASD here uses SOlib's code convention,
 $-\sum_a(\mathbf 1[a=\text{pos}]-p_a)^2$ per agent, i.e. $2[(1-p_\bot)^2-(1-p_\top)^2]$ for binary

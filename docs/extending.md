@@ -119,6 +119,53 @@ class HiddenTests(GroundTruthScorer):
 Return `role_values` (per-role value of the behaviour) and any scalar diagnostics. Scorers see the
 uncensored item.
 
+## Stateful environments
+
+For tasks whose work changes state (a repository, a database, mail, payments), give the domain an
+`Environment` (see `core.state` and `domains/repo.py`, `domains/firm.py`):
+
+```python
+from so_arena.core.state import Environment, WorkspaceTool, workspace_tools
+from so_arena.core.tools import ToolResult
+
+class ShopEnvironment(Environment):
+    name = "shop"
+
+    def initial_state(self, item, store):          # receives the UNCENSORED item (runs experimenter-side)
+        world = build_world(item.ground_truth.data["seed"])            # hidden parameters stay experimenter-side
+        return store.create(world.files, hidden=world.secrets)        # content-addressed snapshot id
+
+    def tools(self):
+        return {**workspace_tools(db="data/shop.db"), "ship": ShipTool()}
+
+class ShipTool(WorkspaceTool):
+    name = "ship"
+    description = "ship an order: 'order: <id>'"
+    async def run(self, args, ws, item, game=None):                   # ws: this decision's working copy
+        with ws.db("data/shop.db") as con:
+            con.execute("UPDATE orders SET status = 'shipped' WHERE id = ?", (int(args.split(":")[1]),))
+        ws.hidden["shipped"].append(args)                             # the environment's own ledger of events
+        return ToolResult(output="shipped")
+```
+
+and return it from `Domain.environment()`; `domain.context(states=...)` wires it into the run.
+
+* **Public vs. hidden.** Everything in the snapshot's files is visible to any role with state access
+  (a shell can read it all). Put what only the environment may know - counterparties' preferences, the
+  real provenance of records - in `hidden`, and keep the parameters that generate it (seeds) in
+  `ground_truth.data`, not in `context`. Shell tools are not a security sandbox.
+* **Access.** Mechanisms declare `RoleSpec.state_access` (`"write"` for workers, `"read"` for critics);
+  experiments override it per role (`state_access={"reviewer": "read"}`). Roles with access get the
+  environment's tools (read-only ones, marked `readonly = True`, for read access).
+* **Claims about the work** use state verifiers (`uses_state = True`: `verify()` runs with a scratch copy
+  of the claimant's result as the current workspace), e.g. `CommandClaimVerifier`,
+  `ProtectedCommandVerifier(command, protected=("tests",))`, `QueryClaimVerifier(db)`.
+* **Ground truth** audits `ep.final_state` (`core.state.final_view(ep, ctx)` or
+  `episode_store(ep, ctx).view(...)`), e.g. hidden tests run on a scratch copy
+  (`store.scratch(ep.final_state)`), or the environment's hidden ledger.
+* **Scripted arms** for tests and demos edit `ctx.workspace` directly or call tools with
+  `await ctx.call_tool(name, args)`.
+
 ## Mechanisms
 
 Subclass `Mechanism`, define `roles()` and `async protocol(g)`, return an `Outcome`, pick a
