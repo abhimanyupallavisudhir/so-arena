@@ -23,7 +23,7 @@ class SwarmWorker(Agent):
 
     async def act(self, obs: Observation) -> Action:
         p = {**self.defaults, **obs.params}
-        rng = rng_for("worker", obs.seed, obs.role, obs.step, obs.turn)
+        rng = obs.rng("worker")
         if obs.step == "work":
             cheat = obs.private.get("opportunity") and rng.random() < float(p["cheat"])
             return Action(text="cheat" if cheat else "work", parsed={"action": "cheat" if cheat else "work"})

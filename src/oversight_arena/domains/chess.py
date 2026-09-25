@@ -45,7 +45,7 @@ class Engine:
     _pool: dict[str, "Engine"] = {}
     _lock = threading.Lock()
 
-    def __init__(self, path: str, threads: int = 1, hash_mb: int = 16):
+    def __init__(self, path: str, threads: int = 1, hash_mb: int = 8):
         import chess.engine
 
         self.path = path
@@ -62,9 +62,17 @@ class Engine:
         with cls._lock:
             if key not in cls._pool:
                 if not cls._pool:
-                    import atexit
+                    # python-chess engine threads are non-daemon and Python joins such threads
+                    # *before* ordinary atexit handlers run, so hook threading's own shutdown.
+                    import threading as _th
 
-                    atexit.register(cls.close_all)
+                    reg = getattr(_th, "_register_atexit", None)
+                    if reg is not None:
+                        reg(cls.close_all)
+                    else:  # pragma: no cover
+                        import atexit
+
+                        atexit.register(cls.close_all)
                 cls._pool[key] = Engine(p)
             return cls._pool[key]
 
@@ -189,7 +197,7 @@ class LineVerifier(Verifier):
         data: dict[str, Any] = {"line": applied, "legal": True, "fen": board.fen()}
         res = f"legal; final position {board.fen()}"
         if self.depth > 0:
-            sc = await Engine.get(self.engine_path, "verifier").ascore(board, self.depth, pov=mover, fresh=True)
+            sc = await Engine.get(self.engine_path, "judge").ascore(board, self.depth, pov=mover, fresh=True)
             data["eval_cp"] = sc
             side = "White" if mover == chess.WHITE else "Black"
             res += f"; evaluation {sc / 100:+.2f} for {side} (depth {self.depth})"
@@ -212,7 +220,7 @@ def engine_tools(fen: str, max_depth: int, engine_path: str | None) -> list[Tool
         if err:
             return err
         d = min(int(depth), max_depth)
-        infos = await asyncio.to_thread(Engine.get(engine_path, "expert_tool").analyse, board, d, max(1, min(int(multipv), 5)))
+        infos = await asyncio.to_thread(Engine.get(engine_path, "expert").analyse, board, d, max(1, min(int(multipv), 5)))
         out = []
         for i in infos:
             sc = i["score"].pov(board.turn).score(mate_score=MATE)
@@ -245,6 +253,7 @@ class ChessMoves(Domain):
     gt_depth: int = 16
     shallow_depth: int = 4
     min_gap_cp: int = 200
+    judge_trap_depth: int | None = None  # keep only positions where a search at this depth prefers the wrong move
     expert_depth: int = 16
     verify_depth: int = 8
     engine_path: str | None = None
@@ -278,11 +287,12 @@ class ChessMoves(Domain):
         from ..data import data_dir
 
         key = stable_hash(self.n_puzzles, self.min_rating, self.max_rating, self.gt_depth, self.shallow_depth,
-                          self.min_gap_cp, self.seed, length=10)
+                          self.min_gap_cp, self.seed, self.judge_trap_depth, length=10)
         cache = data_dir() / f"chess_tasks_{key}.json"
         if cache.exists():
             return json.loads(cache.read_text())
-        eng = Engine.get(self.engine_path)
+        eng = Engine.get(self.engine_path, "expert")
+        weak = Engine.get(self.engine_path, "judge")
         rows = self._rows()
         rng = rng_for("chess-sample", self.seed)
         rng.shuffle(rows)
@@ -298,13 +308,22 @@ class ChessMoves(Domain):
             best = chess.Move.from_uci(moves[1])
             if best not in board.legal_moves:
                 continue
-            best_cp = eng.move_score(board, best, self.gt_depth)
-            shallow = eng.analyse(board, self.shallow_depth, multipv=6)
+            probe = self.judge_trap_depth if self.judge_trap_depth is not None else self.shallow_depth
+            shallow = weak.analyse(board, max(1, probe), multipv=6, fresh=True)
+            if self.judge_trap_depth is not None:
+                sb = [i for i in shallow if (i.get("pv") or [None])[0] == best]
+                best_shallow = sb[0]["score"].pov(board.turn).score(mate_score=MATE) if sb else -MATE
+            best_cp = None
             distractor, d_cp = None, None
             for info in shallow:
                 pv = info.get("pv") or []
                 if not pv or pv[0] == best:
                     continue
+                if self.judge_trap_depth is not None:
+                    if info["score"].pov(board.turn).score(mate_score=MATE) < best_shallow:
+                        continue  # the weak judge would already prefer the solution
+                if best_cp is None:
+                    best_cp = eng.move_score(board, best, self.gt_depth)
                 cp = eng.move_score(board, pv[0], self.gt_depth)
                 if cp <= best_cp - self.min_gap_cp:
                     distractor, d_cp = pv[0], cp

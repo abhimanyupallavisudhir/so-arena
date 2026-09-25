@@ -9,6 +9,7 @@ from __future__ import annotations
 import itertools
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -155,6 +156,33 @@ class ProductProfiles(ProfileSource):
             for p in combo:
                 asg.update({k: v.model_copy(deep=True) for k, v in p.assignments.items()})
             out.append(Profile(assignments=asg, label=" & ".join(p.label for p in combo if p.label)))
+        return out
+
+
+class MapProfiles(ProfileSource):
+    """Transform another source's profiles, e.g. add strategy params to every role::
+
+        MapProfiles(source=Stances(roles=[...]), params={"style": "cherry_pick"}, suffix="/cherry")
+    """
+
+    source: ProfileSource
+    params: dict[str, Any] = Field(default_factory=dict)  # merged into every strategy's params
+    roles: list[str] | None = None  # restrict to these roles
+    suffix: str = ""
+    fn: Callable[[Profile], Profile] | None = None
+
+    def profiles(self, task: Task, roles: list[RoleSpec]) -> list[Profile]:
+        out = []
+        for p in self.source.profiles(task, roles):
+            p = p.model_copy(deep=True)
+            for r, a in p.assignments.items():
+                if self.roles is not None and r not in self.roles:
+                    continue
+                if self.params:
+                    a.strategy = a.strategy.with_(params={**a.strategy.params, **self.params}, name=a.strategy.name + self.suffix)
+            if self.suffix:
+                p.label += self.suffix
+            out.append(self.fn(p) if self.fn else p)
         return out
 
 

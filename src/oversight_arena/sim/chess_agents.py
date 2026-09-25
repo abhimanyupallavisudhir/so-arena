@@ -41,7 +41,7 @@ class EngineAdvocate(Agent):
         return {"type": "EngineAdvocate", "depth": self.depth, "line_len": self.line_len, "top_k": self.top_k}
 
     def _eng(self) -> Engine:
-        return Engine.get(self.engine_path, f"advocate-{self.depth}")
+        return Engine.get(self.engine_path, "expert")
 
     def _pv(self, board: Any, n: int, depth: int) -> list:
         if n <= 0 or board.is_game_over():
@@ -107,7 +107,7 @@ class EngineAdvocate(Agent):
 
 
 class EngineJudge(Agent):
-    def __init__(self, depth: int = 1, temperature_cp: float = 150.0, self_check: bool = True,
+    def __init__(self, depth: int = 1, temperature_cp: float = 150.0, self_check: bool = False,
                  use_verifier_evals: bool = False, engine_path: str | None = None, id: str | None = None):
         self.depth = depth
         self.temperature_cp = temperature_cp
@@ -126,7 +126,7 @@ class EngineJudge(Agent):
             if self.depth <= 0:
                 cache[key] = material(board, mover)
             else:
-                cache[key] = Engine.get(self.engine_path, f"judge-{self.depth}").score(board, self.depth, pov=mover, fresh=True)
+                cache[key] = Engine.get(self.engine_path, "judge").score(board, self.depth, pov=mover, fresh=True)
         return cache[key]
 
     def evaluate(self, obs: Observation) -> dict[str, float]:

@@ -81,6 +81,14 @@ class Observation(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)  # strategy params (temperature, ...)
     tags: dict[str, Any] = Field(default_factory=dict)  # strategy tags (for programmatic agents)
 
+    def rng(self, *extra: Any) -> Any:
+        """Deterministic RNG for programmatic agents: varies with task, role, sample seed,
+        turn and step (and ``extra``), so behaviour is reproducible yet independent across
+        tasks and roles."""
+        from ..core.util import rng_for
+
+        return rng_for("agent-rng", self.task.id, self.role, self.seed, self.turn, self.step, *extra)
+
 
 class Action(BaseModel):
     text: str = ""

@@ -40,7 +40,7 @@ class BitAdvocate(Agent):
             want = 1 if ones * 2 > len(bits) else 0
             target = next((o.id for o in obs.task.options if o.data.get("claim") == want), obs.task.option_ids[0])
         want = next(o.data.get("claim") for o in obs.task.options if o.id == target)
-        rng = rng_for("advocate", obs.seed, obs.role, obs.turn, obs.step)
+        rng = obs.rng("advocate")
         revealed = set()
         for e in obs.entries:
             for i, _, _ in parse_bit_claims(e):
