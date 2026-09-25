@@ -171,8 +171,19 @@ class EmpiricalGame:
             mix[r] = v
         return mix
 
-    def _contract(self, T: np.ndarray, mix: Mix, skip: str | None = None) -> np.ndarray | float:
-        out = np.nan_to_num(T, nan=0.0) if not np.isnan(T).all() else T
+    def fill_missing(self, value: float = 0.0) -> "EmpiricalGame":
+        """A copy with unobserved payoff cells set to ``value`` (an explicit modelling choice)."""
+        return EmpiricalGame(self.roles, self.strategies, {r: np.nan_to_num(P, nan=value) for r, P in self.payoffs.items()},
+                             self.gt, self.counts)
+
+    def _contract(self, T: np.ndarray, mix: Mix, skip: str | None = None, allow_nan: bool = False) -> np.ndarray | float:
+        if np.isnan(T).any():
+            if not allow_nan:
+                raise ValueError(
+                    "payoff tensor has unobserved cells (no episodes for some strategy profiles); run the missing "
+                    "profiles, restrict the strategy sets, or call .fill_missing(value) explicitly")
+            T = np.nan_to_num(T, nan=0.0)
+        out = T
         # contract from the last axis to keep indices valid
         for ax in reversed(range(len(self.roles))):
             r = self.roles[ax]
@@ -188,13 +199,15 @@ class EmpiricalGame:
         return {r: self.value(P, mix) for r, P in self.payoffs.items()}
 
     def expected_gt(self, mix: Mix) -> dict[str, float]:
+        """Expected GT under ``mix``, averaging only over cells where the GT is defined."""
         out = {}
         for k, T in self.gt.items():
             if np.isnan(T).all():
                 continue
             mask = ~np.isnan(T)
             w = self._contract(mask.astype(float), mix)
-            out[k] = self.value(T, mix) / float(w) if float(w) > 0 else float("nan")
+            num = self._contract(T, mix, allow_nan=True)
+            out[k] = float(num) / float(w) if float(w) > 0 else float("nan")
         return out
 
     def deviation_payoffs(self, role: str, mix: Mix) -> np.ndarray:
@@ -275,9 +288,14 @@ class EmpiricalGame:
         return eqs
 
     def zero_sum_value(self, role: str | None = None) -> tuple[float, Mix]:
-        """Maximin value and strategies for a 2-player (zero-sum) game via LP."""
+        """Maximin value (for ``role``, default the first) and optimal strategies of a 2-player
+        game treated as zero-sum in ``role``'s payoff, via LP."""
         r0, r1 = self.roles
-        A = self.payoffs[role or r0]
+        me = role or r0
+        other = r1 if me == r0 else r0
+        A = self.payoffs[me] if me == r0 else self.payoffs[me].T  # rows = my strategies
+        if np.isnan(A).any():
+            raise ValueError("payoff matrix has unobserved cells")
         m, n = A.shape
         # row: maximise v s.t. x^T A >= v, sum x = 1
         c = np.zeros(m + 1)
@@ -292,7 +310,7 @@ class EmpiricalGame:
         res2 = linprog(c2, A_ub=A_ub2, b_ub=np.zeros(m), A_eq=[np.r_[np.ones(n), 0]], b_eq=[1],
                        bounds=[(0, None)] * n + [(None, None)])
         y = res2.x[:n]
-        return float(-res.fun), {r0: x, r1: y}
+        return float(-res.fun), {me: x, other: y}
 
     # ------------------------------------------------------------------ learning dynamics
     def replicator(self, x0: Mix | None = None, iters: int = 1000, lr: float = 0.1, record_every: int = 0) -> list[Mix]:

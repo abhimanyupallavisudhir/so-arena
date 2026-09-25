@@ -22,35 +22,56 @@ def split_thinking(text: str) -> tuple[str, str | None]:
     return public.strip(), ("\n\n".join(p for p in parts if p) or None)
 
 
-def parse_choice(text: str, options: list[str], option_texts: dict[str, str] | None = None) -> str | None:
+def _opt_alt(options: list[str]) -> str:
+    """Regex alternation over options: single characters (letters) match case-*sensitively*
+    (so the article "a" is never read as option A); longer labels (YES/NO) case-insensitively."""
+    parts = []
+    for o in sorted(options, key=len, reverse=True):
+        parts.append(f"(?-i:{re.escape(o)})" if len(o) == 1 else re.escape(o))
+    return "|".join(parts)
+
+
+def _match_option(cand: str, options: list[str]) -> str | None:
+    for o in options:
+        if cand == o or (len(o) > 1 and cand.lower() == o.lower()):
+            return o
+    return None
+
+
+def parse_choice(text: str, options: list[str], option_texts: dict[str, str] | None = None,
+                 strict: bool = False) -> str | None:
+    """The option an answer commits to. Explicit forms first (``ANSWER: B``, "the answer is
+    (B)", "(B)"), then an exact option-text mention. Unless ``strict``, fall back to the last
+    standalone option token (weak: prefer asking again, see :class:`LLMAgent`)."""
     if not text:
         return None
-    opts = [o for o in options]
-    esc = "|".join(re.escape(o) for o in sorted(opts, key=len, reverse=True))
+    opts = list(options)
+    alt = _opt_alt(opts)
     pats = [
-        rf"ANSWER\s*[:=]\s*\(?\s*({esc})\s*\)?(?![A-Za-z0-9])",
-        rf"(?:final answer|answer|choice|verdict)\s*(?:is|:)?\s*\(?\s*\**\s*({esc})\s*\**\s*\)?(?![A-Za-z0-9])",
-        rf"\(({esc})\)",
+        rf"ANSWER\s*[:=]\s*[\(\[\*]*\s*({alt})\s*[\)\]\*]*(?![A-Za-z0-9])",
+        rf"(?:final answer|answer|choice|verdict)\s*(?:is|:)?\s*[\(\[]?\s*\**\s*({alt})\s*\**\s*[\)\]]?(?![A-Za-z0-9])",
+        rf"\(({alt})\)",
     ]
     for p in pats:
         ms = list(re.finditer(p, text, re.I))
         if ms:
-            cand = ms[-1].group(1)
-            for o in opts:
-                if o.lower() == cand.lower():
-                    return o
+            got = _match_option(ms[-1].group(1), opts)
+            if got:
+                return got
     stripped = text.strip().strip(".*()[] ")
-    for o in opts:
-        if stripped.lower() == o.lower():
-            return o
+    got = _match_option(stripped, opts)
+    if got:
+        return got
     if option_texts:
         low = text.lower()
         hits = [o for o, t in option_texts.items() if t and t.lower() in low]
         if len(hits) == 1:
             return hits[0]
-    ms = re.findall(rf"(?<![A-Za-z0-9])({esc})(?![A-Za-z0-9])", text)
+    if strict:
+        return None
+    ms = re.findall(rf"(?<![A-Za-z0-9])({alt})(?![A-Za-z0-9])", text, re.I)
     if ms:
-        return ms[-1]
+        return _match_option(ms[-1], opts)
     return None
 
 
@@ -81,28 +102,32 @@ def parse_json(text: str) -> dict[str, Any] | None:
 
 
 def _to_prob(v: Any) -> float | None:
+    """A probability from a JSON/text value: "70%" → 0.7; a bare number > 1 is read as a
+    percentage (each value on its own, so "70%" and "30" mix correctly)."""
+    pct = False
     try:
         if isinstance(v, str):
             v = v.strip()
             if v.endswith("%"):
-                return float(v[:-1]) / 100
-            v = float(v)
-        v = float(v)
-        if math.isnan(v):
-            return None
-        return v
+                pct, v = True, v[:-1]
+        f = float(v)
     except Exception:
         return None
+    if math.isnan(f) or f < 0:
+        return None
+    return f / 100 if (pct or f > 1.0) else f
 
 
 def parse_distribution(text: str, options: list[str]) -> dict[str, float] | None:
-    """Parse a probability distribution over options. Accepts JSON, 'A: 0.7' lines, percents."""
+    """Parse a probability distribution over options. Accepts JSON (``{"A": 0.7}``, nested under
+    "probabilities", keys like "Option A"/"(A)"), and lines such as ``A: 70%``, ``**A**: 0.7``,
+    ``- A (Paris): 0.8``, ``P(A) = 0.7``. Returns None if nothing parseable is found."""
     probs: dict[str, float] = {}
     obj = parse_json(text)
     if obj:
-        lower = {str(k).strip().strip("()").lower(): v for k, v in obj.items()}
-        if "probabilities" in lower and isinstance(lower["probabilities"], dict):
-            lower = {str(k).strip().lower(): v for k, v in lower["probabilities"].items()}
+        lower = {str(k).strip().strip("()*").lower(): v for k, v in obj.items()}
+        if isinstance(lower.get("probabilities"), dict):
+            lower = {str(k).strip().strip("()*").lower(): v for k, v in lower["probabilities"].items()}
         for o in options:
             v = lower.get(o.lower())
             if v is None:
@@ -114,18 +139,20 @@ def parse_distribution(text: str, options: list[str]) -> dict[str, float] | None
         for o in options:
             if o in probs:
                 continue
-            m = list(
-                re.finditer(
-                    rf"(?<![A-Za-z0-9]){re.escape(o)}\)?\s*[:=]\s*([0-9]*\.?[0-9]+)\s*(%?)", text
-                )
-            )
-            if m:
-                val = float(m[-1].group(1))
-                probs[o] = val / 100 if m[-1].group(2) == "%" else val
+            oa = _opt_alt([o])
+            pats = [
+                rf"P\(\s*(?:{oa})\s*\)\s*[:=]\s*([0-9]*\.?[0-9]+\s*%?)",
+                rf"(?<![A-Za-z0-9])(?:{oa})(?:\*\*|\*|__)?[\)\]]?\s*(?:\([^()\n]{{0,80}}\))?\s*(?:\*\*|\*)?\s*[:=–—]\s*\**\s*([0-9]*\.?[0-9]+\s*%?)",
+            ]
+            for pat in pats:
+                m = list(re.finditer(pat, text, re.I))
+                if m:
+                    p = _to_prob(m[-1].group(1).replace(" ", ""))
+                    if p is not None:
+                        probs[o] = p
+                        break
     if not probs:
         return None
-    if any(v > 1.0 for v in probs.values()):  # percentages without % sign
-        probs = {k: v / 100 for k, v in probs.items()}
     if len(probs) == len(options) - 1:  # infer the missing one
         missing = [o for o in options if o not in probs][0]
         probs[missing] = max(0.0, 1.0 - sum(probs.values()))

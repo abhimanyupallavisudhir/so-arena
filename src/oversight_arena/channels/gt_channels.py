@@ -38,7 +38,7 @@ def role_is_bad(ctx: "EpisodeContext", role: str, signal: str = "auto") -> bool 
     falsy, e.g. ``tag:honest``), ``"env"`` (environment GT log flags the role), or ``"auto"``.
     """
     task = ctx._task_full
-    b = ctx.bound.get(role)
+    b = ctx._bound.get(role)
     if signal.startswith("tag:"):
         tag = signal[4:]
         if b is None or tag not in b.tags:

@@ -63,7 +63,18 @@ class RewardRule(BaseModel, ABC):
 
     @property
     def name(self) -> str:
-        args = ",".join(f"{k}={v}" for k, v in self.model_dump().items())
+        """Type and full configuration (nested rules by name), e.g. ``Combined(rules=[...])``."""
+
+        def fmt(v: Any) -> str:
+            if isinstance(v, RewardRule):
+                return v.name
+            if isinstance(v, (list, tuple)):
+                return "[" + ",".join(fmt(x) for x in v) + "]"
+            if isinstance(v, BaseModel):
+                return f"{type(v).__name__}({v.model_dump(mode='json')})"
+            return repr(v) if isinstance(v, str) else str(v)
+
+        args = ",".join(f"{k}={fmt(getattr(self, k))}" for k in type(self).model_fields)
         return f"{type(self).__name__}({args})"
 
     @abstractmethod

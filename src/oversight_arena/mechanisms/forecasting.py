@@ -137,20 +137,26 @@ class Forecast(Mechanism):
         fc = {f: e.data.get("probability") for f, e in entries.items()}
         out: dict[str, Any] = {"forecasts": fc}
         if self.judge:
+            single = len(self.forecasters) == 1
+            fields = {"probability": "your probability of YES (0-1)"}
+            for f in self.forecasters:
+                fields["rating" if single else f"rating_{f}"] = (
+                    "quality of the forecast reasoning, 0-10" if single else f"quality of {ctx.title(f)}'s forecast reasoning, 0-10")
             j = await ctx.ask(
-                "judge", "What is your own probability that the question resolves YES, and how good is the forecast (0-10)?",
-                response=ResponseSpec.json({"probability": "your probability of YES (0-1)", "rating": "quality of the forecast reasoning, 0-10"}),
-                step="judge", kind="verdict",
+                "judge", "What is your own probability that the question resolves YES, and how good is each forecast (0-10)?",
+                response=ResponseSpec.json(fields), step="judge", kind="verdict",
             )
             try:
                 out["judge_p"] = clamp(float(j.data.get("probability")), 0.0, 1.0)
             except (TypeError, ValueError):
                 out["judge_p"] = None
-            try:
-                rating = clamp(float(j.data.get("rating")) / 10, 0.0, 1.0)
-            except (TypeError, ValueError):
-                rating = None
-            out["ratings"] = {f: rating for f in self.forecasters} if len(self.forecasters) == 1 else {}
+            ratings: dict[str, float | None] = {}
+            for f in self.forecasters:
+                try:
+                    ratings[f] = clamp(float(j.data.get("rating" if single else f"rating_{f}")) / 10, 0.0, 1.0)
+                except (TypeError, ValueError):
+                    ratings[f] = None
+            out["ratings"] = ratings
             if out["judge_p"] is not None:
                 out["probs"] = {"YES": out["judge_p"], "NO": 1 - out["judge_p"]}
                 out["decision"] = "YES" if out["judge_p"] >= 0.5 else "NO"

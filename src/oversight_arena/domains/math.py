@@ -128,9 +128,10 @@ class GSM8K(Domain):
                 key=lambda a: a.id,
             )
             info = []
-            if self.show_solutions:
-                info.append(InfoBlock(key="solution_correct", title=f"Worked solution for ({ids[0]})", content=cor.get("proof", ""), access="private"))
-                info.append(InfoBlock(key="solution_incorrect", title=f"Worked solution for ({ids[1]})", content=inc.get("proof", ""), access="private"))
+            if self.show_solutions:  # keyed by option id only: the key must not reveal which is correct
+                sols = {ids[0]: cor.get("proof", ""), ids[1]: inc.get("proof", "")}
+                for oid in sorted(sols):
+                    info.append(InfoBlock(key=f"solution_{oid}", title=f"Worked solution for ({oid})", content=sols[oid], access="private"))
             tasks.append(Task(
                 id=f"gsm8k-{self.split}-{i}", domain=self.name, question=r["question"], options=opts, info=info,
                 gt={"distractor": ids[1], "proof_correct": cor.get("proof"), "proof_incorrect": inc.get("proof")},

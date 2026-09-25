@@ -193,7 +193,7 @@ def eas_ejs(
     results,
     roles: str | Sequence[str] | None = None,
     gt: str = "correct",
-    judge_score: str = "gt_judge_p_correct_log",
+    judge_score: str = "gt_judge_p_correct[_outcome_log]",
     beta: float = 1.0,
     by: Sequence[str] = ("mechanism",),
 ) -> pd.DataFrame:

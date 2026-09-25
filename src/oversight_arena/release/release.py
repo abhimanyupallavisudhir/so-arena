@@ -88,8 +88,12 @@ def create_release(
     description: str = "",
     transcripts: bool = True,
     sealed: bool = False,
+    private_dir: str | Path | None = None,
     tasks: Sequence[Task] | None = None,
 ) -> Release:
+    """Publishable release of mechanism outputs (no ground truth). ``sealed``: publish only
+    salted commitments; the items and salts go to ``private_dir`` (default
+    ``<out_dir>.private``, *outside* the directory you publish) until :func:`reveal_release`."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     recs = [r for r in results.records if r.error is None]
@@ -109,12 +113,28 @@ def create_release(
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
     (out / "tasks.json").write_text(json.dumps(task_items, indent=1))
     if sealed:
+        priv = Path(private_dir) if private_dir is not None else out.with_name(out.name + ".private")
+        priv.mkdir(parents=True, exist_ok=True)
         (out / "sealed_items.json").write_text(json.dumps([{"episode": k} for k in leaves]))
-        (out / "reveal.json").write_text(json.dumps({"salts": salts, "items": items}))  # keep private until reveal!
+        (priv / "reveal.json").write_text(json.dumps({"salts": salts, "items": items}))  # keep private until reveal!
     else:
         (out / "items.json").write_text(json.dumps(items))
     render_html(out)
     return Release(out, manifest)
+
+
+def reveal_release(release_dir: str | Path, private_dir: str | Path | None = None) -> dict[str, Any]:
+    """Open a sealed release: publish its items and salts, then verify them against the
+    commitments made at creation time."""
+    d = Path(release_dir)
+    priv = Path(private_dir) if private_dir is not None else d.with_name(d.name + ".private")
+    data = json.loads((priv / "reveal.json").read_text())
+    (d / "reveal.json").write_text(json.dumps(data))
+    rep = verify_release(d)
+    if rep["ok"]:
+        (d / "items.json").write_text(json.dumps(data["items"]))
+        render_html(d)
+    return rep
 
 
 def load_items(release_dir: str | Path) -> list[dict[str, Any]]:
@@ -127,18 +147,26 @@ def load_items(release_dir: str | Path) -> list[dict[str, Any]]:
 
 
 def verify_release(release_dir: str | Path) -> dict[str, Any]:
-    """Recompute every leaf and the Merkle root; returns a report."""
+    """Recompute every leaf and the Merkle root; report tampered, missing and extra items.
+    (A sealed, unrevealed release can only have its root checked.)"""
     d = Path(release_dir)
     man = json.loads((d / "manifest.json").read_text())
-    items = load_items(d)
+    root_ok = merkle_root(list(man["leaves"].values())) == man["root"]
+    try:
+        items = load_items(d)
+    except FileNotFoundError:
+        return {"root_ok": root_ok, "n_items": 0, "sealed": True, "tampered": [], "missing": [], "extra": [], "ok": root_ok}
     salts = json.loads((d / "reveal.json").read_text())["salts"] if man.get("sealed") and (d / "reveal.json").exists() else {}
     bad = []
     for it in items:
         lh = leaf_hash(it, salts.get(it["episode"], ""))
         if man["leaves"].get(it["episode"]) != lh:
             bad.append(it["episode"])
-    root_ok = merkle_root(list(man["leaves"].values())) == man["root"]
-    return {"root_ok": root_ok, "n_items": len(items), "tampered": bad, "ok": root_ok and not bad}
+    present = {it["episode"] for it in items}
+    missing = sorted(set(man["leaves"]) - present)
+    extra = sorted(present - set(man["leaves"]))
+    return {"root_ok": root_ok, "n_items": len(items), "tampered": bad, "missing": missing, "extra": extra,
+            "ok": root_ok and not bad and not missing and not extra}
 
 
 def inclusion_proof(release_dir: str | Path, episode: str) -> dict[str, Any]:
@@ -175,9 +203,12 @@ def resolve_release(
             continue
         correct = set(t.correct_ids()) if t.has_values() else set()
         y = t.gt.get("outcome")
-        for role, rew in (it.get("rewards") or {}).items():
+        rewards = it.get("rewards") or {}
+        roles = sorted(set(rewards) | set(it.get("positions") or {}) | set(it.get("forecasts") or {}))
+        for role in roles:
             pos = (it.get("positions") or {}).get(role)
             fc = (it.get("forecasts") or {}).get(role)
+            rew = rewards.get(role)  # None for delayed rewards: the released output is the forecast itself
             row = {"episode": it["episode"], "task": it["task"], "mechanism": it["mechanism"], "role": role,
                    "strategy_name": (it.get("strategies") or {}).get(role), "reward": rew, "error": False}
             if pos is not None and correct:
@@ -243,7 +274,8 @@ code{{font-size:12px}}h2{{font-size:16px;margin:18px 0 4px}}
 const M={manifest};const T={tasks};const I={items};const R={resolution};
 const tq=Object.fromEntries(T.map(t=>[t.id,t]));
 const fmt=x=>x==null?'':(typeof x==='number'?x.toFixed(3):x);
-function card(k,v,tip){{return `<div class="card" title="${{tip||''}}"><span class="mut">${{k}}</span><b>${{v}}</b></div>`}}
+function esc(s){{return String(s??'').replace(/[&<>"']/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c])}}
+function card(k,v,tip){{return `<div class="card" title="${{esc(tip)}}"><span class="mut">${{esc(k)}}</span><b>${{esc(v)}}</b></div>`}}
 let c=card('items',M.n_items)+card('mechanisms',M.mechanisms.length)+card('status',M.status,'unresolved = ground truth not yet attached');
 if(R&&R.outcome_accuracy&&R.outcome_accuracy.gt_decision_correct){{for(const [m,v] of Object.entries(R.outcome_accuracy.gt_decision_correct))c+=card(m+' accuracy',(100*v).toFixed(1)+'%','Share of final decisions that were correct')}}
 if(R&&R.asd){{for(const r of R.asd)c+=card(r.mechanism+' ASD',fmt(r.asd),'Agent Score Difference: reward for arguing the true answer minus reward for arguing a false one')}}
@@ -253,14 +285,13 @@ const agg={{}};for(const it of I){{for(const [r,v] of Object.entries(it.rewards|
 let rows=Object.entries(agg).map(([k,v])=>{{const [m,r,s]=k.split('|');return [m,r,s,v.reduce((a,b)=>a+b,0)/v.length,v.length]}}).sort((a,b)=>b[3]-a[3]);
 function table(el,head,rows,fmtRow){{el.innerHTML='<tr>'+head.map((h,i)=>`<th data-i="${{i}}">${{h}}</th>`).join('')+'</tr>'+rows.map(fmtRow).join('');
  el.querySelectorAll('th').forEach(th=>th.onclick=()=>{{const i=+th.dataset.i;rows.sort((a,b)=>(a[i]>b[i]?-1:1));table(el,head,rows,fmtRow)}})}}
-table(document.getElementById('lb'),['mechanism','role','strategy','mean reward','n'],rows,r=>`<tr><td>${{r[0]}}</td><td>${{r[1]}}</td><td>${{r[2]}}</td><td>${{fmt(r[3])}}</td><td>${{r[4]}}</td></tr>`);
+table(document.getElementById('lb'),['mechanism','role','strategy','mean reward','n'],rows,r=>`<tr><td>${{esc(r[0])}}</td><td>${{esc(r[1])}}</td><td>${{esc(r[2])}}</td><td>${{fmt(r[3])}}</td><td>${{r[4]}}</td></tr>`);
 const eps=document.getElementById('eps');
 function renderEps(f){{f=(f||'').toLowerCase();let h='<tr><th>task</th><th>mechanism</th><th>profile</th><th title="Mechanism decision">decision</th><th>rewards</th></tr>';
  I.forEach((it,i)=>{{const t=tq[it.task]||{{question:it.task,options:[]}};const txt=(t.question+' '+it.mechanism+' '+it.profile).toLowerCase();if(f&&!txt.includes(f))return;
   const opt=(t.options||[]).find(o=>o.id===it.decision);const dec=it.decision==null?'':(it.decision+(opt?': '+opt.text.slice(0,40):''));
-  h+=`<tr class="ep" onclick="tg(${{i}})"><td>${{t.question.slice(0,90)}}</td><td>${{it.mechanism}}</td><td>${{it.profile}}</td><td>${{dec}}</td><td>${{Object.entries(it.rewards||{{}}).map(([r,v])=>r+': '+fmt(v)).join('<br>')}}</td></tr>`;
-  h+=`<tr class="tx" id="tx${{i}}"><td colspan="5">${{(it.transcript||[]).map(m=>`<div class="msg"><span class="who">${{m.role||'moderator'}}</span> ${{esc(m.content)}}${{(m.evidence||[]).map(e=>'<div class=mut>'+esc(e)+'</div>').join('')}}</div>`).join('')||'<span class=mut>no transcript</span>'}}</td></tr>`}});eps.innerHTML=h}}
-function esc(s){{return (s||'').replace(/[&<>]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;'}})[c])}}
+  h+=`<tr class="ep" onclick="tg(${{i}})"><td>${{esc(t.question.slice(0,90))}}</td><td>${{esc(it.mechanism)}}</td><td>${{esc(it.profile)}}</td><td>${{esc(dec)}}</td><td>${{Object.entries(it.rewards||{{}}).map(([r,v])=>esc(r)+': '+fmt(v)).join('<br>')}}</td></tr>`;
+  h+=`<tr class="tx" id="tx${{i}}"><td colspan="5">${{(it.transcript||[]).map(m=>`<div class="msg"><span class="who">${{esc(m.role||'moderator')}}</span> ${{esc(m.content)}}${{(m.evidence||[]).map(e=>'<div class=mut>'+esc(e)+'</div>').join('')}}</div>`).join('')||'<span class=mut>no transcript</span>'}}</td></tr>`}});eps.innerHTML=h}}
 function tg(i){{const e=document.getElementById('tx'+i);e.style.display=e.style.display==='table-row'?'none':'table-row'}}
 document.getElementById('q').oninput=e=>renderEps(e.target.value);renderEps('');
 </script></body></html>"""
@@ -280,10 +311,12 @@ def render_html(release_dir: str | Path) -> Path:
     def js(x: Any) -> str:
         return json.dumps(x, default=str).replace("</", "<\\/")
 
-    html = _TEMPLATE.format(
-        title=man.get("title", "Release"), description=man.get("description", ""), root=man["root"],
-        manifest=js(slim), tasks=js(tasks), items=js(items), resolution=js(res),
+    import html as _html
+
+    page = _TEMPLATE.format(
+        title=_html.escape(man.get("title", "Release")), description=_html.escape(man.get("description", "")),
+        root=_html.escape(man["root"]), manifest=js(slim), tasks=js(tasks), items=js(items), resolution=js(res),
     )
     p = d / "index.html"
-    p.write_text(html)
+    p.write_text(page)
     return p

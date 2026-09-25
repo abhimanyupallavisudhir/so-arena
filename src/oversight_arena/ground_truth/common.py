@@ -99,8 +99,10 @@ class StrategyTag(GTScorer):
 
 
 class ClaimAccuracy(GTScorer):
-    """Fraction of a role's *checkable claims* that were true, re-checking ALL claims with
-    full-budget, noise-free verification (the mechanism may only have checked some)."""
+    """Fraction of a role's own inline claims that the mechanism's verifiers checked and found
+    true — using the *noise-free* verdicts (with verification noise, agents saw some flipped).
+    Claims beyond the verification budget are not counted; for full coverage use a
+    domain-specific scorer (e.g. ``BitHonesty``) or an unlimited-budget re-check."""
 
     name: str = "claim_accuracy"
 
@@ -109,14 +111,15 @@ class ClaimAccuracy(GTScorer):
         for r in record.roles:
             total, good = 0, 0
             for e in record.transcript.entries:
-                if e.role != r.name:
+                if e.role != r.name or e.kind == "evidence":  # requested checks are not the requester's claims
                     continue
-                for ev in e.evidence:
-                    if ev.verified is None:
+                truths = e.data.get("_evidence_truth") or []
+                for k, ev in enumerate(e.evidence):
+                    verified = truths[k]["verified"] if k < len(truths) else ev.verified
+                    if verified is None:
                         continue
-                    truth = ev.verified != bool(ev.data.get("flipped"))
                     total += 1
-                    good += int(truth)
+                    good += int(bool(verified))
             if total:
                 out[r.name] = good / total
         return out

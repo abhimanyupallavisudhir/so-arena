@@ -70,18 +70,35 @@ def _extract_text_and_reasoning(message: Any) -> tuple[str, str | None]:
 
 
 class InspectModel(Model):
-    """Model backed by ``inspect_ai.model.get_model``."""
+    """Model backed by ``inspect_ai.model.get_model``.
 
-    def __init__(self, spec: str, **model_args: Any):
+    ``role``: resolve an Inspect *model role* at call time (e.g. ``"trusted"`` / ``"untrusted"``,
+    bound with ``inspect eval --model-role trusted=...``), falling back to ``spec`` or the eval's
+    active model. Role-bound models are resolved per call, so they must be used inside an eval.
+    """
+
+    def __init__(self, spec: str | None = None, role: str | None = None, **model_args: Any):
+        if spec is None and role is None:
+            raise ValueError("give a model spec, a role, or both")
         self.spec = spec
-        self.name = spec
+        self.role = role
+        self.name = spec if role is None else f"inspect-role:{role}" + (f"|{spec}" if spec else "")
         self.model_args = model_args
         self._model = None
 
-    def _get(self) -> Any:
-        if self._model is None:
-            from inspect_ai.model import get_model
+    def describe(self) -> str:
+        if not self.model_args:
+            return self.name
+        from ..core.util import stable_hash
 
+        return f"{self.name}#{stable_hash(self.model_args, length=8)}"
+
+    def _get(self) -> Any:
+        from inspect_ai.model import get_model
+
+        if self.role is not None:
+            return get_model(self.spec, role=self.role, **self.model_args)
+        if self._model is None:
             self._model = get_model(self.spec, **self.model_args)
         return self._model
 
@@ -139,6 +156,6 @@ class InspectModel(Model):
             reasoning=reasoning,
             logprobs=logprobs,
             usage=usage,
-            model=out.model or self.spec,
+            model=out.model or self.name,
             stop_reason=str(choice.stop_reason) if choice else None,
         )

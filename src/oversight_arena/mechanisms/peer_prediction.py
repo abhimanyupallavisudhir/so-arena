@@ -140,7 +140,12 @@ class BTS(RewardRule):
 
 
 class _MultiTask(BatchRewardRule):
-    """Shared plumbing: pair each reporter with a peer; compare on the same task vs other tasks."""
+    """Shared plumbing: pair each reporter with a peer; compare on the same task vs other tasks.
+
+    ``compute_batch`` receives one *population* (same mechanism, profile and seed; see
+    :meth:`Results.rescore`): each role answered each task once. Multi-task rewards are
+    properties of an agent's whole batch of answers, so compare strategies/profiles (e.g. with
+    :class:`~oversight_arena.analysis.games.EmpiricalGame`), not behaviours within one task."""
 
     seed: int = 0
 
@@ -210,7 +215,8 @@ class CorrelatedAgreement(_MultiTask):
 class DMI(_MultiTask):
     """Determinant-based Mutual Information mechanism (Kong 2020): dominantly truthful with
     ≥ 2C tasks. Reward to i (paired with j) = $\\det M^{(1)}_{ij}\\cdot\\det M^{(2)}_{ij}$ where
-    $M^{(1)}, M^{(2)}$ are joint answer-count matrices on two disjoint halves of the tasks."""
+    $M^{(1)}, M^{(2)}$ are joint answer-count matrices on two disjoint halves of the tasks.
+    The payment is for the whole batch, so every episode of an agent carries the same value."""
 
     incentive: ClassVar[str] = "You are rewarded according to how informative your answers are about a peer's answers across many questions."
 

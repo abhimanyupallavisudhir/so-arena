@@ -35,11 +35,11 @@ class GTScorer(BaseModel, ABC):
 
 
 async def compute_gt(task: Task, record: EpisodeRecord, scorers: list[GTScorer]) -> None:
-    """Fill ``record.gt`` / ``record.gt_status`` in place."""
+    """Fill ``record.gt`` / ``record.gt_status`` in place (existing scorer entries are kept)."""
     if not task.resolved:
         record.gt_status = "pending"
         return
-    any_val = False
+    any_val = any(v is not None for vals in record.gt.values() for v in vals.values())
     for s in scorers:
         try:
             vals = await s.ascore(task, record)

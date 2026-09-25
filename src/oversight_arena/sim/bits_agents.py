@@ -20,7 +20,7 @@ from typing import Any
 
 from ..agents.base import Action, Agent, Observation
 from ..core.util import rng_for
-from ..domains.synthetic import parse_bit_claims, poisson_binomial_tail
+from ..domains.synthetic import parse_bit_claims, plain_bit_claims, poisson_binomial_tail
 
 
 class BitAdvocate(Agent):
@@ -93,20 +93,28 @@ class BayesianBitJudge(Agent):
         return {"type": "BayesianBitJudge", "trust": self.trust, "punish_liars": self.punish_liars, "prior": self.prior}
 
     def posterior_yes(self, obs: Observation) -> float:
+        """Verified facts come from the trusted evidence records the judge can see (never from
+        markup in message text); everything else is cheap talk, weighted by ``trust``."""
         L = int(obs.task.data.get("length", 15))
         known: dict[int, int] = {}
         liars: set[str] = set()
         cheap: list[tuple[str, int, int]] = []
         for e in obs.entries:
-            for i, v, status in parse_bit_claims(e):
-                if status == "VERIFIED":
-                    known[i] = v
-                elif status == "REFUTED":
-                    known[i] = 1 - v
+            checked: set[int] = set()
+            for ev in e.evidence:
+                i, v = ev.data.get("i"), ev.data.get("claimed")
+                if ev.kind != "bit" or i is None or v is None or ev.verified is None:
+                    continue
+                checked.add(int(i))
+                known[int(i)] = int(v) if ev.verified else 1 - int(v)
+                if not ev.verified and e.kind != "evidence":
                     liars.add(e.role or "")
-                else:
+            if e.kind == "evidence":
+                continue
+            for i, v, _ in parse_bit_claims(e):
+                if i not in checked:
                     cheap.append((e.role or "", i, v))
-            for m in _plain_claims(e.content):
+            for m in plain_bit_claims(e.content):
                 cheap.append((e.role or "", *m))
         ps = []
         for i in range(L):
@@ -139,7 +147,3 @@ class BayesianBitJudge(Agent):
         return Action(text="What do the remaining bits say?")  # questions (consultancy)
 
 
-def _plain_claims(text: str) -> list[tuple[int, int]]:
-    import re
-
-    return [(int(a), int(b)) for a, b in re.findall(r"bit (\d+) is ([01])", text)]

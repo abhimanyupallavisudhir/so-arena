@@ -34,13 +34,19 @@ def outcome_metrics(results, by: Sequence[str] = ("mechanism",)) -> pd.DataFrame
 
 
 def ece(ep: pd.DataFrame, bins: int = 10) -> float:
-    """Expected calibration error of the judge's confidence in its decision."""
-    p = ep["gt_judge_p_correct[_outcome]"].to_numpy(float)
-    conf = np.maximum(p, 1 - p)
-    correct = (p >= 0.5).astype(float)
-    ok = ~np.isnan(p)
+    """Expected calibration error of the judge's confidence in its decision (any number of
+    options): confidence = the judge's largest option probability, accuracy = whether the
+    decision was correct."""
+    pcols = [c for c in ep.columns if c.startswith("p[")]
+    if not pcols or "gt_decision_correct[_outcome]" not in ep:
+        return float("nan")
+    conf = ep[pcols].max(axis=1).to_numpy(float)
+    correct = ep["gt_decision_correct[_outcome]"].to_numpy(float)
+    ok = ~(np.isnan(conf) | np.isnan(correct))
     conf, correct = conf[ok], correct[ok]
-    edges = np.linspace(0.5, 1.0, bins + 1)
+    if not len(conf):
+        return float("nan")
+    edges = np.linspace(0.0, 1.0, bins + 1)
     err = 0.0
     for lo, hi in zip(edges[:-1], edges[1:]):
         m = (conf >= lo) & (conf < hi if hi < 1 else conf <= hi)
@@ -98,14 +104,25 @@ def position_bias(results, roles: Sequence[str] = ("debater_a", "debater_b"), gt
     return pd.DataFrame(rows)
 
 
-def option_label_bias(results) -> pd.DataFrame:
-    """Judge's mean probability on option 'A' among episodes where A is incorrect vs correct."""
-    ep = results.episodes_df()
+def option_label_bias(results, label: str = "A") -> pd.DataFrame:
+    """Bias toward an option *label*: the judge's mean probability on ``label`` minus how often
+    ``label`` is actually correct (needs ``results.tasks``). Also split by whether it is correct."""
     rows = []
-    for mech, g in ep.groupby("mechanism"):
-        if "p[A]" not in g:
+    for mech in sorted({r.mechanism for r in results.records}):
+        ps, cs = [], []
+        for r in results.records:
+            t = results.tasks.get(r.task_id)
+            probs = r.outcome.get("probs") or {}
+            if r.mechanism != mech or t is None or label not in probs or not t.has_values():
+                continue
+            ps.append(float(probs[label]))
+            cs.append(float(label in t.correct_ids()))
+        if not ps:
             continue
-        rows.append({"mechanism": mech, "mean_p_A": g["p[A]"].mean()})
+        p, c = np.array(ps), np.array(cs)
+        rows.append({"mechanism": mech, "label": label, "mean_p": p.mean(), "share_correct": c.mean(), "bias": p.mean() - c.mean(),
+                     "mean_p_when_correct": p[c == 1].mean() if (c == 1).any() else np.nan,
+                     "mean_p_when_incorrect": p[c == 0].mean() if (c == 0).any() else np.nan, "episodes": len(p)})
     return pd.DataFrame(rows)
 
 

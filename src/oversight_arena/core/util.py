@@ -18,17 +18,34 @@ T = TypeVar("T")
 
 
 def _default(o: Any) -> Any:
+    """JSON fallback that is *stable across processes* (never embeds memory addresses)."""
     if isinstance(o, BaseModel):
         return o.model_dump(mode="json")
     if isinstance(o, (set, frozenset)):
-        return sorted(o)
+        return sorted(o, key=repr)
     if isinstance(o, Path):
         return str(o)
+    if isinstance(o, bytes):
+        return hashlib.sha256(o).hexdigest()
     if hasattr(o, "describe") and callable(o.describe):
         return o.describe()
+    if callable(o) and hasattr(o, "__code__"):
+        return f"<fn {getattr(o, '__module__', '')}.{getattr(o, '__qualname__', '')}:{code_hash(o)}>"
     if hasattr(o, "__name__"):
         return f"<{getattr(o, '__module__', '')}.{o.__name__}>"
-    return repr(o)
+    fields = {k: v for k, v in getattr(o, "__dict__", {}).items() if not k.startswith("_")}
+    if fields:
+        return {"__type__": f"{type(o).__module__}.{type(o).__qualname__}", **fields}
+    return f"<{type(o).__module__}.{type(o).__qualname__}>"
+
+
+def code_hash(fn: Any) -> str:
+    """Hash of a function's code (bytecode, constants, names), e.g. to key scripted agents."""
+    code = getattr(fn, "__code__", None)
+    if code is None:
+        return ""
+    parts = [code.co_code.hex(), repr(code.co_consts), code.co_names, getattr(fn, "__qualname__", "")]
+    return hashlib.sha256(repr(parts).encode()).hexdigest()[:10]
 
 
 def canonical_json(obj: Any) -> str:

@@ -50,6 +50,13 @@ class Verifier(ABC):
     @abstractmethod
     async def verify(self, claim: Claim, env: VerifyEnv) -> Evidence: ...
 
+    def forge(self, claim: Claim, shown: Evidence) -> Evidence:
+        """What an *erring* verifier outputs when its verdict is flipped (verification noise):
+        ``shown`` carries the flipped verdict. The default hides the true result and data;
+        override to produce realistic wrong outputs (see ``BitVerifier``)."""
+        mark = {True: "consistent with the claim", False: "inconsistent with the claim", None: "checked"}[shown.verified]
+        return shown.model_copy(update={"result": mark, "data": {}})
+
     def describe(self) -> dict[str, Any]:
         return {"name": self.name, "tag": self.tag, "cost": self.cost}
 
@@ -88,8 +95,10 @@ class EvidencePolicy(BaseModel):
         roles: roles whose inline claims are verified (None = every speaker).
         budget: max verification cost per role per episode (None = unlimited).
         auto_verify: verify inline claims when a message is posted.
-        show_to: roles that see verification verdicts (None = everyone who sees the message).
-        noise: probability that a verdict is flipped (imperfect verification).
+        show_to: roles that see verification verdicts (None = everyone who sees the message, and
+            verdicts are also marked inline in the message text).
+        noise: probability that a verdict is flipped (imperfect verification); agents then see
+            the verifier's (wrong) output, the truth is kept for ground-truth scoring only.
         annotate_unchecked: mark claims beyond budget as UNCHECKED (else leave raw markup).
         share_tool_results: show speakers' trusted tool calls/outputs to the other roles.
         requests: roles that may actively request verification via tools (e.g. ["judge"]).

@@ -115,10 +115,12 @@ def summarize(strategy: Strategy, recs: list[EpisodeRecord], role: str, gt_keys:
         outs = [v for v in outs if v is not None]
         if outs:
             gt[f"{k}:_outcome"] = float(np.mean(outs))
+    task_means = np.array([np.mean(v) for v in per_task.values()], float)
     return Evaluation(
         strategy=strategy,
         reward=float(rewards.mean()) if len(rewards) else float("nan"),
-        reward_se=float(rewards.std(ddof=1) / np.sqrt(len(rewards))) if len(rewards) > 1 else float("nan"),
+        # tasks are the independent units (seeds within a task are correlated)
+        reward_se=float(task_means.std(ddof=1) / np.sqrt(len(task_means))) if len(task_means) > 1 else float("nan"),
         gt=gt,
         per_task={k: float(np.mean(v)) for k, v in per_task.items()},
         records=recs,

@@ -24,7 +24,10 @@ class ScriptedAgent(Agent):
         self.id = id or getattr(fn, "__name__", "scripted")
 
     def describe(self) -> dict[str, Any]:
-        return {"type": "ScriptedAgent", "id": self.id, "fn": getattr(self.fn, "__qualname__", repr(self.fn))}
+        from ..core.util import code_hash
+
+        return {"type": "ScriptedAgent", "id": self.id, "fn": getattr(self.fn, "__qualname__", type(self.fn).__name__),
+                "code": code_hash(self.fn)}
 
     async def act(self, obs: Observation) -> Action:
         out = self.fn(obs)
@@ -47,6 +50,9 @@ class ConstantAgent(ScriptedAgent):
     def __init__(self, answer: dict[str, Any] | str, id: str | None = None):
         self.answer = answer
         super().__init__(lambda obs: answer, id=id or f"constant-{stable_hash(answer, length=6)}")
+
+    def describe(self) -> dict[str, Any]:
+        return {"type": "ConstantAgent", "id": self.id, "answer": self.answer}
 
 
 class HumanAgent(Agent):

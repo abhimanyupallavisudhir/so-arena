@@ -69,23 +69,34 @@ def render_observation(obs: Observation, persona: str | None = None, scratchpad:
 
 
 def _letter_probs_from_logprobs(logprobs: Any, options: list[str]) -> dict[str, float] | None:
-    """Probability of each option letter from the first token position that mentions one.
+    """Probability of each option from the token position where the answer was emitted.
 
-    Uses the top-k alternatives (deduplicated by token string, so the sampled token — which
-    also appears in the top-k list — is not double counted) and renormalises over options.
+    That position is the first one whose *sampled* token is an option (so a leading "(" or
+    "**" is skipped); failing that, the first position with an option among its top-k. Uses the
+    top-k alternatives (deduplicated by token string, so the sampled token — which also appears
+    in the top-k list — is not double counted) and renormalises over options.
     """
     if not logprobs:
         return None
-    for tok in logprobs:
+
+    def key(t: str) -> str:
+        return t.strip().strip("()*[]:.").upper()
+
+    def mass_at(tok: Any) -> dict[str, float]:
         cands: dict[str, float] = {}
         for t, lp in list(tok.top) + [(tok.token, tok.logprob)]:
             cands.setdefault(t, lp)
         mass: dict[str, float] = {}
         for t, lp in cands.items():
-            key = t.strip().strip("()*[]:.").upper()
             for o in options:
-                if key == o.upper():
+                if key(t) == o.upper():
                     mass[o] = mass.get(o, 0.0) + math.exp(lp)
+        return mass
+
+    upper = {o.upper() for o in options}
+    positions = [tok for tok in logprobs if key(tok.token) in upper] or list(logprobs)
+    for tok in positions:
+        mass = mass_at(tok)
         if mass:
             return normalize({o: mass.get(o, 0.0) for o in options}, eps=1e-6)
     return None
@@ -142,6 +153,11 @@ class LLMAgent(Agent):
             "scratchpad": self.scratchpad,
             "max_tokens": self.max_tokens,
             "elicitation": self.elicitation,
+            "n_samples": self.n_samples,
+            "reasoning_effort": self.reasoning_effort,
+            "max_tool_rounds": self.max_tool_rounds,
+            "retries": self.retries,
+            "hard_word_limit": self.hard_word_limit,
         }
 
     def _config(self, obs: Observation, **over: Any) -> GenConfig:
@@ -224,6 +240,8 @@ class LLMAgent(Agent):
             p2, e2 = self._parse(split_thinking(out.text)[0], spec)
             if not e2:
                 parsed, err = p2, None
+        if err and not parsed:  # last resort: lenient parsing of the original answer (error kept)
+            parsed, _ = self._parse(public, spec, lenient=True)
         if self.hard_word_limit and spec.max_words:
             lim = int(spec.max_words * self.hard_word_limit)
             if word_count(public) > lim:
@@ -233,20 +251,24 @@ class LLMAgent(Agent):
             messages=messages, error=err,
         )
 
-    def _parse(self, text: str, spec: ResponseSpec) -> tuple[dict[str, Any], str | None]:
+    def _parse(self, text: str, spec: ResponseSpec, lenient: bool = False) -> tuple[dict[str, Any], str | None]:
+        """Parse a structured answer. Strict by default (explicit answer formats only); an error
+        triggers a re-ask. ``lenient`` accepts weaker cues (last option mentioned)."""
         if spec.kind == "text":
             return {}, None
         if spec.kind == "choice":
-            c = parse_choice(text, spec.options or [], spec.option_texts)
+            c = parse_choice(text, spec.options or [], spec.option_texts, strict=not lenient)
             return ({"choice": c}, None) if c else ({}, "unparseable choice")
         if spec.kind == "distribution":
-            d = parse_distribution(text, spec.options or [])
+            opts = spec.options or []
+            d = parse_distribution(text, opts)
             if d is None:
-                c = parse_choice(text, spec.options or [], spec.option_texts)
+                c = parse_choice(text, opts, spec.option_texts, strict=not lenient)
                 if c is None:
-                    return {"probs": {o: 1 / len(spec.options or [1]) for o in spec.options or []}}, "unparseable distribution"
-                d = {o: (0.9 if o == c else 0.1 / max(1, len(spec.options or []) - 1)) for o in spec.options or []}
-                return {"probs": d, "choice": c, "probs_inferred": True}, None
+                    return ({"probs": {o: 1 / len(opts) for o in opts}} if lenient else {}), "unparseable distribution"
+                d = {o: (0.9 if o == c else 0.1 / max(1, len(opts) - 1)) for o in opts}
+                # a stated choice is not a distribution: flag it so the agent is asked again
+                return {"probs": d, "choice": c, "probs_inferred": True}, "distribution inferred from a stated choice"
             return {"probs": d, "choice": max(d, key=d.get)}, None  # type: ignore[arg-type]
         if spec.kind == "scalar":
             v = parse_scalar(text, spec.lo, spec.hi, spec.scalar_name)
@@ -284,7 +306,7 @@ class LLMAgent(Agent):
         probs = _letter_probs_from_logprobs(out.logprobs, opts)
         err = None
         if probs is None:  # provider lacks logprobs: fall back to the stated letter
-            c = parse_choice(out.text, opts)
+            c = parse_choice(out.text, opts, strict=True)
             if c is None:
                 probs, err = {o: 1 / len(opts) for o in opts}, "no logprobs and unparseable"
             else:
@@ -307,7 +329,7 @@ class LLMAgent(Agent):
                 messages, self._config(obs, temperature=obs.params.get("temperature", 1.0) or 1.0), None, obs.seed * 1000 + k
             )
             usage = usage + out.usage
-            c = parse_choice(split_thinking(out.text)[0], opts, spec.option_texts)
+            c = parse_choice(split_thinking(out.text)[0], opts, spec.option_texts, strict=True)
             if c:
                 counts[c] += 1
             texts.append(out.text)

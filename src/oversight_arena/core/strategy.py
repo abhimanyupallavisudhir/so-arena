@@ -12,6 +12,7 @@ behaviours such as "argue for the correct answer" / "argue for an incorrect answ
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any
 
@@ -28,13 +29,24 @@ class Stance(str, Enum):
     OPTION = "option"  # target = a fixed option id (``Strategy.option``)
 
 
-class _SafeDict(dict):
-    def __missing__(self, key: str) -> str:  # leave unknown placeholders intact
-        return "{" + key + "}"
+_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def fill_placeholders(text: str, values: dict[str, Any]) -> str:
+    """Replace ``{name}`` placeholders present in ``values``; leave everything else (unknown
+    placeholders, JSON braces in LLM-written prompts) untouched. Never raises."""
+    if not text or "{" not in text:
+        return text
+    return _PLACEHOLDER.sub(lambda m: str(values[m.group(1)]) if m.group(1) in values else m.group(0), text)
 
 
 class Strategy(BaseModel):
-    """A behaviour specification for one role."""
+    """A behaviour specification for one role.
+
+    ``clearance``: extra information clearances granted to whoever plays the strategy — part of
+    simulating a behaviour, like telling an ASD advocate its (possibly wrong) target, or telling
+    a ControlArena-style attack policy its side task.
+    """
 
     name: str
     instructions: str = ""
@@ -43,13 +55,20 @@ class Strategy(BaseModel):
     incorrect_pick: str = "designated"  # designated | worst | random  (for INCORRECT)
     params: dict[str, Any] = Field(default_factory=dict)
     tags: dict[str, Any] = Field(default_factory=dict)
+    clearance: list[str] = Field(default_factory=list)
     origin: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def id(self) -> str:
-        return self.name + "-" + stable_hash(
-            self.name, self.instructions, self.stance.value, self.option, self.params, length=8
-        )
+        """Content hash of everything that affects behaviour or its labelling (not ``origin``)."""
+        parts: list[Any] = [self.name, self.instructions, self.stance.value, self.option, self.params]
+        if self.clearance:
+            parts.append(sorted(self.clearance))
+        if self.incorrect_pick != "designated":
+            parts.append(self.incorrect_pick)
+        if self.tags:
+            parts.append(self.tags)
+        return self.name + "-" + stable_hash(*parts, length=8)
 
     def with_(self, **kw: Any) -> "Strategy":
         return self.model_copy(update=kw)
@@ -87,15 +106,13 @@ class Strategy(BaseModel):
             except KeyError:
                 target_text = str(target)
             others = [o.id for o in task.options if o.id != target]
-        fmt = _SafeDict(
-            role=role,
-            target=target or "",
-            target_text=target_text,
-            other=others[0] if len(others) == 1 else ", ".join(others),
-            other_text=task.option(others[0]).text if len(others) == 1 else "",
-            **{k: v for k, v in self.params.items() if isinstance(v, (str, int, float))},
-        )
-        instructions = self.instructions.format_map(fmt) if self.instructions else ""
+        fmt: dict[str, Any] = {k: v for k, v in self.params.items() if isinstance(v, (str, int, float))}
+        fmt["role"] = role
+        if target is not None:  # else leave {target} for the mechanism's assignment (see EpisodeContext)
+            fmt.update(target=target, target_text=target_text,
+                       other=others[0] if len(others) == 1 else ", ".join(others),
+                       other_text=task.option(others[0]).text if len(others) == 1 else "")
+        instructions = fill_placeholders(self.instructions, fmt)
         return BoundStrategy(
             strategy_id=self.id,
             name=self.name,
@@ -105,6 +122,7 @@ class Strategy(BaseModel):
             stance=self.stance,
             params=dict(self.params),
             tags=dict(self.tags),
+            clearance=list(self.clearance),
             seed=seed,
         )
 
@@ -120,6 +138,7 @@ class BoundStrategy(BaseModel):
     stance: Stance = Stance.FREE
     params: dict[str, Any] = Field(default_factory=dict)
     tags: dict[str, Any] = Field(default_factory=dict)
+    clearance: list[str] = Field(default_factory=list)
     seed: int = 0
 
 

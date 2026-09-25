@@ -117,6 +117,15 @@ def mutants(src: str, max_n: int = 30, seed: int = 0) -> list[tuple[str, str]]:
     return out
 
 
+def normalize_code(src: str) -> str:
+    """Canonical formatting (``ast.unparse``: comments and blank lines removed). Applied to every
+    candidate implementation, so formatting cannot reveal which one is the generated mutant."""
+    try:
+        return ast.unparse(ast.parse(src))
+    except SyntaxError:
+        return src
+
+
 def doc_examples(prompt: str) -> list[tuple[str, str]]:
     """(call, expected) pairs from '>>>' doctest lines."""
     lines = prompt.splitlines()
@@ -291,8 +300,8 @@ class HiddenTestsCode(Domain):
             m = self.find_mutant(r, cache)
             if m is None:
                 continue
-            correct = r["solution"]
-            wrong = m["code"]
+            correct = normalize_code(r["solution"])
+            wrong = normalize_code(m["code"])
             rng = rng_for("code", r["id"])
             spec = r["prompt"]
             if self.format == "pair":

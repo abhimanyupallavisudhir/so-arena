@@ -54,6 +54,21 @@ def run_query(path: str, query: str, max_rows: int = 20, timeout: float = 10.0) 
         return False, f"{type(e).__name__}: {e}", []
 
 
+def same_result(a: list[tuple], b: list[tuple], ordered: bool) -> bool:
+    """Result equality: as sequences if the reference query orders rows, else as multisets."""
+    if ordered:
+        return a == b
+    key = lambda r: tuple((x is None, str(type(x)), x) for x in r)  # noqa: E731  (None-safe, mixed types)
+    try:
+        return sorted(a, key=key) == sorted(b, key=key)
+    except TypeError:
+        return sorted(map(repr, a)) == sorted(map(repr, b))
+
+
+def is_ordered(query: str) -> bool:
+    return re.search(r"(?is)\border\s+by\b", query) is not None
+
+
 def fmt_rows(rows: list[tuple], cols: list[str], max_rows: int = 20) -> str:
     if not rows:
         return "(no rows)"
@@ -124,7 +139,7 @@ class SQLArtifactGT(GTScorer):
             m = re.search(r"```(?:sql)?\n(.*?)```", str(art), re.S)
             q = m.group(1) if m else str(art)
             ok, rows, _ = run_query(task.resources["db_path"], q, max_rows=1000)
-            out[role] = float(ok and gold_ok and rows == gold)
+            out[role] = float(ok and gold_ok and same_result(rows, gold, is_ordered(task.gt["gold_sql"])))  # type: ignore[arg-type]
         return out
 
 
@@ -161,7 +176,7 @@ class PrivateSQL(Domain):
         for q in qs:
             ok_g, g, _ = run_query(db, q["gold"], 1000)
             ok_d, d, _ = run_query(db, q["distractor"], 1000)
-            if not (ok_g and ok_d) or g == d:
+            if not (ok_g and ok_d) or same_result(g, d, is_ordered(q["gold"])):  # type: ignore[arg-type]
                 continue
             rng = rng_for("sql", q["id"])
             ids = ["A", "B"]

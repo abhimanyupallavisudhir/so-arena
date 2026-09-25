@@ -61,11 +61,16 @@ class Results:
 
     # ------------------------------------------------------------------ tables
     def df(self, trainable_only: bool = False, include_fixtures: bool = True) -> pd.DataFrame:
-        """Long format: one row per (episode, role)."""
+        """Long format: one row per (episode, role).
+
+        Ground truth: ``gt_<scorer>`` is the *role's* value; principal-level values a scorer
+        reports under ``_outcome*`` keys are repeated on every row of the episode as
+        ``gt_<scorer>[_outcome]`` (same names as in :meth:`episodes_df`).
+        """
         rows = []
         for r in self.records:
             outcome_gt = {
-                f"gt_{s}{k.replace('_outcome', '') if k != '_outcome' else ''}": v
+                f"gt_{s}[{k}]": v
                 for s, vals in r.gt.items()
                 for k, v in vals.items()
                 if k.startswith("_outcome")
@@ -141,15 +146,24 @@ class Results:
         return pd.DataFrame(rows)
 
     # ------------------------------------------------------------------ re-scoring
-    def rescore(self, rule: RewardRule, mechanism: str | None = None) -> "Results":
-        """Recompute rewards with a different reward rule (no model calls)."""
-        target = [r for r in self.records if mechanism is None or r.mechanism == mechanism]
-        others = [r for r in self.records if not (mechanism is None or r.mechanism == mechanism)]
+    def rescore(self, rule: RewardRule, mechanism: str | None = None, mechanism_hash: str | None = None) -> "Results":
+        """Recompute rewards with a different reward rule (no model calls), for all records or
+        those of one mechanism (by display name or, unambiguously, by config hash).
+
+        Batch rules (multi-task peer prediction) are computed per *population*: episodes with
+        the same mechanism config, profile and seed — the same agents answering many tasks.
+        """
+
+        def sel(r: EpisodeRecord) -> bool:
+            return (mechanism is None or r.mechanism == mechanism) and (mechanism_hash is None or r.mechanism_hash == mechanism_hash)
+
+        target = [r for r in self.records if sel(r)]
+        others = [r for r in self.records if not sel(r)]
         new = [r.model_copy(deep=True) for r in target]
         if type(rule).batch:
-            groups: dict[str, list[EpisodeRecord]] = {}
+            groups: dict[tuple, list[EpisodeRecord]] = {}
             for r in new:
-                groups.setdefault(r.mechanism_hash, []).append(r)
+                groups.setdefault((r.mechanism_hash, r.profile.id, r.seed), []).append(r)
             for grp in groups.values():
                 ok = [r for r in grp if r.error is None]
                 for r, rw in zip(ok, rule.compute_batch(ok)):  # type: ignore[attr-defined]

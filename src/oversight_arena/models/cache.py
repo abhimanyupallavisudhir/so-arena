@@ -59,7 +59,7 @@ class CachedModel(Model):
 
     def key(self, messages, config, tools, sample) -> str:
         return stable_hash(
-            self.inner.name,
+            self.inner.describe(),
             [m.model_dump(exclude_none=True) for m in messages],
             (config or GenConfig()).model_dump(exclude_none=True),
             [t.model_dump() for t in (tools or [])],
@@ -72,11 +72,9 @@ class CachedModel(Model):
         hit = self.store.read(k)
         if hit is not None:
             self.hits += 1
-            out = ModelOutput.model_validate_json(hit)
-            out.cached = True
-            return out
+            return _replayed(ModelOutput.model_validate_json(hit))
         if k in self._inflight:  # de-duplicate concurrent identical calls
-            return await asyncio.shield(self._inflight[k])
+            return _replayed(await asyncio.shield(self._inflight[k]))
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._inflight[k] = fut
         try:
@@ -94,3 +92,12 @@ class CachedModel(Model):
 
     def describe(self) -> str:
         return self.inner.describe()
+
+
+def _replayed(out: ModelOutput) -> ModelOutput:
+    """A cached output: tokens are kept (they measure the protocol's size), but no API call or
+    cost was incurred, so ``calls`` and ``cost_usd`` are zeroed to avoid double counting."""
+    out = out.model_copy(deep=True)
+    out.cached = True
+    out.usage = out.usage.model_copy(update={"calls": 0, "cost_usd": 0.0})
+    return out

@@ -113,7 +113,9 @@ def tree_value(node: Node, ks: Sequence[float], maximize: Sequence[bool], depth:
     k = ks[depth] if depth < len(ks) else 1
     mx = maximize[depth] if depth < len(maximize) else True
     w = bon_weights(pay, k, maximize=mx)
-    return float(np.dot(w, pay)), float(np.nansum(w * gts) if not np.all(np.isnan(gts)) else float("nan"))
+    ok = ~np.isnan(gts)  # GT averaged over the children where it is defined
+    g = float(np.dot(w[ok], gts[ok]) / w[ok].sum()) if ok.any() and w[ok].sum() > 0 else float("nan")
+    return float(np.dot(w, pay)), g
 
 
 def tree_mesh(
@@ -136,16 +138,16 @@ def tree_mesh(
 def trees_from_results(results, levels: Sequence[str], payoff: str = "accept_prob", gt: tuple[str, str] | None = ("correct", "proposer")) -> list[Node]:
     """Build game trees from episodes whose profiles vary role seeds jointly.
 
-    ``levels`` are role names in move order (e.g. ["proposer", "critic", "proposer_rebuttal"]
-    → use roles' ``sample`` indices). Episodes sharing the same task and the same sample
-    index prefix are siblings. ``payoff`` is read from ``record.outcome``.
+    ``levels`` are role names in move order (e.g. ["proposer", "critic"]); a node at each level
+    is identified by that role's (strategy, sample index). Episodes sharing the same task and
+    the same prefix are siblings. ``payoff`` is read from ``record.outcome``.
     """
     recs = results.records if hasattr(results, "records") else results
     by_task: dict[str, dict] = {}
     for r in recs:
         if r.error:
             continue
-        path = tuple(r.bound[lv].seed if lv in r.bound else 0 for lv in levels)
+        path = tuple((r.bound[lv].strategy_id, r.bound[lv].seed) if lv in r.bound else ("", 0) for lv in levels)
         val = r.outcome.get(payoff)
         g = r.gt.get(gt[0], {}).get(gt[1]) if gt else None
         tree = by_task.setdefault(r.task_id, {})

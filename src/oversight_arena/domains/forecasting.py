@@ -46,10 +46,15 @@ def forecast_task(qid: str, question: str, outcome: float | None, *, description
         Answer(id="NO", text="Resolves NO", value=None if pending else (-1.0 if outcome else 1.0)),
     ]
     gt: dict[str, Any] = {"pending": True} if pending else {"outcome": float(outcome)}  # type: ignore[arg-type]
+    # the market price of a resolved question (and its resolution time) nearly reveal the
+    # outcome: keep them harness-private ("_" keys are stripped from task views) unless shown
+    meta: dict[str, Any] = {"close": close, "url": url, "source": source, "qid": qid,
+                            "_resolved_at": resolved_at, "_market_p": market_p}
+    if show_market:
+        meta["market_p"] = market_p
     return Task(
         id=f"{source}-{qid}", domain="forecasting", question=question, options=opts, info=info,
-        answer_type="probability", gt=gt,
-        metadata={"close": close, "resolved_at": resolved_at, "market_p": market_p, "url": url, "source": source, "qid": qid},
+        answer_type="probability", gt=gt, metadata=meta,
     )
 
 

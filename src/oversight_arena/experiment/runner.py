@@ -52,14 +52,37 @@ class AgentTable:
         return {k: (a.describe() if hasattr(a, "describe") else repr(a)) for k, a in self.agents.items()}
 
 
-def episode_key(mechanism: Mechanism, task: Task, profile: Profile, agents: dict[str, Agent], seed: int) -> str:
+def task_fingerprint(task: Task) -> str:
+    """Content hash of a task (resources whose key starts with ``_`` — e.g. live checker
+    objects — are excluded)."""
+    d = task.model_dump(exclude={"resources"})
+    d["resources"] = {k: v for k, v in task.resources.items() if not str(k).startswith("_")}
+    return stable_hash(d, length=16)
+
+
+def episode_key(mechanism: Mechanism, task: Task, profile: Profile, agents: dict[str, Agent], seed: int,
+                domain: Domain | None = None, clearances: dict[str, Sequence[str]] | None = None) -> str:
+    """Deterministic identity of an episode: everything that can change what happens in it
+    (mechanism config, task content, strategies, agents, seed, domain config, clearances)."""
     return stable_hash(
         mechanism.config_hash(),
-        task.id,
+        task_fingerprint(task),
         profile.id,
         {r: a.describe() for r, a in sorted(agents.items())},
         seed,
+        domain.describe() if domain is not None else None,
+        {k: sorted(v) for k, v in sorted((clearances or {}).items())},
         length=20,
+    )
+
+
+def _error_record(mechanism: Mechanism, task: Task, profile: Profile, error: str, experiment: str | None, seed: int) -> EpisodeRecord:
+    key = stable_hash("error", mechanism.config_hash(), task.id, profile.id, seed, length=20)
+    return EpisodeRecord(
+        id=stable_hash(key, time.time_ns(), length=16), key=key, experiment=experiment, mechanism=mechanism.display_name,
+        mechanism_config=mechanism.config(), mechanism_hash=mechanism.config_hash(), reward_rule=mechanism.reward.name,
+        task_id=task.id, domain=task.domain, profile=profile, roles=mechanism.roles(), error=error, seed=seed,
+        created_at=now_iso(),
     )
 
 
@@ -81,11 +104,14 @@ async def run_episode(
     roles = mechanism.roles()
     bound = {}
     agent_map: dict[str, Agent] = {}
-    for spec in roles:
-        a = profile.get(spec.name)
-        bound[spec.name] = a.strategy.bind(task, spec.name, seed=a.seed, position=a.position)
-        agent_map[spec.name] = table.resolve(spec, a.agent)
-    key = episode_key(mechanism, task, profile, agent_map, seed)
+    try:
+        for spec in roles:
+            a = profile.get(spec.name)
+            bound[spec.name] = a.strategy.bind(task, spec.name, seed=a.seed, position=a.position)
+            agent_map[spec.name] = table.resolve(spec, a.agent)
+    except Exception as e:  # a malformed strategy or missing agent must not abort a whole experiment
+        return _error_record(mechanism, task, profile, f"setup failed: {type(e).__name__}: {e}", experiment, seed)
+    key = episode_key(mechanism, task, profile, agent_map, seed, domain, clearances)
     clear: dict[str, set[str]] = {}
     for spec in roles:
         if clearances is not None and spec.name in clearances:
@@ -96,6 +122,7 @@ async def run_episode(
             clear[spec.name] = domain.default_clearance(spec)
         else:
             clear[spec.name] = set()
+        clear[spec.name] |= set(bound[spec.name].clearance)  # granted by the simulated behaviour
     env: Environment = domain.make_env(task) if domain is not None else Environment()
     verifiers = domain.verifiers(task) if domain is not None else []
     ctx = EpisodeContext(
@@ -254,10 +281,20 @@ class Experiment:
         async def one(i: int, mech: Mechanism, task: Task, prof: Profile, seed: int) -> None:
             nonlocal n_done
             async with sem:
-                agent_map = {s.name: self.agents.resolve(s, prof.get(s.name).agent) for s in mech.roles()}
-                key = episode_key(mech, task, prof, agent_map, seed)
-                if key in done:
-                    results[i] = done[key]
+                try:
+                    agent_map = {s.name: self.agents.resolve(s, prof.get(s.name).agent) for s in mech.roles()}
+                    key = episode_key(mech, task, prof, agent_map, seed, self.domain, self.clearances)
+                except Exception:
+                    key = None
+                if key is not None and key in done:
+                    rec = done[key]
+                    missing = [g for g in (self.gt if self.gt is not None else self.domain.gt_scorers()) if g.name not in rec.gt]
+                    if missing and rec.error is None:  # scorers added since the episode ran
+                        await compute_gt(task, rec, missing)
+                        if path is not None:
+                            async with lock:
+                                write_jsonl(path, [rec], append=True)  # later lines supersede earlier ones
+                    results[i] = rec
                 else:
                     rec = await run_episode(
                         mech, task, prof, self.agents, self.domain, gt=self.gt,
@@ -279,7 +316,7 @@ class Experiment:
         # batch reward rules (e.g. multi-task peer prediction) need all episodes
         for mech in self.mechanisms:
             if type(mech.reward).batch:
-                res = res.rescore(mech.reward, mechanism=mech.display_name)
+                res = res.rescore(mech.reward, mechanism_hash=mech.config_hash())
         return res
 
     def run(self) -> Results:

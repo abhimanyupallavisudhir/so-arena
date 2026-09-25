@@ -145,3 +145,7 @@ class TaskView(BaseModel):
 
     def visible_info(self, clearance: set[str] | frozenset[str]) -> list[InfoBlock]:
         return [b for b in self.info if b.access == "public" or b.access in clearance]
+
+    def restricted(self, clearance: set[str] | frozenset[str]) -> "TaskView":
+        """This view with privileged info blocks the clearance does not cover removed."""
+        return self.model_copy(update={"info": self.visible_info(clearance)})

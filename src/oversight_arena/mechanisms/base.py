@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -41,7 +42,7 @@ from ..channels.gt_channels import GTChannel
 from ..core.episode import ChannelUse
 from ..core.rewards import NoReward, RewardRule
 from ..core.roles import RoleSpec
-from ..core.strategy import BoundStrategy
+from ..core.strategy import BoundStrategy, fill_placeholders
 from ..core.task import Task, TaskView
 from ..core.tools import Tool
 from ..core.transcript import Entry, Evidence, Transcript
@@ -101,7 +102,14 @@ class Mechanism(BaseModel, ABC):
 
 
 class EpisodeContext:
-    """The API mechanisms use to run an episode. Holds the GT-firewalled view of the task."""
+    """The API mechanisms use to run an episode. Holds the GT-firewalled view of the task.
+
+    Information flow is enforced here: each role observes a task view filtered by its
+    clearance, and transcript entries with other roles' private reasoning, unshared tool traces,
+    evidence it may not see and harness-private data (``_``-prefixed keys) removed. Strategy
+    stances and tags (which encode ground truth, e.g. "argue the *incorrect* answer") are private
+    to the harness: mechanisms only get :meth:`position`.
+    """
 
     def __init__(
         self,
@@ -121,7 +129,7 @@ class EpisodeContext:
         self._task_full = task  # private: only GT channels may touch this
         self.task: TaskView = task.view()
         self.agents = agents
-        self.bound = bound
+        self._bound = bound  # private: stances/tags encode ground truth
         self.clearances = clearances
         self.domain = domain
         self.env = env
@@ -136,6 +144,7 @@ class EpisodeContext:
         self._roles = {r.name: r for r in mechanism.roles()}
         self._verifiers = {v.tag: v for v in (verifiers or [])}
         self._evidence_spent: dict[str, float] = {}
+        self._assigned: dict[str, str] = {}
 
     # --------------------------------------------------------------- roles / positions
     @property
@@ -149,30 +158,40 @@ class EpisodeContext:
         return self._roles[role].display if role in self._roles else role
 
     def position(self, role: str) -> str | None:
-        """The option a role was assigned to argue for (by the profile), if any."""
-        b = self.bound.get(role)
-        return b.target if b else None
+        """The option ``role`` argues for: assigned by the profile, else by :meth:`positions`."""
+        b = self._bound.get(role)
+        return (b.target if b else None) or self._assigned.get(role)
 
     def positions(self, roles: list[str], distinct: bool = True) -> dict[str, str]:
-        """Positions for ``roles``: profile-assigned where given, remaining options otherwise."""
+        """Positions for ``roles``: profile-assigned where given, remaining options otherwise.
+        Assignments are remembered, so agents are told the position the mechanism gave them."""
         out: dict[str, str] = {}
         used: set[str] = set()
         for r in roles:
-            p = self.position(r)
+            b = self._bound.get(r)
+            p = b.target if b else None
             if p is not None:
                 out[r] = p
                 used.add(p)
         free = [o for o in self.task.option_ids if not (distinct and o in used)]
         for r in roles:
             if r not in out:
+                if r in self._assigned:
+                    out[r] = self._assigned[r]
+                    continue
                 if not free:
                     free = list(self.task.option_ids)
                 out[r] = free.pop(0)
+                self._assigned[r] = out[r]
         return out
 
     # --------------------------------------------------------------- observation
     def clearance(self, role: str) -> set[str]:
         return set(self.clearances.get(role, set()))
+
+    def task_view(self, role: str) -> TaskView:
+        """The task as ``role`` may see it (privileged info blocks filtered by clearance)."""
+        return self.task.restricted(self.clearance(role))
 
     def task_text(self, role: str) -> str:
         from ..domains.base import default_render
@@ -196,6 +215,10 @@ class EpisodeContext:
             tools.extend(self._verification_request_tools(role))
         return tools
 
+    def visible_entries(self, role: str) -> list[Entry]:
+        """Transcript entries visible to ``role``, sanitised for it (see class docstring)."""
+        return [_sanitize(e, role) for e in self.transcript.visible(role)]
+
     def observe(
         self,
         role: str,
@@ -208,7 +231,7 @@ class EpisodeContext:
         extra_brief: str = "",
     ) -> Observation:
         spec = self._roles[role]
-        b = self.bound.get(role)
+        b = self._bound.get(role)
         brief = self.mechanism.brief(role, self)
         if self.mechanism.reveal_incentives:
             inc = self.mechanism.incentive_text(role, self)
@@ -222,25 +245,35 @@ class EpisodeContext:
         else:
             tool_list = self.tools_for(role) if tools else []
         titles = {r: self.title(r) for r in self._roles}
+        target = self.position(role)
+        target_text = ""
+        if target is not None:
+            try:
+                target_text = self.task.option(target).text
+            except KeyError:
+                target_text = str(target)
+        instructions = b.instructions if b else ""
+        if b is not None and b.target is None:  # position assigned by the mechanism (or none at all)
+            instructions = fill_placeholders(instructions, {"target": target or "", "target_text": target_text})
         return Observation(
             role=role,
             role_title=spec.display,
             role_kind=spec.kind,
             mechanism=self.mechanism.display_name,
             brief=brief,
-            strategy=b.instructions if b else "",
-            target=b.target if b else None,
-            target_text=b.target_text if b else "",
-            task=self.task,
+            strategy=instructions,
+            target=target,
+            target_text=target_text,
+            task=self.task_view(role),
             task_text=self.task_text(role),
             private=self._private_data(role),
-            entries=[e.model_copy() for e in self.transcript.visible(role)],
+            entries=self.visible_entries(role),
             transcript_text=self.transcript.render(for_role=role, titles=titles),
             prompt=prompt,
             response=response,
             tools=tool_list,
             claim_help=self._claim_help(role),
-            seed=(b.seed if b else 0) * 100003 + self.seed,
+            seed=sample_index(role, b.seed if b else 0, self.seed),
             turn=turn,
             step=step,
             params=dict(b.params) if b else {},
@@ -275,16 +308,17 @@ class EpisodeContext:
         record: bool = True,
         data: dict[str, Any] | None = None,
         extra_brief: str = "",
+        observation: Observation | None = None,
     ) -> Entry:
         """Ask ``role`` to act; verify its claims; append (and return) the transcript entry."""
         agent = self.agents[role]
-        obs = self.observe(role, prompt, response, step=step, turn=turn, tools=tools, extra_brief=extra_brief)
+        obs = observation or self.observe(role, prompt, response, step=step, turn=turn, tools=tools, extra_brief=extra_brief)
         action = await agent.act(obs)
         _normalize_parsed(action, obs.response)
         entry = Entry(
             kind=kind,  # type: ignore[arg-type]
             role=role,
-            content=action.text,
+            content=strip_status_marks(action.text),  # only trusted code may mark claims as checked
             visible_to=visible_to,
             reasoning=action.reasoning,
             reasoning_visible_to=reasoning_visible_to,
@@ -311,8 +345,15 @@ class EpisodeContext:
         return list(await asyncio.gather(*coros))
 
     async def simultaneous(self, asks: dict[str, dict[str, Any]]) -> dict[str, Entry]:
-        """All roles in ``asks`` act on the same transcript state; entries revealed together."""
-        pending = {r: self.ask(r, record=False, **kw) for r, kw in asks.items()}
+        """All roles in ``asks`` act on the same transcript state; entries revealed together.
+        Every observation is built before anyone acts, so nothing produced during the round
+        (e.g. requested verifications) can leak into another role's move."""
+        obs = {
+            r: self.observe(r, kw.get("prompt", ""), kw.get("response"), step=kw.get("step"), turn=kw.get("turn"),
+                            tools=kw.get("tools", True), extra_brief=kw.get("extra_brief", ""))
+            for r, kw in asks.items()
+        }
+        pending = {r: self.ask(r, record=False, observation=obs[r], **kw) for r, kw in asks.items()}
         results = await asyncio.gather(*pending.values())
         out = {}
         for r, e in zip(pending.keys(), results):
@@ -328,8 +369,11 @@ class EpisodeContext:
         )
 
     def reveal(self, *entries: Entry, to: list[str] | None = None) -> None:
+        """Make entries visible to more roles (``to=None``: everyone). Public entries stay public."""
         for e in entries:
-            e.visible_to = None if to is None else sorted(set((e.visible_to or []) + to))
+            if e.visible_to is None:
+                continue
+            e.visible_to = None if to is None else sorted(set(e.visible_to + to))
 
     def set_outcome(self, **kw: Any) -> None:
         self.outcome.update(kw)
@@ -360,18 +404,22 @@ class EpisodeContext:
 
     async def verify(self, role: str, tag: str, content: str, args: dict[str, str] | None = None) -> Evidence:
         """Explicitly verify a claim on behalf of ``role`` (budget-checked)."""
+        return (await self._verify(role, tag, content, args))[0]
+
+    async def _verify(self, role: str, tag: str, content: str, args: dict[str, str] | None = None) -> tuple[Evidence, dict[str, Any] | None]:
         from ..channels.evidence import Claim
 
         pol = self.mechanism.evidence or EvidencePolicy()
         v = self._verifiers.get(tag)
         if v is None:
-            return Evidence(verifier="none", kind=tag, claim=content, result=f"no verifier for <{tag}>", requested_by=role)
+            return Evidence(verifier="none", kind=tag, claim=content, result=f"no verifier for <{tag}>", requested_by=role), None
         if self._budget_left(role, pol) < v.cost:
-            return Evidence(verifier=v.name, kind=tag, claim=content, result="not checked (budget exhausted)", requested_by=role)
-        ev = await self._run_verifier(v, Claim(kind=tag, content=content, args=args or {}), role, pol)
-        return ev
+            return Evidence(verifier=v.name, kind=tag, claim=content, result="not checked (budget exhausted)", requested_by=role), None
+        return await self._run_verifier(v, Claim(kind=tag, content=content, args=args or {}), role, pol)
 
-    async def _run_verifier(self, v: Verifier, claim: Any, role: str, pol: EvidencePolicy) -> Evidence:
+    async def _run_verifier(self, v: Verifier, claim: Any, role: str, pol: EvidencePolicy) -> tuple[Evidence, dict[str, Any]]:
+        """Run a verifier. Returns (evidence as shown, harness-private truth record). With
+        verification noise the shown verdict may be flipped; the truth never reaches agents."""
         venv = VerifyEnv(view=self.task, resources=self._task_full.resources, role=role, env=self.env)
         try:
             ev = await v.verify(claim, venv)
@@ -380,13 +428,15 @@ class EpisodeContext:
         self._evidence_spent[role] = self._evidence_spent.get(role, 0.0) + v.cost
         ev.cost = v.cost
         ev.requested_by = role
+        truth = {"verified": ev.verified, "result": ev.result, "flipped": False}
         if pol.noise > 0 and ev.verified is not None:
             if rng_for("vnoise", self.episode_key, role, claim.content).random() < pol.noise:
-                ev.verified = not ev.verified
-                ev.data["flipped"] = True
+                shown = ev.model_copy(update={"verified": not ev.verified})
+                ev = v.forge(claim, shown)
+                truth["flipped"] = True
         if pol.show_to is not None:
-            ev.visible_to = list(pol.show_to)
-        return ev
+            ev.visible_to = sorted(set(pol.show_to))
+        return ev, truth
 
     async def _verify_inline(self, role: str, entry: Entry, pol: EvidencePolicy) -> None:
         vs = {v.tag: v for v in self.enabled_verifiers()}
@@ -394,24 +444,32 @@ class EpisodeContext:
         if not claims:
             return
         statuses = []
+        truths = []
         for c in claims:
             v = vs[c.kind]
             if self._budget_left(role, pol) < v.cost:
                 statuses.append("UNCHECKED")
                 continue
-            ev = await self._run_verifier(v, c, role, pol)
+            ev, truth = await self._run_verifier(v, c, role, pol)
             entry.evidence.append(ev)
+            truths.append(truth)
             statuses.append({True: "VERIFIED", False: "REFUTED", None: "CHECKED"}[ev.verified])
-        if pol.annotate_unchecked or any(s != "UNCHECKED" for s in statuses):
-            entry.content = annotate(entry.content, claims, statuses)
-        entry.data["claims"] = [{"kind": c.kind, "content": c.content, "status": s} for c, s in zip(claims, statuses)]
+        if pol.show_to is None:  # verdicts are public: mark them in the message itself
+            if pol.annotate_unchecked or any(s != "UNCHECKED" for s in statuses):
+                entry.content = annotate(entry.content, claims, statuses)
+            entry.data["claims"] = [{"kind": c.kind, "content": c.content, "status": s} for c, s in zip(claims, statuses)]
+        entry.data["_claims"] = [{"kind": c.kind, "content": c.content, "status": s} for c, s in zip(claims, statuses)]
+        entry.data["_evidence_truth"] = truths
 
     def _verification_request_tools(self, role: str) -> list[Tool]:
         tools = []
+        pol = self.mechanism.evidence or EvidencePolicy()
         for v in self.enabled_verifiers():
             async def _fn(content: str, _v: Verifier = v) -> str:
-                ev = await self.verify(role, _v.tag, content)
-                self.transcript.add(Entry(kind="evidence", role=role, content=ev.render(), evidence=[ev]))
+                ev, truth = await self._verify(role, _v.tag, content)
+                vis = None if pol.show_to is None else sorted(set(pol.show_to) | {role})
+                self.transcript.add(Entry(kind="evidence", role=role, content=ev.render(), evidence=[ev], visible_to=vis,
+                                          data={"_evidence_truth": [truth] if truth else []}))
                 return ev.render()
 
             tools.append(
@@ -435,6 +493,34 @@ class EpisodeContext:
 
     def log(self, **kw: Any) -> None:
         self.meta.update(kw)
+
+
+_STATUS_ATTR = re.compile(r'(<[A-Za-z_][\w\-]*\b[^<>]*?)\s+status\s*=\s*"[^"]*"')
+
+
+def strip_status_marks(text: str) -> str:
+    """Remove ``status="..."`` attributes from claim markup: only trusted code may mark claims."""
+    prev = None
+    while prev != text:
+        prev, text = text, _STATUS_ATTR.sub(r"\1", text)
+    return text
+
+
+def _sanitize(e: Entry, role: str) -> Entry:
+    """A copy of ``e`` as ``role`` may see it."""
+    own = e.role == role
+    return e.model_copy(update={
+        "reasoning": e.reasoning if (own or e.reasoning_visible(role)) else None,
+        "tool_trace": list(e.tool_trace) if (own or e.data.get("_share_tools")) else [],
+        "evidence": [ev for ev in e.evidence if ev.visible_to is None or role in ev.visible_to],
+        "data": {k: v for k, v in e.data.items() if not str(k).startswith("_")},
+    })
+
+
+def sample_index(role: str, sample: int, episode_seed: int) -> int:
+    """Model sample index for a role's turn: distinct per (role, sample, episode seed), so roles
+    with identical prompts (e.g. independent reporters) draw independent samples."""
+    return int(stable_hash("sample", role, sample, episode_seed, length=12), 16) % (2**31)
 
 
 def _normalize_parsed(action: Any, spec: ResponseSpec) -> None:

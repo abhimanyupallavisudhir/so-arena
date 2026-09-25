@@ -151,7 +151,33 @@ def perturb_statement(stmt: str, seed: int) -> tuple[str, str] | None:
     return (out, kind) if out != stmt else None
 
 
+FORBIDDEN = re.compile(r"\b(sorry|admit|axiom|unsafe|implemented_by|extern)\b|@\[\s*(implemented_by|extern)")
+
+
+def _ws(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def statement_head(stmt: str) -> str:
+    """The statement without its placeholder proof (``:= sorry`` / ``:= by sorry``)."""
+    return _ws(re.sub(r":=\s*(?:by\s+)?sorry\s*$", "", stmt.strip()))
+
+
+def proves_statement(code: str, stmt: str) -> tuple[bool, str]:
+    """Static checks before the kernel: the exact given statement appears (up to whitespace) and
+    no escape hatches (sorry, admit, new axioms, unsafe/extern implementations) are used."""
+    if FORBIDDEN.search(code):
+        return False, "uses a forbidden construct (sorry/admit/axiom/unsafe/extern)"
+    if statement_head(stmt) not in _ws(code):
+        return False, "does not contain the given theorem statement verbatim"
+    return True, ""
+
+
 class LeanProofGT(GTScorer):
+    """1 iff the artifact proves *the given statement* (verbatim, no sorry/axioms) and the Lean
+    kernel accepts it. Without the statement check a proof of ``True`` or of a weakened
+    theorem would pass."""
+
     name: str = "proof_valid"
 
     def score(self, task: Task, record: EpisodeRecord) -> dict[str, float | None]:
@@ -162,7 +188,9 @@ class LeanProofGT(GTScorer):
         for role, art in (record.outcome.get("artifacts") or {}).items():
             m = re.search(r"```(?:lean4?|)\n(.*?)```", str(art), re.S)
             code = m.group(1) if m else str(art)
-            ok, _ = checker.check(task.resources.get("header", "") + "\n\n" + code)
+            ok, _ = proves_statement(code, task.resources.get("statement", ""))
+            if ok:
+                ok, _ = checker.check(task.resources.get("header", "") + "\n\n" + code)
             out[role] = float(ok)
         return out
 
