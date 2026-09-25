@@ -313,8 +313,8 @@ class FirmEnvironment(Environment):
 
     name = "firm"
 
-    def __init__(self, shell_timeout: float = 30.0, prospect_model: Any = None):
-        self.shell_timeout, self.prospect_model = shell_timeout, prospect_model
+    def __init__(self, shell_timeout: float = 30.0, prospect_model: Any = None, action_log: str | None = None):
+        self.shell_timeout, self.prospect_model, self.action_log = shell_timeout, prospect_model, action_log
         self._built: dict[tuple[str, str], str] = {}
 
     def initial_state(self, item: TaskItem, store: StateStore) -> str | None:

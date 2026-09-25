@@ -48,6 +48,25 @@ if TYPE_CHECKING:
 _ACCESS_ORDER = {"none": 0, "read": 1, "write": 2}
 
 
+class _RecordingTool(Tool):
+    """Delegates to a tool and records each call (the trusted record of what a role did, whatever its policy)."""
+
+    def __init__(self, inner: Tool, sink: list[dict[str, Any]]):
+        self.inner, self.sink = inner, sink
+        self.name, self.description, self.example = inner.name, inner.description, inner.example
+
+    def __getattr__(self, attr: str) -> Any:
+        return getattr(self.inner, attr)
+
+    def instructions(self) -> str:
+        return self.inner.instructions()
+
+    async def call(self, args, item, game=None):
+        res = await self.inner.call(args, item, game)
+        self.sink.append({"name": self.inner.name, "args": args, "result": res.output, "error": res.error})
+        return res
+
+
 class Player(BaseModel):
     """A policy filling a role, with an optional assigned stance (answer label to argue for)."""
 
@@ -427,9 +446,10 @@ class Game:
         parent = self.state
         slot = WorkspaceSlot(self.states, parent, access) if access != "none" and parent else None
         # repeats draw fresh samples (distinct cache keys) rather than replaying cached completions
+        calls: list[dict[str, Any]] = []
+        tools = {n: _RecordingTool(t, calls) for n, t in self.tools_for(role, access).items()}
         actx = ActContext(role=role, sample_index=self.repeat * 10_000 + sample_index, game=self,
-                          tools=self.tools_for(role, access), seed=stable_hash(self.seed, self.item.id, key, eid),
-                          workspace=slot)
+                          tools=tools, seed=stable_hash(self.seed, self.item.id, key, eid), workspace=slot)
         new_state: str | None = None
         try:
             with using_workspace(slot):
@@ -438,6 +458,15 @@ class Game:
             if slot is not None:
                 slot.close(keep=False)
             raise
+        if calls and not action.tool_calls:  # policies that call tools directly (scripted agents)
+            action.tool_calls = [{k: v for k, v in c.items() if k != "error"} for c in calls]
+        log_path = getattr(self.ctx.environment, "action_log", None)
+        if log_path and calls and slot is not None and access == "write":
+            # an agent-visible, agent-writable mirror of the trusted record: what an overseer reading logs sees
+            ws = slot.get()
+            for c in calls:
+                ws.append_jsonl(log_path, {"role": role, "phase": request.phase, "tool": c["name"],
+                                           "args": str(c["args"])[:2000], "result": str(c["result"])[:2000]})
         if slot is not None:
             kept = slot.close(keep=access == "write")
             new_state = kept if kept != parent else None

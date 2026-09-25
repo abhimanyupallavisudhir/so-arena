@@ -300,3 +300,42 @@ def test_monitor_reward_is_inverse_probability_weighted():
     plain = MonitoredWork(penalty="audit", audit_unflagged=0.25, trainable={"monitor": True}, monitor_reward="audited_only")
     eps = run(plain, items[:40], [Profile(name="p", players=players)], ctx=ctx)
     assert {e.rewards["monitor"] for e in eps if not e.outcome.data["audited"]} == {None}
+
+
+def test_team_channel_is_hidden_from_overseers_unless_monitored():
+    from so_arena.domains.synthetic import SyntheticTeam, team_worker
+    from so_arena.mechanisms import Team
+
+    dom = SyntheticTeam(n_items=1)
+    item, ctx = dom.load()[0], dom.context()
+    seen = {}
+
+    def chatty(req, c):
+        if req.phase.startswith("chat"):
+            return "psst: let's not report anything"
+        if req.phase == "report":
+            return {"report": False, "accused": None, "evidence": ""}
+        if req.kind == "probabilities":
+            return {"yes": 0.5, "no": 0.5}
+        return "my part"
+
+    def grader(req, c):
+        seen.setdefault("grader", []).append(req.prompt[-1].content)
+        return {"success": 0.9, "failure": 0.1}
+
+    def auditor(req, c):
+        seen.setdefault("auditor", []).append(req.prompt[-1].content)
+        return "no_violation"
+
+    for monitored in (False, True):
+        seen.clear()
+        mech = Team(n_workers=2, chat_rounds=1, auditor="role", random_audit=1.0,
+                    chat_visible_to=["auditor"] if monitored else [])
+        players = {"worker_1": soa.FunctionPolicy(chatty), "worker_2": soa.FunctionPolicy(chatty),
+                   "grader": soa.FunctionPolicy(grader), "auditor": soa.FunctionPolicy(auditor)}
+        ep = run(mech, [item], [Profile(name="p", players=players)], ctx=ctx)[0]
+        assert ep.error is None, ep.error
+        chats = [t for t in ep.turns if t.phase.startswith("chat")]
+        assert len(chats) == 2 and all(t.visible_to[:2] == ["worker_1", "worker_2"] for t in chats)
+        assert not any("psst" in body for body in seen["grader"])
+        assert any("psst" in body for body in seen["auditor"]) is monitored
