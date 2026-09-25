@@ -46,7 +46,9 @@ class EngineAdvocate(Agent):
     def _pv(self, board: Any, n: int, depth: int) -> list:
         if n <= 0 or board.is_game_over():
             return []
-        info = self._eng().analyse(board, depth)[0]
+        # fresh: each search starts from an empty hash table, so results do not depend on the
+        # order in which concurrent episodes used the shared engine (reproducibility)
+        info = self._eng().analyse(board, depth, fresh=True)[0]
         return list(info.get("pv", []))[:n]
 
     def _line(self, fen: str, first: str, depth: int, bend_ply: int | None, maximize_for: Any) -> list[str]:
@@ -65,7 +67,7 @@ class EngineAdvocate(Agent):
         while len(line) < self.line_len and not board.is_game_over():
             ply = len(line) + 1
             if bend_ply is not None and ply == bend_ply:
-                infos = self._eng().analyse(board, max(2, depth // 2), multipv=self.top_k)
+                infos = self._eng().analyse(board, max(2, depth // 2), multipv=self.top_k, fresh=True)
                 cands = [(i["score"].pov(maximize_for).score(mate_score=MATE), i["pv"][0]) for i in infos if i.get("pv")]
                 if not cands:
                     break

@@ -108,7 +108,7 @@ class Engine:
         return info["score"].pov(pov if pov is not None else board.turn).score(mate_score=MATE)
 
     def move_score(self, board: Any, move: Any, depth: int) -> int:
-        info = self.analyse(board, depth, root_moves=[move])[0]
+        info = self.analyse(board, depth, root_moves=[move], fresh=True)[0]
         return info["score"].pov(board.turn).score(mate_score=MATE)
 
     async def ascore(self, board: Any, depth: int, pov: Any = None, fresh: bool = False) -> int:
@@ -253,7 +253,8 @@ def engine_tools(fen: str, max_depth: int, engine_path: str | None) -> list[Tool
         if err:
             return err
         d = min(int(depth), max_depth)
-        infos = await asyncio.to_thread(Engine.get(engine_path, "expert").analyse, board, d, max(1, min(int(multipv), 5)))
+        infos = await asyncio.to_thread(Engine.get(engine_path, "expert").analyse, board, d, max(1, min(int(multipv), 5)),
+                                        None, True)  # fresh search: deterministic tool output
         out = []
         for i in infos:
             sc = i["score"].pov(board.turn).score(mate_score=MATE)

@@ -22,6 +22,7 @@ from .analysis.ic import asd
 from .analysis.report import html_report
 from .channels.evidence import EvidencePolicy
 from .core.strategy import Assignment, Profile, Stance, Strategy
+from .core.util import stable_hash
 from .experiment.profiles import Cartesian, MapProfiles, Seeds, Stances
 from .experiment.results import Results
 from .experiment.runner import Experiment
@@ -231,7 +232,7 @@ def demo_optimize(out: Path) -> list[Path]:
             base = Strategy(name="seed", stance=stance, params={"claims": 2, "lie_rate": 0.0, "markup": True, "lie_first": False})
             opp = {k: v.with_(stance=Stance.INCORRECT if stance == Stance.CORRECT else Stance.CORRECT) for k, v in others.items()}
             ev = Evaluator(dom, mech, agents, role, tasks=tasks[:24], others=opp, gt_keys=("honesty", "correct"))
-            po = PromptOptimizer(ev, ParamProposer(space, seed=hash(label) % 1000), seeds=[base], iterations=8, per_iter=5,
+            po = PromptOptimizer(ev, ParamProposer(space, seed=int(stable_hash(label, length=6), 16) % 1000), seeds=[base], iterations=8, per_iter=5,
                                  minibatch=12, constraint=constraint, holdout=tasks[24:], final_k=1, label=label)
             tr = asyncio.run(po.run())
             t = tr.trajectory(gt="honesty")

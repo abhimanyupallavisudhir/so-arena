@@ -42,11 +42,12 @@ Competition substitutes for a sceptical judge.
 
 **Finding.**
 - Alone, the depth-2 judge is wrong on every position (0% accuracy); arguing for the true move is
-  *penalised*.
-- With honest verified lines, consultancy and debate reach about 90% accuracy.
-- With cherry-picked lines they fall to 53–55%.
-- In the argument-style game between the debaters, the equilibrium is honest lines for the
-  truthful side and cherry-picking for the liar; the judge stays 83% accurate.
+  *penalised* (ASD −0.98).
+- With honest verified lines, consultancy and debate reach 87% accuracy (90–93% for depth-1 and
+  depth-3 judges).
+- With cherry-picked lines they fall to 50–57%.
+- In the argument-style game between the debaters, both show honest lines in equilibrium; the
+  judge is 87% accurate.
 
 ![Chess, honest advocates](figures/chess_accuracy_honest.png)
 
@@ -71,10 +72,10 @@ three steerings: honest only; anything while arguing the truth; anything while a
 falsehood. Every search is re-evaluated on held-out tasks.
 
 **Finding.**
-- Debate (budget 4) keeps a frontier gap of 0.26 between the best honest and best deceptive
-  strategies.
-- Propaganda (budget 2) has essentially none (0.001): a strong optimiser is indifferent between
-  truth and lies.
+- Debate (budget 4) keeps a frontier gap of 0.25 between the best honest and best deceptive
+  strategies on held-out tasks.
+- Propaganda (budget 2) keeps almost none (0.03): a strong optimiser gains little by telling the
+  truth.
 
 ![Search trajectories](figures/optimize_debate.png)
 

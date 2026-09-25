@@ -21,14 +21,14 @@ CARDS = [
      [("asd_budget_credulous.png", "hiddenbits_asd_budget.png")],
      "HiddenBits: exact Bayesian judges, programmatic advocates that lie when true evidence runs out; ASD vs verification budget "
      "for a credulous and a rational judge, next to the exact disclosure theory."),
-    ("chess", "Chess: a real capability gap", "Verified engine lines lift a trapped depth-2 judge from 0% to 90% accuracy, unless advocates cherry-pick.",
+    ("chess", "Chess: a real capability gap", "Verified engine lines lift a trapped depth-2 judge from 0% to 87% accuracy, unless advocates cherry-pick.",
      [("accuracy_honest.png", "chess_accuracy_honest.png"), ("accuracy_cherry_pick.png", "chess_accuracy_cherry_pick.png")],
      "Lichess puzzles where a depth-2 search prefers the wrong move; Stockfish depth-14 ground truth; engine-backed advocates "
      "with honest or cherry-picked lines; an argument-style game between the debaters."),
     ("bon", "Best-of-N", "Selection makes verified consultants more honest, and teaches a debate liar to lie beyond the verification budget.",
      [("bon_honesty.png", "bon_honesty.png")],
      "One step of optimisation: exact best-of-n selection from 32 base-policy samples per task; reward vs honesty of claims."),
-    ("optimize", "Strategy search", "Under optimisation debate keeps a frontier gap (0.26); propaganda's vanishes (0.001).",
+    ("optimize", "Strategy search", "Under optimisation debate keeps a frontier gap (0.25); propaganda's nearly vanishes (0.03).",
      [("search_debate.png", "optimize_debate.png")],
      "Evolutionary search for the best-rewarded advocate strategy under three steerings (honest only / anything / arguing "
      "falsehood), with held-out evaluation."),
