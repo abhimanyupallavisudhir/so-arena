@@ -74,7 +74,7 @@ simulated models that prices every call).
 |---|---|
 | **Mechanisms** | naive judge, propaganda, consultancy, debate (simultaneous/sequential, judge questions, zero-sum), reviewed work (single judge, proposal→critique→rebuttal), monitored work (action / CoT / tool-call / probe monitors), teams with whistleblowing, market making, prediction markets (LMSR), peer prediction (BTS, multi-task), confessions. Write your own as plain async Python. |
 | **Reward rules** | judge-score transforms, zero-sum, team reward, whistleblower bounties, monitor penalties, random audits (penalty or inverse-probability-weighted), resolution scores, market scoring rules - composable and re-applicable to logged episodes |
-| **Samplers** | instructed arms (ASD), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary) with honest/deceptive/… directives, PSRO, RL environments |
+| **Samplers** | instructed arms (ASD), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary / autoresearch-style ratchet) with honest/deceptive/… directives, PSRO, RL environments |
 | **Metrics** | ASD (any proper score, paired bootstrap), graded ASD, concordance, label efficiency, incentive gap recovered, expected scores, judge accuracy, AUROC/TPR |
 | **Game theory** | empirical games, pure/strict/mixed Nash, zero-sum values, (coarse) correlated equilibria with ground-truth welfare bounds, replicator dynamics, basins, policy-gradient learning dynamics, an analytic whistleblower model |
 | **Domains** | synthetic persuasion & team worlds, chess, text-to-SQL, code with hidden tests, forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY |
