@@ -221,5 +221,5 @@ def test_peer_prediction_rules():
     assert oa.rewards["reporter_1"] == pytest.approx(0.5) and oa.rewards["reporter_3"] == pytest.approx(0.0)
     bts = run(PeerPrediction(n_reporters=3, rule="bts"), [item], [Profile(name="p", players=players)])[0]
     assert set(bts.rewards) == set(players)
-    # surprisingly popular: B is more frequent (1/3) than predicted (~0.23), A less (2/3 vs ~0.77)
-    assert bts.outcome.decision == "B"
+    # surprisingly popular (raw frequencies): A is more frequent (2/3) than predicted (0.633), B less (1/3 vs 0.367)
+    assert bts.outcome.decision == "A"
