@@ -108,16 +108,27 @@ The protocol is ordinary async Python calling `g.act(role, kind=..., prompt=...,
 `Game` runtime:
 
 * builds each role's **view** (private info filtered by affordance, turns by visibility, others' CoT
-  only if permitted) and a default prompt;
+  only if permitted, others' positions once they have spoken - or earlier if the mechanism publishes
+  them with `g.publish_positions`) and a default prompt;
 * sends a **typed request** (`text`, `choice`, `probabilities`, `score`, `json`) to the role's policy,
   so mechanisms are independent of how behaviour is produced;
 * **verifies claims** (`<claim kind="...">`) under the mechanism's `VerificationPolicy` and shows other
-  roles annotated text (`<verified>`, `<failed>`, `<unverified>`);
+  roles annotated text (`<verified>`, `<failed>`, `<unverified>`). The markers are reserved: the same tags
+  typed by an agent (or written into files it changed) are escaped everywhere they are shown, so only a
+  verifier can produce them. Budgets (`budget_per_role`) count a role's verifications along the current
+  path, so best-of-N siblings never share a budget;
 * supports **simultaneous moves** (`g.simultaneous`) so that no mover sees the others' current actions;
 * can **branch**: with a `BranchController`, every decision becomes a node with a pool of $K$ sampled
   candidates; replaying the protocol under different plans (with memoized prefixes) expands any
   imperative protocol into a sampled game tree. Node keys depend only on role, phase, a deterministic
-  slot counter and earlier choices, so simultaneous movers share pools (information sets).
+  slot counter and earlier choices, so simultaneous movers share pools (information sets). Each pool's
+  cost is charged to exactly one leaf episode, so leaves add up to the tree's cost.
+
+Episode ids hash the mechanism's full configuration (including its verification policy and the structure
+of its reward rule), the item's censored content, each player's policy description, stance and label,
+and the seed: resuming a run store reuses an episode only if all of these match. Per-role overrides
+(`affordances=`, `tools=`, ...) only add to a role's spec, and keys must name a role, `"agents"` or
+`"all"`.
 
 Built-in mechanisms: `DirectJudge` (naive judge), `Propaganda`, `Consultancy`, `Debate`
 (simultaneous/sequential, judge questions, zero-sum option), `ReviewedWork` (worker -> critique ->
