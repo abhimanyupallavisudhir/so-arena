@@ -285,8 +285,6 @@ class HiddenTestsCode(Domain):
 
     def load(self) -> list[Task]:
         rows = self._rows()
-        if self.limit is not None and not self.shuffle:
-            rows = rows[: self.limit * 2]  # mutant search is slow: only prepare what we need (+slack)
         cache = self._mutant_cache()
         tasks = []
         for r in rows:

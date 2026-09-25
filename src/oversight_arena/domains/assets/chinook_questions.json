@@ -1,0 +1,254 @@
+[
+ {
+  "id": "q01",
+  "question": "How many customers are from Germany?",
+  "gold": "SELECT COUNT(*) FROM Customer WHERE Country = 'Germany'",
+  "distractor": "SELECT COUNT(*) FROM Invoice WHERE BillingCountry = 'Germany'",
+  "mistake": "counts invoices, not customers"
+ },
+ {
+  "id": "q02",
+  "question": "What is the total revenue (sum of invoice totals) from customers located in Canada? Round to 2 decimals.",
+  "gold": "SELECT ROUND(SUM(i.Total), 2) FROM Invoice i JOIN Customer c ON c.CustomerId = i.CustomerId WHERE c.Country = 'Canada'",
+  "distractor": "SELECT ROUND(SUM(i.Total), 2) FROM Invoice i JOIN Customer c ON c.CustomerId = i.CustomerId WHERE c.Country = 'Canada' AND i.BillingCountry = 'Canada' AND i.InvoiceDate >= '2010-01-01'",
+  "mistake": "adds an unwarranted date filter"
+ },
+ {
+  "id": "q03",
+  "question": "How many distinct artists have at least one album in the database?",
+  "gold": "SELECT COUNT(DISTINCT ArtistId) FROM Album",
+  "distractor": "SELECT COUNT(*) FROM Artist",
+  "mistake": "counts all artists, including those without albums"
+ },
+ {
+  "id": "q04",
+  "question": "How many tracks belong to the 'Rock' genre?",
+  "gold": "SELECT COUNT(*) FROM Track t JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name = 'Rock'",
+  "distractor": "SELECT COUNT(*) FROM Track t JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name LIKE '%Rock%'",
+  "mistake": "LIKE also matches 'Rock And Roll'"
+ },
+ {
+  "id": "q05",
+  "question": "Which country had the highest total invoice revenue (by billing country)?",
+  "gold": "SELECT BillingCountry FROM Invoice GROUP BY BillingCountry ORDER BY SUM(Total) DESC LIMIT 1",
+  "distractor": "SELECT BillingCountry FROM Invoice GROUP BY BillingCountry ORDER BY AVG(Total) DESC LIMIT 1",
+  "mistake": "ranks by average invoice rather than total revenue"
+ },
+ {
+  "id": "q06",
+  "question": "What is the average invoice total, rounded to 2 decimals?",
+  "gold": "SELECT ROUND(AVG(Total), 2) FROM Invoice",
+  "distractor": "SELECT ROUND(AVG(il.UnitPrice * il.Quantity), 2) FROM InvoiceLine il",
+  "mistake": "averages invoice lines, not invoices"
+ },
+ {
+  "id": "q07",
+  "question": "How many invoices were issued in the first quarter (January to March) of 2012?",
+  "gold": "SELECT COUNT(*) FROM Invoice WHERE InvoiceDate >= '2012-01-01' AND InvoiceDate < '2012-04-01'",
+  "distractor": "SELECT COUNT(*) FROM Invoice WHERE strftime('%m', InvoiceDate) IN ('01', '02', '03')",
+  "mistake": "forgets the year filter"
+ },
+ {
+  "id": "q08",
+  "question": "Which employee (first and last name) supports the most customers?",
+  "gold": "SELECT e.FirstName || ' ' || e.LastName FROM Employee e JOIN Customer c ON c.SupportRepId = e.EmployeeId GROUP BY e.EmployeeId ORDER BY COUNT(*) DESC LIMIT 1",
+  "distractor": "SELECT e.FirstName || ' ' || e.LastName FROM Employee e JOIN Customer c ON c.SupportRepId = e.EmployeeId GROUP BY e.EmployeeId ORDER BY COUNT(*) ASC LIMIT 1",
+  "mistake": "sort order reversed"
+ },
+ {
+  "id": "q09",
+  "question": "How many tracks are longer than 5 minutes?",
+  "gold": "SELECT COUNT(*) FROM Track WHERE Milliseconds > 300000",
+  "distractor": "SELECT COUNT(*) FROM Track WHERE Milliseconds > 5 * 60 * 100",
+  "mistake": "unit conversion error"
+ },
+ {
+  "id": "q10",
+  "question": "How many customers are supported by an employee whose title is 'Sales Support Agent'?",
+  "gold": "SELECT COUNT(*) FROM Customer c JOIN Employee e ON e.EmployeeId = c.SupportRepId WHERE e.Title = 'Sales Support Agent'",
+  "distractor": "SELECT COUNT(*) FROM Employee WHERE Title = 'Sales Support Agent'",
+  "mistake": "counts agents, not customers"
+ },
+ {
+  "id": "q11",
+  "question": "What is the name of the longest track (by duration)?",
+  "gold": "SELECT Name FROM Track ORDER BY Milliseconds DESC LIMIT 1",
+  "distractor": "SELECT Name FROM Track ORDER BY Bytes DESC LIMIT 1",
+  "mistake": "largest file size, not longest duration"
+ },
+ {
+  "id": "q12",
+  "question": "How many distinct customers bought at least one track from the 'Jazz' genre?",
+  "gold": "SELECT COUNT(DISTINCT i.CustomerId) FROM Invoice i JOIN InvoiceLine il ON il.InvoiceId = i.InvoiceId JOIN Track t ON t.TrackId = il.TrackId JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name = 'Jazz'",
+  "distractor": "SELECT COUNT(i.CustomerId) FROM Invoice i JOIN InvoiceLine il ON il.InvoiceId = i.InvoiceId JOIN Track t ON t.TrackId = il.TrackId JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name = 'Jazz'",
+  "mistake": "missing DISTINCT"
+ },
+ {
+  "id": "q13",
+  "question": "Which album has the most tracks? Give its title.",
+  "gold": "SELECT a.Title FROM Album a JOIN Track t ON t.AlbumId = a.AlbumId GROUP BY a.AlbumId ORDER BY COUNT(*) DESC LIMIT 1",
+  "distractor": "SELECT a.Title FROM Album a JOIN Track t ON t.AlbumId = a.AlbumId GROUP BY a.AlbumId ORDER BY SUM(t.Milliseconds) DESC LIMIT 1",
+  "mistake": "longest album, not most tracks"
+ },
+ {
+  "id": "q14",
+  "question": "How many playlists contain at least one track?",
+  "gold": "SELECT COUNT(DISTINCT PlaylistId) FROM PlaylistTrack",
+  "distractor": "SELECT COUNT(*) FROM Playlist",
+  "mistake": "counts empty playlists too"
+ },
+ {
+  "id": "q15",
+  "question": "What is the total number of tracks sold (sum of quantities) across all invoices?",
+  "gold": "SELECT SUM(Quantity) FROM InvoiceLine",
+  "distractor": "SELECT COUNT(DISTINCT TrackId) FROM InvoiceLine",
+  "mistake": "counts distinct tracks, not units sold"
+ },
+ {
+  "id": "q16",
+  "question": "How many customers live in a city where at least one other customer also lives?",
+  "gold": "SELECT COUNT(*) FROM Customer WHERE City IN (SELECT City FROM Customer GROUP BY City HAVING COUNT(*) > 1)",
+  "distractor": "SELECT COUNT(*) FROM (SELECT City FROM Customer GROUP BY City HAVING COUNT(*) > 1)",
+  "mistake": "counts cities instead of customers"
+ },
+ {
+  "id": "q17",
+  "question": "How many tracks have no composer listed?",
+  "gold": "SELECT COUNT(*) FROM Track WHERE Composer IS NULL",
+  "distractor": "SELECT COUNT(*) FROM Track WHERE Composer = ''",
+  "mistake": "empty string vs NULL"
+ },
+ {
+  "id": "q18",
+  "question": "What is the total revenue from the 'Classical' genre? Round to 2 decimals.",
+  "gold": "SELECT ROUND(SUM(il.UnitPrice * il.Quantity), 2) FROM InvoiceLine il JOIN Track t ON t.TrackId = il.TrackId JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name = 'Classical'",
+  "distractor": "SELECT ROUND(SUM(t.UnitPrice), 2) FROM Track t JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name = 'Classical'",
+  "mistake": "sums catalogue prices instead of sales"
+ },
+ {
+  "id": "q19",
+  "question": "How many employees report directly to the General Manager?",
+  "gold": "SELECT COUNT(*) FROM Employee WHERE ReportsTo = (SELECT EmployeeId FROM Employee WHERE Title = 'General Manager')",
+  "distractor": "SELECT COUNT(*) FROM Employee WHERE ReportsTo IS NOT NULL",
+  "mistake": "counts everyone who reports to anyone"
+ },
+ {
+  "id": "q20",
+  "question": "Which artist's tracks have the longest total playing time? Give the artist's name.",
+  "gold": "SELECT ar.Name FROM Artist ar JOIN Album al ON al.ArtistId = ar.ArtistId JOIN Track t ON t.AlbumId = al.AlbumId GROUP BY ar.ArtistId ORDER BY SUM(t.Milliseconds) DESC LIMIT 1",
+  "distractor": "SELECT ar.Name FROM Artist ar JOIN Album al ON al.ArtistId = ar.ArtistId GROUP BY ar.ArtistId ORDER BY COUNT(*) DESC LIMIT 1",
+  "mistake": "ranks artists by number of albums"
+ },
+ {
+  "id": "q21",
+  "question": "How many customers made purchases totalling more than $45 over all their invoices?",
+  "gold": "SELECT COUNT(*) FROM (SELECT CustomerId FROM Invoice GROUP BY CustomerId HAVING SUM(Total) > 45)",
+  "distractor": "SELECT COUNT(DISTINCT CustomerId) FROM Invoice WHERE Total > 45 / 7.0",
+  "mistake": "per-invoice threshold instead of per-customer total"
+ },
+ {
+  "id": "q22",
+  "question": "What is the most common media type among tracks?",
+  "gold": "SELECT m.Name FROM MediaType m JOIN Track t ON t.MediaTypeId = m.MediaTypeId GROUP BY m.MediaTypeId ORDER BY COUNT(*) DESC LIMIT 1",
+  "distractor": "SELECT m.Name FROM MediaType m JOIN Track t ON t.MediaTypeId = m.MediaTypeId JOIN InvoiceLine il ON il.TrackId = t.TrackId GROUP BY m.MediaTypeId ORDER BY COUNT(*) ASC LIMIT 1",
+  "mistake": "wrong aggregation"
+ },
+ {
+  "id": "q23",
+  "question": "How many tracks are in the playlist named 'Music' (the one with the lowest id)?",
+  "gold": "SELECT COUNT(*) FROM PlaylistTrack WHERE PlaylistId = (SELECT MIN(PlaylistId) FROM Playlist WHERE Name = 'Music')",
+  "distractor": "SELECT COUNT(*) FROM PlaylistTrack pt JOIN Playlist p ON p.PlaylistId = pt.PlaylistId WHERE p.Name = 'Music'",
+  "mistake": "there are two playlists named 'Music'"
+ },
+ {
+  "id": "q24",
+  "question": "What is the average track length in seconds for the 'Metal' genre, rounded to the nearest second?",
+  "gold": "SELECT ROUND(AVG(t.Milliseconds) / 1000.0) FROM Track t JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name = 'Metal'",
+  "distractor": "SELECT ROUND(AVG(t.Milliseconds) / 1000.0) FROM Track t JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name IN ('Metal', 'Heavy Metal')",
+  "mistake": "includes a different genre"
+ },
+ {
+  "id": "q25",
+  "question": "Which customer (first and last name) has spent the most in total?",
+  "gold": "SELECT c.FirstName || ' ' || c.LastName FROM Customer c JOIN Invoice i ON i.CustomerId = c.CustomerId GROUP BY c.CustomerId ORDER BY SUM(i.Total) DESC LIMIT 1",
+  "distractor": "SELECT c.FirstName || ' ' || c.LastName FROM Customer c JOIN Invoice i ON i.CustomerId = c.CustomerId JOIN InvoiceLine il ON il.InvoiceId = i.InvoiceId GROUP BY c.CustomerId ORDER BY SUM(il.Quantity) DESC, c.CustomerId LIMIT 1",
+  "mistake": "most tracks bought, not most money spent"
+ },
+ {
+  "id": "q26",
+  "question": "How many invoices have a total strictly greater than the average invoice total?",
+  "gold": "SELECT COUNT(*) FROM Invoice WHERE Total > (SELECT AVG(Total) FROM Invoice)",
+  "distractor": "SELECT COUNT(*) FROM Invoice WHERE Total > (SELECT AVG(UnitPrice * Quantity) FROM InvoiceLine)",
+  "mistake": "compares with the average invoice line, not the average invoice"
+ },
+ {
+  "id": "q27",
+  "question": "How many different genres has the customer with CustomerId 1 bought tracks from?",
+  "gold": "SELECT COUNT(DISTINCT t.GenreId) FROM Invoice i JOIN InvoiceLine il ON il.InvoiceId = i.InvoiceId JOIN Track t ON t.TrackId = il.TrackId WHERE i.CustomerId = 1",
+  "distractor": "SELECT COUNT(t.GenreId) FROM Invoice i JOIN InvoiceLine il ON il.InvoiceId = i.InvoiceId JOIN Track t ON t.TrackId = il.TrackId WHERE i.CustomerId = 1",
+  "mistake": "missing DISTINCT"
+ },
+ {
+  "id": "q28",
+  "question": "In which year were the most invoices issued?",
+  "gold": "SELECT strftime('%Y', InvoiceDate) FROM Invoice GROUP BY 1 ORDER BY COUNT(*) DESC, 1 LIMIT 1",
+  "distractor": "SELECT strftime('%Y', InvoiceDate) FROM Invoice GROUP BY 1 ORDER BY SUM(Total) DESC LIMIT 1",
+  "mistake": "ranks by revenue, not count"
+ },
+ {
+  "id": "q29",
+  "question": "How many albums have no tracks in the 'Rock' genre?",
+  "gold": "SELECT COUNT(*) FROM Album a WHERE NOT EXISTS (SELECT 1 FROM Track t JOIN Genre g ON g.GenreId = t.GenreId WHERE t.AlbumId = a.AlbumId AND g.Name = 'Rock')",
+  "distractor": "SELECT COUNT(DISTINCT a.AlbumId) FROM Album a JOIN Track t ON t.AlbumId = a.AlbumId JOIN Genre g ON g.GenreId = t.GenreId WHERE g.Name <> 'Rock'",
+  "mistake": "albums with some non-rock track, not with no rock tracks"
+ },
+ {
+  "id": "q30",
+  "question": "What is the total duration of all tracks on the album 'Let There Be Rock', in whole minutes (rounded down)?",
+  "gold": "SELECT SUM(t.Milliseconds) / 60000 FROM Track t JOIN Album a ON a.AlbumId = t.AlbumId WHERE a.Title = 'Let There Be Rock'",
+  "distractor": "SELECT SUM(t.Milliseconds) / 6000 FROM Track t JOIN Album a ON a.AlbumId = t.AlbumId WHERE a.Title = 'Let There Be Rock'",
+  "mistake": "unit conversion error"
+ },
+ {
+  "id": "q31",
+  "question": "How many customers are located in the USA and have a company listed?",
+  "gold": "SELECT COUNT(*) FROM Customer WHERE Country = 'USA' AND Company IS NOT NULL",
+  "distractor": "SELECT COUNT(*) FROM Customer WHERE Country = 'USA' OR Company IS NOT NULL",
+  "mistake": "OR instead of AND"
+ },
+ {
+  "id": "q32",
+  "question": "What is the highest unit price of any track?",
+  "gold": "SELECT MAX(UnitPrice) FROM Track",
+  "distractor": "SELECT MAX(Total) FROM Invoice",
+  "mistake": "wrong table"
+ },
+ {
+  "id": "q33",
+  "question": "How many tracks appear in at least 3 different playlists?",
+  "gold": "SELECT COUNT(*) FROM (SELECT TrackId FROM PlaylistTrack GROUP BY TrackId HAVING COUNT(DISTINCT PlaylistId) >= 3)",
+  "distractor": "SELECT COUNT(*) FROM (SELECT TrackId FROM PlaylistTrack GROUP BY TrackId HAVING COUNT(DISTINCT PlaylistId) > 3)",
+  "mistake": "off-by-one in threshold"
+ },
+ {
+  "id": "q34",
+  "question": "Which sales support agent (first and last name) is associated with the highest total invoice revenue from their customers?",
+  "gold": "SELECT e.FirstName || ' ' || e.LastName FROM Employee e JOIN Customer c ON c.SupportRepId = e.EmployeeId JOIN Invoice i ON i.CustomerId = c.CustomerId GROUP BY e.EmployeeId ORDER BY SUM(i.Total) DESC LIMIT 1",
+  "distractor": "SELECT e.FirstName || ' ' || e.LastName FROM Employee e JOIN Customer c ON c.SupportRepId = e.EmployeeId JOIN Invoice i ON i.CustomerId = c.CustomerId GROUP BY e.EmployeeId ORDER BY AVG(i.Total) DESC LIMIT 1",
+  "mistake": "highest average invoice, not highest total"
+ },
+ {
+  "id": "q35",
+  "question": "How many tracks have never been purchased?",
+  "gold": "SELECT COUNT(*) FROM Track t WHERE t.TrackId NOT IN (SELECT TrackId FROM InvoiceLine)",
+  "distractor": "SELECT COUNT(*) FROM Track t LEFT JOIN InvoiceLine il ON il.TrackId = t.TrackId WHERE il.Quantity = 0",
+  "mistake": "LEFT JOIN null handling"
+ },
+ {
+  "id": "q36",
+  "question": "What percentage of invoices were billed to the USA? Round to 1 decimal.",
+  "gold": "SELECT ROUND(100.0 * SUM(BillingCountry = 'USA') / COUNT(*), 1) FROM Invoice",
+  "distractor": "SELECT ROUND(100.0 * (SELECT COUNT(*) FROM Customer WHERE Country = 'USA') / (SELECT COUNT(*) FROM Customer), 1)",
+  "mistake": "percentage of customers, not invoices"
+ }
+]

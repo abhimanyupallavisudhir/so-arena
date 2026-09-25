@@ -44,6 +44,10 @@ class SwarmEnvironment(Environment):
     @abstractmethod
     def turn_prompt(self, role: str, t: int) -> str: ...
 
+    def turn_spec(self, role: str, t: int) -> Any:
+        """Optional ResponseSpec for work turns (e.g. JSON actions); None = free text + tools."""
+        return None
+
     @abstractmethod
     def apparent_score(self) -> float:
         """What the (gameable) scorer reports — visible to the mechanism."""
@@ -121,7 +125,8 @@ class Swarm(Mechanism):
         env.workers = self.workers
         for t in range(self.rounds):
             for w in self.workers:
-                e = await ctx.ask(w, env.turn_prompt(w, t), turn=t, step="work", visible_to=[w])
+                e = await ctx.ask(w, env.turn_prompt(w, t), turn=t, step="work", visible_to=[w],
+                                  response=env.turn_spec(w, t))
                 if e.data.get("actions") is not None or e.data.get("action") is not None:
                     env.apply(w, e.data)
         reports: list[dict[str, Any]] = []
