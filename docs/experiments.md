@@ -7,10 +7,13 @@ marked *offline* run without API keys. For LLM runs, set provider keys (e.g. `OP
 ```bash
 so-arena estimate configs/asd_gsm8k_llm.yaml      # simulated dry run: tokens and $ by role/model
 so-arena run configs/asd_gsm8k_llm.yaml           # cached, resumable; writes runs/<name>/report.html
+python scripts/pilots.py --estimate               # small pilots of every experiment family, dry run
 ```
 
 In Python, `so_arena.configure(cache_dir=".cache/so_arena")` caches every model call, and
-`so_arena.configure(simulate=True)` turns any script into a dry run.
+`so_arena.configure(simulate=True)` turns any script into a dry run. Specs are validated before anything
+runs (a misspelled key is an error naming the closest valid one), and a run directory holds one spec:
+re-running a changed spec into it is refused unless `--force`.
 
 ## 1. Define a mechanism
 
@@ -322,9 +325,14 @@ verify("releases/2026-09")
 resolve("releases/2026-09", fc.resolve, reward_rule=MarketScoringReward())   # scores, deferred rewards, report
 ```
 
-CLI: `so-arena release runs/x releases/x`, `so-arena verify releases/x`,
+CLI: `so-arena release runs/x releases/x`, `so-arena verify releases/x --digest <published digest>`,
 `so-arena resolve releases/x --domain forecasting --market`. Releases also suit results that will only
 ever be judged in public: the bundle shows what each mechanism rewarded, without claiming who was right.
+A release never publishes the items' private information (`--keep-private KEY` opts a key in) or anything
+that names an arm defined relative to the truth - profile names, tags and behaviour labels become keyed
+pseudonyms (`--public-labels` keeps them when they are not truth-relative); items whose licence forbids
+publication are refused (`--exclude-restricted` leaves them out instead). `verify` prints the digest and,
+given the published one, checks the bundle against it.
 Ground-truth-free mechanisms: `PeerPrediction(rule="bts" | "multitask")`, `MarketMaking`.
 
 ## 11. Monitoring, chain of thought, and ControlArena
