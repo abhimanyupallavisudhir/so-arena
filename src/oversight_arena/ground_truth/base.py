@@ -33,19 +33,39 @@ class GTScorer(BaseModel, ABC):
     def describe(self) -> dict[str, Any]:
         return {"type": type(self).__name__, **self.model_dump()}
 
+    def fingerprint(self) -> str:
+        """Identity of this scorer's configuration *and code*: stored with its values, so a
+        resumed experiment recomputes ground truth whose scorer has changed."""
+        from ..core.util import code_hash, stable_hash
+
+        fns = {k: code_hash(v) for k, v in vars(self).items() if callable(v)}
+        return stable_hash(self.describe(), fns, code_hash(type(self).score), length=12)
+
+
+def stale_scorers(record: EpisodeRecord, scorers: list[GTScorer]) -> list[GTScorer]:
+    """Scorers whose values are missing from ``record``, failed, or came from a different
+    configuration or code (see :meth:`GTScorer.fingerprint`)."""
+    done = record.meta.get("gt_fingerprints") or {}
+    failed = record.meta.get("gt_errors") or {}
+    return [s for s in scorers if s.name not in record.gt or s.name in failed or done.get(s.name) != s.fingerprint()]
+
 
 async def compute_gt(task: Task, record: EpisodeRecord, scorers: list[GTScorer]) -> None:
-    """Fill ``record.gt`` / ``record.gt_status`` in place (existing scorer entries are kept)."""
+    """Fill ``record.gt`` / ``record.gt_status`` in place (entries of other scorers are kept)."""
     if not task.resolved:
         record.gt_status = "pending"
         return
-    any_val = any(v is not None for vals in record.gt.values() for v in vals.values())
+    fps = record.meta.setdefault("gt_fingerprints", {})
     for s in scorers:
         try:
             vals = await s.ascore(task, record)
-        except Exception as e:  # GT failures should not kill the run
+        except Exception as e:  # GT failures should not kill the run; a stale value must not survive
             record.meta.setdefault("gt_errors", {})[s.name] = f"{type(e).__name__}: {e}"
+            record.gt.pop(s.name, None)
+            fps.pop(s.name, None)
             continue
         record.gt[s.name] = {k: (None if v is None else float(v)) for k, v in vals.items()}
-        any_val = any_val or any(v is not None for v in vals.values())
+        fps[s.name] = s.fingerprint()
+        (record.meta.get("gt_errors") or {}).pop(s.name, None)
+    any_val = any(v is not None for vals in record.gt.values() for v in vals.values())
     record.gt_status = "complete" if any_val else "none"

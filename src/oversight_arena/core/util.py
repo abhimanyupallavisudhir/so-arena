@@ -44,26 +44,76 @@ def _code_parts(code: Any) -> list[Any]:
     return [code.co_code.hex(), consts, list(code.co_names), list(code.co_varnames)]
 
 
-def code_hash(fn: Any) -> str:
+_PLAIN = (str, int, float, bool, type(None))
+
+
+def _value_key(v: Any, seen: set[int], depth: int) -> Any:
+    """A JSON-able stand-in for a value a function depends on (functions by their code hash)."""
+    if isinstance(v, _PLAIN):
+        return v
+    if callable(v) and depth < 8:
+        return {"fn": code_hash(v, _seen=seen, _depth=depth + 1)}
+    if isinstance(v, (list, tuple)):
+        return [_value_key(x, seen, depth + 1) for x in v]
+    if isinstance(v, dict):
+        return {str(k): _value_key(x, seen, depth + 1) for k, x in v.items()}
+    try:
+        canonical_json(v)
+        return v
+    except Exception:
+        return f"<{type(v).__module__}.{type(v).__qualname__}>"
+
+
+def code_hash(fn: Any, *, _seen: set[int] | None = None, _depth: int = 0) -> str:
     """Hash of what a function does: bytecode (nested code objects included, never memory
-    addresses), names, defaults and closure contents — e.g. to key scripted agents, so that
-    ``make(0.3)`` and ``make(0.7)`` from one factory hash differently. Stable across processes."""
+    addresses), names, defaults, closure contents (recursively), the plain values of globals it
+    reads, the bound arguments of ``functools.partial`` and the instance of a bound method — e.g.
+    to key scripted agents, so that ``make(0.3)`` and ``make(0.7)`` from one factory, or
+    ``partial(policy, p=0.3)`` and ``partial(policy, p=0.9)``, hash differently. Stable across
+    processes."""
+    import functools
+
+    seen = set() if _seen is None else _seen
+    if id(fn) in seen:
+        return "<recursive>"
+    seen = seen | {id(fn)}
+    if isinstance(fn, functools.partial):
+        return stable_hash("partial", code_hash(fn.func, _seen=seen, _depth=_depth),
+                           _value_key(list(fn.args), seen, _depth), _value_key(dict(fn.keywords), seen, _depth), length=10)
+    owner = getattr(fn, "__self__", None)
+    if owner is not None and hasattr(fn, "__func__"):  # bound method: the instance's state matters
+        return stable_hash("method", code_hash(fn.__func__, _seen=seen, _depth=_depth),
+                           f"<{type(owner).__qualname__}>", _value_key(getattr(owner, "__dict__", {}), seen, _depth), length=10)
     code = getattr(fn, "__code__", None)
-    if code is None:
-        return stable_hash(f"<{type(fn).__module__}.{type(fn).__qualname__}>", getattr(fn, "__dict__", {}), length=10)
+    if code is None:  # a callable object
+        call = getattr(type(fn), "__call__", None)
+        return stable_hash(f"<{type(fn).__module__}.{type(fn).__qualname__}>",
+                           code_hash(call, _seen=seen, _depth=_depth) if hasattr(call, "__code__") else "",
+                           _value_key(getattr(fn, "__dict__", {}), seen, _depth), length=10)
     cells = []
     for c in getattr(fn, "__closure__", None) or ():
         try:
-            v = c.cell_contents
+            cells.append(_value_key(c.cell_contents, seen, _depth))
         except ValueError:  # empty cell
-            v = None
-        cells.append(f"<fn {v.__qualname__}>" if callable(v) and hasattr(v, "__code__") else v)
-    parts = [_code_parts(code), getattr(fn, "__qualname__", ""), getattr(fn, "__defaults__", None),
-             getattr(fn, "__kwdefaults__", None)]
+            cells.append(None)
+    glob = getattr(fn, "__globals__", {}) or {}
+    reads = {n: _value_key(glob[n], seen, _depth) for n in sorted(_code_names(code)) if n in glob
+             and (isinstance(glob[n], _PLAIN + (list, tuple, dict)) or (callable(glob[n]) and hasattr(glob[n], "__code__")
+                                                                          and getattr(glob[n], "__module__", None) == getattr(fn, "__module__", None)))}
+    parts = [_code_parts(code), getattr(fn, "__qualname__", ""), _value_key(getattr(fn, "__defaults__", None), seen, _depth),
+             _value_key(getattr(fn, "__kwdefaults__", None), seen, _depth)]
     try:
-        return stable_hash(parts, cells, length=10)
-    except Exception:  # unserialisable closure contents
-        return stable_hash(parts, [type(c).__name__ for c in cells], length=10)
+        return stable_hash(parts, cells, reads, length=10)
+    except Exception:  # unserialisable contents
+        return stable_hash(parts, [type(c).__name__ for c in cells], sorted(reads), length=10)
+
+
+def _code_names(code: Any) -> set[str]:
+    names = set(code.co_names)
+    for c in code.co_consts:
+        if hasattr(c, "co_names"):
+            names |= _code_names(c)
+    return names
 
 
 def canonical_json(obj: Any) -> str:

@@ -67,6 +67,15 @@ class Results:
         return cls(latest.values(), tasks)
 
     # ------------------------------------------------------------------ tables
+    def mechanism_names(self) -> dict[tuple[str, str], str]:
+        """(display name, config hash) → a name unique in these results: configurations that share
+        a display name (e.g. unlabelled ``Debate()`` and ``Debate(evidence=...)``) get a short hash
+        suffix, so analyses grouped by ``mechanism`` never pool different mechanisms."""
+        hashes: dict[str, set[str]] = {}
+        for r in self.records:
+            hashes.setdefault(r.mechanism, set()).add(r.mechanism_hash)
+        return {(name, h): (name if len(hs) == 1 else f"{name} #{h[:6]}") for name, hs in hashes.items() for h in hs}
+
     def df(self, trainable_only: bool = False, include_fixtures: bool = True) -> pd.DataFrame:
         """Long format: one row per (episode, role).
 
@@ -75,6 +84,7 @@ class Results:
         ``gt_<scorer>[_outcome]`` (same names as in :meth:`episodes_df`).
         """
         rows = []
+        names = self.mechanism_names()
         for r in self.records:
             outcome_gt = {
                 f"gt_{s}[{k}]": v
@@ -92,7 +102,7 @@ class Results:
                     "episode": r.id,
                     "key": r.key,
                     "experiment": r.experiment,
-                    "mechanism": r.mechanism,
+                    "mechanism": names[(r.mechanism, r.mechanism_hash)],
                     "mechanism_hash": r.mechanism_hash,
                     "reward_rule": r.reward_rule,
                     "task": r.task_id,
@@ -129,9 +139,11 @@ class Results:
     def episodes_df(self) -> pd.DataFrame:
         """Wide format: one row per episode (rewards/GT per role as columns)."""
         rows = []
+        names = self.mechanism_names()
         for r in self.records:
             row: dict[str, Any] = {
-                "episode": r.id, "mechanism": r.mechanism, "task": r.task_id, "domain": r.domain,
+                "episode": r.id, "mechanism": names[(r.mechanism, r.mechanism_hash)], "mechanism_hash": r.mechanism_hash,
+                "task": r.task_id, "domain": r.domain,
                 "profile": r.profile.id, "profile_label": r.profile.label, "seed": r.seed,
                 "decision": r.outcome.get("decision"), "error": r.error is not None,
                 "gt_status": r.gt_status, "tokens": r.total_usage().total_tokens,

@@ -71,7 +71,7 @@ class Auditor(GTChannel):
 
     async def query(self, ctx: "EpisodeContext", role: str | None = None, **kw: Any) -> dict[str, Any]:
         assert role is not None
-        rng = rng_for("audit", ctx.episode_key, role, ctx.transcript_len())
+        rng = ctx.common_rng("audit", role)
         if rng.random() >= self.prob:
             return {"audited": False, "bad": None}
         bad = role_is_bad(ctx, role, self.signal)
@@ -99,7 +99,7 @@ class SimulatedProbe(GTChannel):
             return None
         nd = NormalDist()
         dprime = math.sqrt(2) * nd.inv_cdf(min(max(self.auroc, 1e-6), 1 - 1e-6))
-        rng = rng_for("probe", ctx.episode_key, role, kw.get("step"), ctx.transcript_len())
+        rng = ctx.common_rng("probe", role, kw.get("step"))
         z = rng.gauss(dprime if bad else 0.0, 1.0)
         score = nd.cdf(z - dprime / 2)
         ctx.log_channel(self.name, role, self.cost, {"score": score})

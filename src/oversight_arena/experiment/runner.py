@@ -19,7 +19,7 @@ from ..core.strategy import Profile
 from ..core.task import Task
 from ..core.util import now_iso, read_jsonl, stable_hash, write_jsonl
 from ..domains.base import Domain, Environment
-from ..ground_truth.base import GTScorer, compute_gt
+from ..ground_truth.base import GTScorer, compute_gt, stale_scorers
 from ..mechanisms.base import EpisodeContext, Mechanism
 from .profiles import ProfileSource, as_profile_source
 from .results import Results
@@ -288,8 +288,8 @@ class Experiment:
                     key = None
                 if key is not None and key in done:
                     rec = done[key]
-                    missing = [g for g in (self.gt if self.gt is not None else self.domain.gt_scorers()) if g.name not in rec.gt]
-                    if missing and rec.error is None:  # scorers added since the episode ran
+                    missing = stale_scorers(rec, list(self.gt if self.gt is not None else self.domain.gt_scorers()))
+                    if missing and rec.error is None:  # scorers added, changed or failed since the episode ran
                         before = (dict(rec.gt), rec.gt_status)
                         await compute_gt(task, rec, missing)
                         if path is not None and (dict(rec.gt), rec.gt_status) != before:

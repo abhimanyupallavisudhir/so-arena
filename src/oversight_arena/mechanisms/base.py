@@ -139,6 +139,7 @@ class EpisodeContext:
         self.episode_key = episode_key
         self.seed = seed
         self.rng = rng_for("episode", episode_key, seed)
+        self._draws: dict[tuple[str, str | None], int] = {}
         self.transcript = Transcript()
         self.outcome: dict[str, Any] = {}
         self.usage: dict[str, Usage] = {}
@@ -411,6 +412,16 @@ class EpisodeContext:
         return len(self.transcript.entries)
 
     # --------------------------------------------------------------- evidence
+    def common_rng(self, channel: str, role: str | None = None, *extra: Any) -> Any:
+        """Common random numbers for trusted randomness (audits, simulated probes, verification
+        noise): the n-th draw of ``channel`` for ``role`` depends only on the task, the episode
+        seed and n, not on the mechanism, strategies or agents, so arms that are compared (e.g.
+        two reward rules on the same behaviour) see the same draws."""
+        k = (channel, role)
+        n = self._draws.get(k, 0)
+        self._draws[k] = n + 1
+        return rng_for("crn", channel, self.task.id, self.seed, role, n, *extra)
+
     def enabled_verifiers(self) -> list[Verifier]:
         pol = self.mechanism.evidence
         if pol is None:
@@ -469,7 +480,7 @@ class EpisodeContext:
         ev.cost = v.cost
         ev.requested_by = role
         truth = {"verified": ev.verified, "result": ev.result, "flipped": False}
-        if pol.noise > 0 and rng_for("vnoise", self.episode_key, role, claim.content).random() < pol.noise:
+        if pol.noise > 0 and rng_for("crn", "vnoise", self.task.id, self.seed, role, claim.content).random() < pol.noise:
             # the verifier errs: a verdict is flipped, or an informational output (query rows,
             # program output, a computed value) is replaced by a plausible wrong one
             shown = ev if ev.verified is None else ev.model_copy(update={"verified": not ev.verified})

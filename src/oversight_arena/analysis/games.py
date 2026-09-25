@@ -87,8 +87,16 @@ class EmpiricalGame:
         recs = [r for r in (results.records if hasattr(results, "records") else results) if r.error is None]
         if task is not None:
             recs = [r for r in recs if r.task_id == task]
-        if mechanism is not None:
-            recs = [r for r in recs if r.mechanism == mechanism]
+        from ..experiment.results import Results
+
+        names = Results(recs).mechanism_names()
+        if mechanism is not None:  # a unique name, a display name shared by one configuration, or a hash
+            recs = [r for r in recs if mechanism in (names[(r.mechanism, r.mechanism_hash)], r.mechanism_hash)
+                    or (r.mechanism == mechanism and names[(r.mechanism, r.mechanism_hash)] == r.mechanism)]
+        if len({r.mechanism_hash for r in recs}) > 1:
+            raise ValueError("these episodes come from several mechanism configurations "
+                             f"({sorted({names[(r.mechanism, r.mechanism_hash)] for r in recs})}); pass mechanism=... "
+                             "so that different games are not pooled into one")
         if reward is not None:
             recs = [r.model_copy(update={"rewards": {k: float(v) for k, v in reward(r).items()}}) for r in recs]
         roles = list(roles)
@@ -284,26 +292,44 @@ class EmpiricalGame:
                     eqs.append(eq)
         return eqs
 
-    def _support_enumeration(self, max_support: int | None = None) -> list[Equilibrium]:
+    def _support_enumeration(self, max_support: int | None = None, max_pairs: int = 20000) -> list[Equilibrium]:
+        """Support enumeration. Equal-size supports are solved exactly (enough for nondegenerate
+        games); in degenerate games equilibria can have supports of different sizes, so every
+        pair of supports is also tried with a linear program (up to ``max_pairs`` pairs)."""
         r0, r1 = self.roles
         A, B = self.payoffs[r0], self.payoffs[r1]
         m, n = A.shape
         eqs: list[Equilibrium] = []
-        kmax = min(m, n) if max_support is None else min(max_support, m, n)
-        for k in range(1, kmax + 1):
+
+        def add(xf: np.ndarray, yf: np.ndarray) -> None:
+            mix = {r0: xf, r1: yf}
+            if self.exploitability(mix) < 1e-7 and not any(_close(mix, e.mix) for e in eqs):
+                eqs.append(self._eq(mix, "nash"))
+
+        km, kn = (m, n) if max_support is None else (min(max_support, m), min(max_support, n))
+        for k in range(1, min(km, kn) + 1):
             for I in itertools.combinations(range(m), k):
                 for J in itertools.combinations(range(n), k):
                     y = _solve_indiff(A[np.ix_(I, J)])
                     x = _solve_indiff(B[np.ix_(I, J)].T)
                     if x is None or y is None:
                         continue
-                    xf = np.zeros(m)
-                    xf[list(I)] = x
-                    yf = np.zeros(n)
-                    yf[list(J)] = y
-                    mix = {r0: xf, r1: yf}
-                    if self.exploitability(mix) < 1e-7 and not any(_close(mix, e.mix) for e in eqs):
-                        eqs.append(self._eq(mix, "nash"))
+                    xf, yf = np.zeros(m), np.zeros(n)
+                    xf[list(I)], yf[list(J)] = x, y
+                    add(xf, yf)
+        supports = lambda size, kmax: [c for k in range(1, kmax + 1) for c in itertools.combinations(range(size), k)]  # noqa: E731
+        rows, cols = supports(m, km), supports(n, kn)
+        if len(rows) * len(cols) <= max_pairs:
+            for I in rows:
+                for J in cols:
+                    if len(I) == len(J):
+                        continue
+                    y = _support_lp(A, I, J)  # column mix on J making every row in I a best response
+                    x = _support_lp(B.T, J, I) if y is not None else None
+                    if x is not None:
+                        xf, yf = np.zeros(m), np.zeros(n)
+                        xf[list(I)], yf[list(J)] = x, y
+                        add(xf, yf)
         return eqs
 
     def zero_sum_value(self, role: str | None = None) -> tuple[float, Mix]:
@@ -452,6 +478,27 @@ def _two_or_more(p: float, k: int) -> np.ndarray:
         return np.array([1.0])
     rest = (1 - p) / (k - 1)
     return np.array([p] + [rest] * (k - 1))
+
+
+def _support_lp(M: np.ndarray, I: Sequence[int], J: Sequence[int]) -> np.ndarray | None:
+    """Opponent mix ``y`` with support exactly ``J`` under which every row in ``I`` is a best
+    response for the player with payoffs ``M`` (rows = own strategies): maximise the smallest
+    probability on ``J`` subject to indifference on ``I`` and no better row outside it."""
+    m = M.shape[0]
+    k = len(J)
+    # variables: y_J (k), u (free), t
+    c = np.zeros(k + 2)
+    c[-1] = -1.0
+    A_eq = [np.r_[np.ones(k), 0.0, 0.0]] + [np.r_[M[i, list(J)], -1.0, 0.0] for i in I]
+    b_eq = [1.0] + [0.0] * len(I)
+    A_ub = [np.r_[M[i, list(J)], -1.0, 0.0] for i in range(m) if i not in I]
+    A_ub += [np.r_[-np.eye(k)[j], 0.0, 1.0] for j in range(k)]  # t <= y_j
+    res = linprog(c, A_ub=np.array(A_ub), b_ub=np.zeros(len(A_ub)), A_eq=np.array(A_eq), b_eq=b_eq,
+                  bounds=[(0, None)] * k + [(None, None), (0, 1)], method="highs")
+    if res.status != 0 or res.x[-1] <= 1e-9:
+        return None
+    y = np.clip(res.x[:k], 0, None)
+    return y / y.sum()
 
 
 def _solve_indiff(M: np.ndarray) -> np.ndarray | None:

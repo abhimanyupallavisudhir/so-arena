@@ -104,16 +104,26 @@ def position_bias(results, roles: Sequence[str] = ("debater_a", "debater_b"), gt
     return pd.DataFrame(rows)
 
 
+def _names(results) -> dict[tuple[str, str], str]:
+    """Unique mechanism names (configurations sharing a display name are told apart)."""
+    if hasattr(results, "mechanism_names"):
+        return results.mechanism_names()
+    from ..experiment.results import Results
+
+    return Results(list(results)).mechanism_names()
+
+
 def option_label_bias(results, label: str = "A") -> pd.DataFrame:
     """Bias toward an option *label*: the judge's mean probability on ``label`` minus how often
     ``label`` is actually correct (needs ``results.tasks``). Also split by whether it is correct."""
     rows = []
-    for mech in sorted({r.mechanism for r in results.records}):
+    names = _names(results)
+    for mech in sorted(set(names.values())):
         ps, cs = [], []
         for r in results.records:
             t = results.tasks.get(r.task_id)
             probs = r.outcome.get("probs") or {}
-            if r.mechanism != mech or t is None or label not in probs or not t.has_values():
+            if names[(r.mechanism, r.mechanism_hash)] != mech or t is None or label not in probs or not t.has_values():
                 continue
             ps.append(float(probs[label]))
             cs.append(float(label in t.correct_ids()))
@@ -157,10 +167,11 @@ def compliance(results, roles: str | Sequence[str] | None = None) -> pd.DataFram
     recs = results.records
     roles_set = None if roles is None else ({roles} if isinstance(roles, str) else set(roles))
     rows = []
-    for mech in sorted({r.mechanism for r in recs}):
+    names = _names(results)
+    for mech in sorted(set(names.values())):
         ok = n = perr = 0
         for r in recs:
-            if r.mechanism != mech:
+            if names[(r.mechanism, r.mechanism_hash)] != mech:
                 continue
             ans = r.outcome.get("answers") or {}
             for role, b in r.bound.items():

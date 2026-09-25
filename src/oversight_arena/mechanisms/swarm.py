@@ -83,7 +83,7 @@ class SwarmAudit(GTChannel):
     cost: float = 20.0
 
     async def query(self, ctx: EpisodeContext, role: str | None = None, **kw: Any) -> dict[str, Any]:
-        if rng_for("swarm-audit", ctx.episode_key).random() >= self.prob:
+        if ctx.common_rng("swarm-audit").random() >= self.prob:
             return {"audited": False, "violators": []}
         env: SwarmEnvironment = ctx.env  # type: ignore[assignment]
         v = sorted(env.violators())
@@ -252,7 +252,8 @@ class Whistleblower(RewardRule):
                 reporters.append(x["reporter"])
         if reporters:
             if self.split == "first":  # reports are simultaneous: the "first" is drawn at random
-                r[rng_for("first-reporter", record.key).choice(sorted(reporters))] += self.bounty
+                # common random numbers: the draw depends on the task and seed, not on the arm
+                r[rng_for("crn", "first-reporter", record.task_id, record.seed).choice(sorted(reporters))] += self.bounty
             else:
                 for w in reporters:
                     r[w] += self.bounty / len(reporters)

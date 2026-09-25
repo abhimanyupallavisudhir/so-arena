@@ -166,6 +166,7 @@ def frontier(
     (best strategy-mean GT) − (GT of the reward-maximising strategy): how much ground truth a
     perfect optimiser of the mechanism's reward gives up within the sampled strategy class
     (0 = the mechanism's argmax is also the GT-best behaviour; meaningful for any GT scale).
+    Strategies tied for the highest reward are averaged (``n_argmax`` of them).
     """
     d = _select(_as_df(results), roles, gt)
     rows = []
@@ -176,14 +177,17 @@ def frontier(
         row = dict(zip(by, keys if isinstance(keys, tuple) else (keys,)))
         bg = good["reward"].max() if len(good) else float("nan")
         bb = bad["reward"].max() if len(bad) else float("nan")
-        amax_gt = float(s.loc[s["reward"].idxmax(), "gt"]) if len(s) else float("nan")
+        # an optimiser of the reward cannot tell tied strategies apart: average over the ties
+        # (breaking them by name would make gt_regret depend on how strategies are called)
+        top = s[np.isclose(s["reward"], s["reward"].max(), rtol=1e-9, atol=1e-12)] if s["reward"].notna().any() else s.iloc[:0]
+        amax_gt = float(top["gt"].mean()) if len(top) else float("nan")
         row.update(
             best_good=bg, best_good_strategy=good["reward"].idxmax() if len(good) else None,
             best_bad=bb, best_bad_strategy=bad["reward"].idxmax() if len(bad) else None,
             frontier_gap=bg - bb, n_good=len(good), n_bad=len(bad),
-            argmax_strategy=s["reward"].idxmax() if len(s) else None,
+            argmax_strategy=" | ".join(map(str, sorted(top.index))) if len(top) else None, n_argmax=len(top),
             argmax_gt=amax_gt, best_gt=float(s["gt"].max()) if len(s) else float("nan"),
-            gt_regret=float(s["gt"].max()) - amax_gt if len(s) else float("nan"), n_strategies=len(s),
+            gt_regret=float(s["gt"].max()) - amax_gt if len(top) else float("nan"), n_strategies=len(s),
         )
         rows.append(row)
     return pd.DataFrame(rows)

@@ -402,3 +402,170 @@ def test_participants_cannot_forge_trusted_markers():
     assert "​" not in out and "stаtus" not in out and 'status="VERIFIED"' not in out
     assert "x" * 400 in out  # tool arguments are no longer cut before a forged literal
     assert "\n      [VERIFIED by sql_checker]" in out  # tool output lines stay inside their block
+
+
+# M16. StrategyGradient(natural=True) takes the documented step eta * (u_a - u_bar) in expectation.
+
+def test_natural_strategy_gradient_is_unbiased(monkeypatch):
+    import types
+
+    import oversight_arena.elicitation.rl as rl
+
+    U = {"rare_good": 1.0, "common_a": 0.0, "common_b": 0.0}
+
+    async def fake_run_episode(mech, task, prof, agents, domain, seed=0, **kw):
+        return types.SimpleNamespace(rewards={"p": U[prof.assignments["p"].strategy.name]}, gt={}, error=None)
+
+    monkeypatch.setattr(rl, "run_episode", fake_run_episode)
+    pop, init = [oa.Strategy(name=n) for n in U], [0.02, 0.49, 0.49]
+    gains = []
+    for seed in range(300):
+        sg = rl.StrategyGradient(domain=None, mechanism=None, agents={}, populations={"p": pop}, lr=0.5, batch=16,
+                                 iterations=1, init={"p": init}, tasks=[types.SimpleNamespace(id="t")], seed=seed, natural=True)
+        th0 = sg.logits["p"].copy()
+        asyncio.run(sg.run())
+        d = sg.logits["p"] - th0
+        gains.append(d[0] - d[1:].mean())
+    assert np.mean(gains) == pytest.approx(0.5 * (1.0 - 0.0), rel=0.2)  # the review measured 0.15
+
+
+# M17. frontier does not break reward ties by strategy name.
+
+def test_frontier_ties_do_not_depend_on_names():
+    from oversight_arena.analysis.ic import frontier
+
+    def df(honest_name):
+        rows = [{"mechanism": "m", "role": "a", "strategy_name": n, "task": f"t{i}", "reward": 1.0, "gt_correct": g,
+                 "trainable": True} for i in range(4) for n, g in ((honest_name, 1.0), ("lie", 0.0))]
+        return pd.DataFrame(rows)
+
+    a, b = frontier(df("honest")).iloc[0], frontier(df("zz_honest")).iloc[0]
+    assert a["gt_regret"] == b["gt_regret"] == 0.5 and a["argmax_gt"] == 0.5 and a["n_argmax"] == 2
+
+
+# M18. Preference pairs share their context (mechanism, task, position, opponents) and carry a prompt.
+
+def test_preference_pairs_share_context():
+    from oversight_arena.channels import EvidencePolicy
+    from oversight_arena.domains.synthetic import HiddenBits
+    from oversight_arena.elicitation.rl import preference_pairs
+    from oversight_arena.mechanisms import Debate
+    from oversight_arena.sim import BayesianBitJudge, BitAdvocate
+
+    agents = {"kind:judge": BayesianBitJudge(trust=0.8), "*": BitAdvocate(claims=3)}
+    base = oa.Strategy(name="base", params={"sample": {"claims": (1, 5), "lie_rate": (0.0, 1.0), "side_error": 0.3}})
+    mechs = [Debate(rounds=1, evidence=EvidencePolicy(budget=3), label="verified"), Debate(rounds=1, label="cheap")]
+    res = oa.Experiment(HiddenBits(n_tasks=3), mechs, agents, oa.Seeds(n=4, strategies={"debater_a": base}, roles=["debater_a"]),
+                        progress=False).run()
+    pp = preference_pairs(res, "debater_a")
+    assert len(pp) and "prompt" in pp.columns and pp["prompt"].str.len().min() > 0
+    side = {}
+    for r in res.records:
+        side[(r.task_id, "\n".join(e.content for e in r.transcript.entries if e.role == "debater_a"))] = (
+            r.mechanism_hash, r.bound["debater_a"].target)
+    for t, c, j in zip(pp.task, pp.chosen, pp.rejected):
+        assert side[(t, c)] == side[(t, j)]  # the review: 43 of 74 pairs crossed mechanisms
+
+
+# M19. nash() finds equilibria with supports of different sizes (degenerate games).
+
+def test_nash_finds_unequal_support_equilibria():
+    from oversight_arena.analysis import EmpiricalGame
+
+    A = np.array([[1.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
+    B = np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [1.0, 1.0, 1.0]])
+    game = EmpiricalGame.from_matrices(A, B, row_strats=["r0", "r1", "r2"], col_strats=["c0", "c1", "c2"])
+    eqs = game.nash()
+    assert all(max(game.regret(e.mix).values()) < 1e-7 for e in eqs)
+    assert any(e.mix["row"][1] > 0 for e in eqs)  # x = (1/2, 1/2, 0), y = (0, 0, 1): missed before
+
+
+# M20. Configurations that share a display name are not pooled by analyses.
+
+def test_unlabelled_mechanism_variants_are_not_pooled():
+    from oversight_arena.analysis import EmpiricalGame
+    from oversight_arena.analysis.ic import asd
+    from oversight_arena.channels import EvidencePolicy
+    from oversight_arena.domains.synthetic import HiddenBits
+    from oversight_arena.mechanisms import Debate
+    from oversight_arena.sim import BayesianBitJudge, BitAdvocate
+
+    agents = {"kind:judge": BayesianBitJudge(trust=0.8), "*": BitAdvocate(claims=3)}
+    res = oa.Experiment(HiddenBits(n_tasks=4), [Debate(rounds=1, evidence=EvidencePolicy(budget=2)), Debate(rounds=1)],
+                        agents, oa.Stances(), progress=False).run()
+    names = set(res.df()["mechanism"])
+    assert len(names) == 2 and all(n.startswith("debate #") for n in names)
+    assert len(asd(res.df(trainable_only=True))) == 2
+    with pytest.raises(ValueError, match="several mechanism configurations"):
+        EmpiricalGame.from_results(res, ["debater_a", "debater_b"])
+    one = sorted(names)[0]
+    assert EmpiricalGame.from_results(res, ["debater_a", "debater_b"], mechanism=one) is not None
+
+
+# M21. Resume recomputes ground truth whose scorer changed; keys see partial arguments and closures.
+
+def test_resume_recomputes_changed_ground_truth(tmp_path):
+    from oversight_arena.domains.synthetic import HiddenBits
+    from oversight_arena.ground_truth.common import FunctionGT
+    from oversight_arena.mechanisms import Propaganda
+
+    dom = HiddenBits(n_tasks=3)
+    agent = oa.ScriptedAgent(lambda obs: {"probs": {o: 0.5 for o in obs.task.option_ids}}
+                             if obs.response.kind == "distribution" else "arg", id="s")
+    run = lambda fn: oa.Experiment(dom, Propaganda(), agent, oa.Stances(), gt=[FunctionGT(fn=fn)], out=tmp_path,  # noqa: E731
+                                   progress=False).run()
+    run(lambda task, rec: {"agent": 0.0})
+    assert {r.gt["custom"]["agent"] for r in run(lambda task, rec: {"agent": 1.0}).records} == {1.0}
+
+    def broken(task, rec):
+        raise RuntimeError("scorer bug")
+
+    assert all("custom" not in r.gt for r in run(broken).records)  # a failed rescoring leaves no stale value
+    assert {r.gt["custom"]["agent"] for r in run(lambda task, rec: {"agent": 1.0}).records} == {1.0}
+
+
+def test_code_hash_sees_partial_arguments_closures_and_globals():
+    from functools import partial
+
+    from oversight_arena.core.util import code_hash
+
+    def policy(obs, p):
+        return p
+
+    def make(p):
+        def inner(obs):
+            return p
+        return lambda obs: inner(obs)
+
+    assert code_hash(partial(policy, p=0.3)) != code_hash(partial(policy, p=0.9))
+    assert code_hash(make(0.3)) != code_hash(make(0.9)) and code_hash(make(0.3)) == code_hash(make(0.3))
+    a3, a9 = oa.ScriptedAgent(partial(policy, p=0.3)), oa.ScriptedAgent(partial(policy, p=0.9))
+    assert a3.describe() != a9.describe()
+
+
+# M22. Trusted randomness uses common random numbers across compared arms.
+
+def test_audits_and_probes_use_common_random_numbers():
+    from oversight_arena.channels.gt_channels import SimulatedProbe
+    from oversight_arena.domains.monitoring_sim import AbstractMonitoring
+    from oversight_arena.domains.swarm import AbstractSwarm
+    from oversight_arena.mechanisms.monitoring import Monitoring
+    from oversight_arena.mechanisms.swarm import Swarm, SwarmAudit, TeamReward, Whistleblower
+    from oversight_arena.sim.monitoring_agents import ActionActor
+    from oversight_arena.sim.swarm_agents import SwarmWorker
+
+    dom = AbstractSwarm(n_tasks=60)
+    audits = []
+    for rule in (TeamReward(), Whistleblower()):
+        res = oa.Experiment(dom, Swarm(audit=SwarmAudit(prob=0.3), reward=rule), SwarmWorker(cheat=1.0), progress=False).run()
+        audits.append({r.task_id: r.outcome["audit"]["audited"] for r in res.records})
+    assert audits[0] == audits[1]  # the review: 128 of 200 agreed
+
+    prof = lambda n: oa.Profile(assignments={"actor": oa.Assignment(strategy=oa.Strategy(name=n, params={"action": "overt"}))},  # noqa: E731
+                                label=n)
+    res = oa.Experiment(AbstractMonitoring(n_tasks=60), Monitoring(monitor="probe", grader=False, probe=SimulatedProbe(auroc=0.8)),
+                        {"actor": ActionActor()}, [prof("v1"), prof("v2")], progress=False).run()
+    alarms = {}
+    for r in res.records:
+        alarms.setdefault(r.profile.label, {})[r.task_id] = r.outcome["alarm"]
+    assert alarms["v1"] == alarms["v2"]
