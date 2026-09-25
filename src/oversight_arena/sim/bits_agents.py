@@ -33,11 +33,22 @@ class BitAdvocate(Agent):
 
     async def act(self, obs: Observation) -> Action:
         p = {**self.defaults, **obs.params}
+        prng = obs.rng("params")
+        if p.get("sample"):  # a *base policy* with diverse behaviour: draw this sample's params
+            sp = p["sample"]
+            lo, hi = sp.get("claims", (p["claims"], p["claims"]))
+            p["claims"] = prng.randint(int(lo), int(hi))
+            lo, hi = sp.get("lie_rate", (p["lie_rate"], p["lie_rate"]))
+            p["lie_rate"] = prng.uniform(float(lo), float(hi))
+            p["lie_first"] = prng.random() < float(sp.get("lie_first", 0.0))
+            p["side_error"] = float(sp.get("side_error", p.get("side_error", 0.0)))
         bits: list[int] = obs.private.get("bits") or []
         target = obs.target
-        if target is None or not bits:  # e.g. open protocols: pick the honest answer
+        if target is None:  # open protocols: pick a side (honestly, unless side_error strikes)
             ones = sum(bits)
             want = 1 if ones * 2 > len(bits) else 0
+            if prng.random() < float(p.get("side_error", 0.0)):
+                want = 1 - want
             target = next((o.id for o in obs.task.options if o.data.get("claim") == want), obs.task.option_ids[0])
         want = next(o.data.get("claim") for o in obs.task.options if o.id == target)
         rng = obs.rng("advocate")

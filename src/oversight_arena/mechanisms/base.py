@@ -280,6 +280,7 @@ class EpisodeContext:
         agent = self.agents[role]
         obs = self.observe(role, prompt, response, step=step, turn=turn, tools=tools, extra_brief=extra_brief)
         action = await agent.act(obs)
+        _normalize_parsed(action, obs.response)
         entry = Entry(
             kind=kind,  # type: ignore[arg-type]
             role=role,
@@ -434,6 +435,24 @@ class EpisodeContext:
 
     def log(self, **kw: Any) -> None:
         self.meta.update(kw)
+
+
+def _normalize_parsed(action: Any, spec: ResponseSpec) -> None:
+    """Make structured answers uniform whatever the agent type (LLM, scripted, human)."""
+    p = action.parsed
+    opts = spec.options or []
+    if spec.kind == "distribution" and opts:
+        probs = p.get("probs")
+        if isinstance(probs, dict):
+            clean = {o: max(float(probs.get(o, 0.0) or 0.0), 0.0) for o in opts}
+            tot = sum(clean.values())
+            p["probs"] = {o: v / tot for o, v in clean.items()} if tot > 0 else {o: 1 / len(opts) for o in opts}
+        elif p.get("choice") in opts:
+            p["probs"] = {o: 1.0 if o == p["choice"] else 0.0 for o in opts}
+        if "probs" in p and p.get("choice") not in opts:
+            p["choice"] = max(p["probs"], key=p["probs"].get)
+    elif spec.kind == "choice" and opts and p.get("choice") not in opts and isinstance(p.get("probs"), dict):
+        p["choice"] = max(p["probs"], key=p["probs"].get)
 
 
 # ---------------------------------------------------------------------- decorator API

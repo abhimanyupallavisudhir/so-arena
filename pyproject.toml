@@ -41,6 +41,10 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q"
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+  "network: needs internet access (run with OA_NETWORK_TESTS=1)",
+  "stockfish: needs a Stockfish binary",
+]
 
 [tool.ruff]
 line-length = 100

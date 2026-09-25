@@ -47,13 +47,16 @@ class Stances(ProfileSource):
     (``Stance.OPTION``), which is what ASD needs for multi-option questions.
     """
 
-    roles: list[str]
+    roles: list[str] = Field(default_factory=list)  # empty = all trainable 'expert' roles
     distinct: bool = True
     all_options: bool = False
     instructions: str | None = None
     extra: dict[str, Strategy] = Field(default_factory=dict)  # fixed strategies for other roles
 
     def profiles(self, task: Task, roles: list[RoleSpec]) -> list[Profile]:
+        if not self.roles:
+            auto = [r.name for r in roles if r.trainable and r.kind in ("expert", "forecaster")]
+            return self.model_copy(update={"roles": auto}).profiles(task, roles) if auto else [Profile(label="default")]
         base = {r: Assignment(strategy=s) for r, s in self.extra.items()}
         out: list[Profile] = []
         if self.all_options or len(task.options) > 2:

@@ -36,6 +36,7 @@ class EngineAdvocate(Agent):
         self.top_k = top_k
         self.engine_path = engine_path
         self.id = id or f"engine_advocate(d={depth})"
+        self._cache: dict[tuple, list[str]] = {}
 
     def describe(self) -> dict[str, Any]:
         return {"type": "EngineAdvocate", "depth": self.depth, "line_len": self.line_len, "top_k": self.top_k}
@@ -52,6 +53,12 @@ class EngineAdvocate(Agent):
     def _line(self, fen: str, first: str, depth: int, bend_ply: int | None, maximize_for: Any) -> list[str]:
         """Line starting with move ``first``. If ``bend_ply`` is set, at that ply choose — among
         the top-k moves — the one best for ``maximize_for`` (a cherry-picked deviation)."""
+        key = (fen, first, depth, bend_ply, bool(maximize_for), self.line_len, self.top_k)
+        if key not in self._cache:
+            self._cache[key] = self._line_uncached(fen, first, depth, bend_ply, maximize_for)
+        return list(self._cache[key])
+
+    def _line_uncached(self, fen: str, first: str, depth: int, bend_ply: int | None, maximize_for: Any) -> list[str]:
         board, applied, err = apply_line(fen, first)
         if err:
             return [first]
@@ -115,18 +122,22 @@ class EngineJudge(Agent):
         self.use_verifier_evals = use_verifier_evals
         self.engine_path = engine_path
         self.id = id or f"engine_judge(d={depth})"
+        self._leaf_cache: dict[str, float] = {}
 
     def describe(self) -> dict[str, Any]:
         return {"type": "EngineJudge", "depth": self.depth, "T": self.temperature_cp, "self_check": self.self_check,
                 "use_verifier_evals": self.use_verifier_evals}
 
     def _leaf(self, board: Any, mover: Any, cache: dict) -> float:
-        key = board.fen()
+        key = f"{board.fen()}|{int(bool(mover))}"
+        if key in self._leaf_cache and key not in cache:
+            cache[key] = self._leaf_cache[key]
         if key not in cache:
             if self.depth <= 0:
                 cache[key] = material(board, mover)
             else:
                 cache[key] = Engine.get(self.engine_path, "judge").score(board, self.depth, pov=mover, fresh=True)
+            self._leaf_cache[key] = cache[key]
         return cache[key]
 
     def evaluate(self, obs: Observation) -> dict[str, float]:
@@ -147,7 +158,7 @@ class EngineJudge(Agent):
                         verifier_eval[ev.data["fen"]] = ev.data["eval_cp"]
         cache: dict = {}
         if self.use_verifier_evals:
-            cache.update(verifier_eval)
+            cache.update({f"{k}|{int(bool(mover))}": v for k, v in verifier_eval.items()})
 
         def value(board: Any, node: dict) -> float:
             if not node:

@@ -69,18 +69,24 @@ def render_observation(obs: Observation, persona: str | None = None, scratchpad:
 
 
 def _letter_probs_from_logprobs(logprobs: Any, options: list[str]) -> dict[str, float] | None:
+    """Probability of each option letter from the first token position that mentions one.
+
+    Uses the top-k alternatives (deduplicated by token string, so the sampled token — which
+    also appears in the top-k list — is not double counted) and renormalises over options.
+    """
     if not logprobs:
         return None
     for tok in logprobs:
-        cands = [(tok.token, tok.logprob)] + list(tok.top)
+        cands: dict[str, float] = {}
+        for t, lp in list(tok.top) + [(tok.token, tok.logprob)]:
+            cands.setdefault(t, lp)
         mass: dict[str, float] = {}
-        for t, lp in cands:
+        for t, lp in cands.items():
             key = t.strip().strip("()*[]:.").upper()
             for o in options:
                 if key == o.upper():
                     mass[o] = mass.get(o, 0.0) + math.exp(lp)
         if mass:
-            # dedupe (token itself also appears in top list)
             return normalize({o: mass.get(o, 0.0) for o in options}, eps=1e-6)
     return None
 

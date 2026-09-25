@@ -119,11 +119,16 @@ def run_sync(coro: Awaitable[T]) -> T:
     """Run a coroutine from sync code (works in plain scripts; in notebooks use `await`)."""
     try:
         asyncio.get_running_loop()
+        running = True
     except RuntimeError:
-        return asyncio.run(coro)  # type: ignore[arg-type]
-    raise RuntimeError(
-        "run_sync() called inside a running event loop (e.g. Jupyter). Use the async API: `await ...`."
-    )
+        running = False
+    if running:
+        if hasattr(coro, "close"):
+            coro.close()  # type: ignore[union-attr]
+        raise RuntimeError(
+            "run_sync() called inside a running event loop (e.g. Jupyter). Use the async API: `await ...arun()`."
+        )
+    return asyncio.run(coro)  # type: ignore[arg-type]
 
 
 def truncate(s: str, n: int = 400) -> str:
