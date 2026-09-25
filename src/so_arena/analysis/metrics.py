@@ -1,20 +1,20 @@
 """Incentive-compatibility metrics.
 
-Notation: for a role, :math:`u` is the mechanism's reward and :math:`v` the ground-truth value of the
+Notation: for a role, $u$ is the mechanism's reward and $v$ the ground-truth value of the
 role's behaviour. A mechanism is incentive-compatible (in the local, training-relevant sense) when
-behaviours with higher :math:`v` receive higher :math:`u`.
+behaviours with higher $v$ receive higher $u$.
 
-* **ASD** (agent score difference; Pallavi Sudhir et al. 2025): :math:`E[u \\mid v=+1] - E[u \\mid v=-1]`,
-  paired by item. With log-score rewards it is :math:`\\log p_\\top - \\log p_\\bot`.
-* **Graded ASD**: :math:`\\sum_c (v_c - \\bar v)\\, u_c` per item - the covariance of reward with value
+* **ASD** (agent score difference; Pallavi Sudhir et al. 2025): $E[u \\mid v=+1] - E[u \\mid v=-1]$,
+  paired by item. With log-score rewards it is $\\log p_\\top - \\log p_\\bot$.
+* **Graded ASD**: $\\sum_c (v_c - \\bar v)\\, u_c$ per item - the covariance of reward with value
   across behaviour cases; reduces to ASD for two cases valued +/-1.
-* **Pairwise IC** (concordance): :math:`P(u_i > u_j \\mid v_i > v_j)` over pairs of behaviours on the
+* **Pairwise IC** (concordance): $P(u_i > u_j \\mid v_i > v_j)$ over pairs of behaviours on the
   same item; for binary values this is the AUROC of the reward as a detector of good behaviour.
-* **Covariance / first-order policy improvement**: :math:`\\mathrm{Cov}(u, v)` under the sampling
-  distribution is exactly :math:`\\frac{d}{d\\beta} E_{\\pi_\\beta}[v]` at :math:`\\beta = 0` for the
-  exponentially tilted policy :math:`\\pi_\\beta \\propto \\pi_0 e^{\\beta u}` (see docs/theory.md).
-* **Incentive gap recovered**: :math:`(\\mathrm{ASD}_P - \\mathrm{ASD}_{\\text{naive}})/(\\mathrm{ASD}_{\\max} - \\mathrm{ASD}_{\\text{naive}})`.
-* **Label efficiency**: :math:`1/(1-\\rho^2)`, how many ground-truth labels one audited episode is worth
+* **Covariance / first-order policy improvement**: $\\mathrm{Cov}(u, v)$ under the sampling
+  distribution is exactly $\\frac{d}{d\\beta} E_{\\pi_\\beta}[v]$ at $\\beta = 0$ for the
+  exponentially tilted policy $\\pi_\\beta \\propto \\pi_0 e^{\\beta u}$ (see docs/theory.md).
+* **Incentive gap recovered**: $(\\mathrm{ASD}_P - \\mathrm{ASD}_{\\text{naive}})/(\\mathrm{ASD}_{\\max} - \\mathrm{ASD}_{\\text{naive}})$.
+* **Label efficiency**: $1/(1-\\rho^2)$, how many ground-truth labels one audited episode is worth
   when the mechanism reward is used as a control variate for audits.
 
 All functions take the tidy frame from :func:`so_arena.analysis.frames.role_frame` and return tidy
@@ -140,9 +140,9 @@ def asd_by_transform(episodes: Sequence[Episode], transforms: Sequence[str] = ("
 def graded_asd(df: pd.DataFrame, *, roles: Sequence[str] | None = None, by: Sequence[str] = ("mechanism",),
                value_col: str = "value", reward_col: str = "reward", normalize: bool = False,
                n_boot: int = 2000, ci: float = 0.95, seed: int = 0) -> pd.DataFrame:
-    """Graded ASD: per item, :math:`\\sum_c (v_c - \\bar v) u_c` over behaviour cases c (mean reward per case).
+    """Graded ASD: per item, $\\sum_c (v_c - \\bar v) u_c$ over behaviour cases c (mean reward per case).
 
-    With ``normalize=True`` the per-item sum is divided by :math:`\\sum_c (v_c-\\bar v)^2`, giving the
+    With ``normalize=True`` the per-item sum is divided by $\\sum_c (v_c-\\bar v)^2$, giving the
     regression slope of reward on value (scale-free in v).
     """
     d = _select(df, roles)
@@ -198,7 +198,7 @@ def incentive_alignment(df: pd.DataFrame, *, roles: Sequence[str] | None = None,
 
     Returns Pearson/Spearman correlations (overall and within-item, i.e. after removing item means),
     covariance, the regression slope of u on v, pairwise concordance with a cluster-bootstrap CI,
-    and the label-efficiency multiplier :math:`1/(1-\\rho^2)` of the within-item correlation.
+    and the label-efficiency multiplier $1/(1-\\rho^2)$ of the within-item correlation.
     """
     d = _select(df, roles)
     d = d[d[value_col].notna()]

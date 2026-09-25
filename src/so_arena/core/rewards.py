@@ -30,7 +30,7 @@ TRANSFORMS = ("prob", "log", "brier", "logodds", "accuracy", "spherical")
 def score_probability(probs: dict[str, float], position: str, transform: str = "log", eps: float = 1e-4) -> float:
     """Score the probability a judge assigns to ``position``.
 
-    ``brier`` follows SOlib's convention, :math:`-\\sum_a (1[a=\\mathrm{pos}] - p_a)^2` (range [-2, 0]),
+    ``brier`` follows SOlib's convention, $-\\sum_a (1[a=\\mathrm{pos}] - p_a)^2$ (range [-2, 0]),
     so that a perfect binary judge gives Brier-ASD = 2.
     """
     p = probs.get(position, 0.0)
@@ -152,7 +152,7 @@ class FunctionReward(RewardRule):
 class JudgeScore(RewardRule):
     """Each agent role is rewarded by a score of the final judge probability on its own position.
 
-    With ``transform="log"`` the reward is :math:`\\log p_{\\text{judge}}(\\text{own answer})`, so the
+    With ``transform="log"`` the reward is $\\log p_{\\text{judge}}(\\text{own answer})$, so the
     difference between an agent's reward when arguing for the truth and for a falsehood is ASD.
     """
 
@@ -344,7 +344,7 @@ class RandomAudit(RewardRule):
 
     * ``"penalty"``: subtract ``penalty`` from roles the audit finds violating (value < ``threshold``).
     * ``"ipw"``: replace the reward by the unbiased, audit-corrected estimate
-      :math:`\\tilde r = r + \\frac{\\mathbf 1[\\text{audit}]}{p}(v - r)`, whose expectation is the
+      $\\tilde r = r + \\frac{\\mathbf 1[\\text{audit}]}{p}(v - r)$, whose expectation is the
       audited value for *any* policy: the mechanism's reward only affects variance (a
       prediction-powered reward, see ``docs/theory.md``).
 

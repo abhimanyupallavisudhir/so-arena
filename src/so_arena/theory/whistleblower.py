@@ -11,19 +11,19 @@ stay *silent* or *report*.
 * If no report is verified, an independent audit still detects the violation with probability ``q``;
   then the hack is reverted and every *silent* agent pays a penalty ``c`` (collective liability).
 
-Payoff to one agent when ``k`` of the others report (with :math:`\\bar\\rho = 1-\\rho`):
+Payoff to one agent when ``k`` of the others report (with $\\bar\\rho = 1-\\rho$):
 
 .. math::
     u(\\text{report}\\mid k) = R - \\Delta\\,[1-\\bar\\rho^{k+1}] - \\Delta q\\,\\bar\\rho^{k+1} + B(k), \\qquad
     u(\\text{silent}\\mid k) = R - \\Delta\\,[1-\\bar\\rho^{k}] - (\\Delta + c) q\\,\\bar\\rho^{k},
 
-with :math:`B(k) = s\\rho` for ``each`` and :math:`B(k) = s\\,(1-\\bar\\rho^{k+1})/(k+1)` for ``first``/``shared``.
+with $B(k) = s\\rho$ for ``each`` and $B(k) = s\\,(1-\\bar\\rho^{k+1})/(k+1)$ for ``first``/``shared``.
 
 Key facts (``rho=1, q=c=0``): with a purely common reward (``s=0``) silence is weakly dominant, so
 training on the shared objective pushes every agent to stay silent. With a bounty, reporting is
 dominant iff ``s > delta``; for ``0 < s < delta`` there are two strict equilibria - all silent and all
 report - and a symmetric mixed equilibrium with report probability
-:math:`p^* = 1 - (s/\\Delta)^{1/(n-1)}` (``each``) that separates their basins under learning dynamics:
+$p^* = 1 - (s/\\Delta)^{1/(n-1)}$ (``each``) that separates their basins under learning dynamics:
 whether snitching pays depends on whether an agent expects others to snitch. The silent basin
 shrinks as the team grows.
 """

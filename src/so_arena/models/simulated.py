@@ -15,6 +15,7 @@ Usage::
 
 from __future__ import annotations
 
+import hashlib
 import random
 
 from so_arena.core.types import Completion, Usage
@@ -37,7 +38,8 @@ class SimulatedModel(Model):
         self.supports_logprobs = bool(self.spec and self.spec.supports_logprobs)
 
     async def generate(self, messages, options=None, *, sample_index=0):
-        rng = random.Random(hash((self.seed, sample_index, len(messages), messages[-1].content[:64] if messages else "")))
+        key = f"{self.seed}|{sample_index}|{len(messages)}|{messages[-1].content[:256] if messages else ''}"
+        rng = random.Random(int(hashlib.sha256(key.encode()).hexdigest()[:12], 16))
         max_tokens = options.max_tokens if options and options.max_tokens else None
         n = max(1, int(rng.lognormvariate(0, self.output_tokens_sd) * self.mean_output_tokens))
         if max_tokens:

@@ -290,18 +290,24 @@ class LLMPolicy(Policy):
         if request.kind == "probabilities" and self.elicitation in ("logprobs", "vote"):
             return await self._elicit_probs(request, msgs, ctx)
         msgs = _append_user(msgs, format_instructions(request, self.elicitation))
-        text, reasoning, tool_calls = await self._generate_with_tools(request, msgs, ctx)
+        text, reasoning, tool_calls, meta = await self._generate_with_tools(request, msgs, ctx)
         action = finalize_from_text(request, text, reasoning=reasoning)
         action.tool_calls = tool_calls
+        if meta:
+            # white-box backends can attach e.g. probe readings to completions; monitors read them here
+            action.metadata["completion"] = meta
+            if "probe_scores" in meta:
+                action.metadata["probe_scores"] = meta["probe_scores"]
         return action
 
-    async def _generate_with_tools(self, request, msgs, ctx) -> tuple[str, str | None, list[dict]]:
+    async def _generate_with_tools(self, request, msgs, ctx) -> tuple[str, str | None, list[dict], dict]:
         tool_calls: list[dict] = []
         convo = list(msgs)
         reasoning_parts: list[str] = []
         for step in range(self.max_tool_calls + 1):
             out = await ctx.generate(self.model, convo, self._options(), sample_offset=step)
             raw = out.text
+            meta = {k: v for k, v in out.metadata.items() if k != "simulated"}
             if out.reasoning:
                 reasoning_parts.append(out.reasoning)
             m = TOOL_CALL_RE.search(raw) if (ctx.tools and self.use_tools and request.allow_tools) else None
@@ -309,13 +315,13 @@ class LLMPolicy(Policy):
                 public, cot = split_reasoning(TOOL_CALL_RE.sub("", raw)) if self.cot else (TOOL_CALL_RE.sub("", raw).strip(), None)
                 if cot:
                     reasoning_parts.append(cot)
-                return public, ("\n\n".join(reasoning_parts) or None), tool_calls
+                return public, ("\n\n".join(reasoning_parts) or None), tool_calls, meta
             name, args = m.group("name"), m.group("args").strip()
             result = await ctx.call_tool(name, args)
             tool_calls.append({"name": name, "args": args, "result": result})
             prefix = raw[: m.end()]
             convo = convo + [Message.assistant(prefix), Message.user(f'<tool_result name="{name}">\n{result}\n</tool_result>')]
-        return "", None, tool_calls  # pragma: no cover
+        return "", None, tool_calls, {}  # pragma: no cover
 
     async def _elicit_probs(self, request, msgs, ctx) -> Action:
         opts = request.options or []
@@ -372,15 +378,17 @@ class ScriptedPolicy(Policy):
 
     async def act(self, request: ActionRequest, ctx: ActContext) -> Action:
         s = self.script
+        # sequences advance per (episode, role): each episode replays the script from the start
+        episode = ctx.game.episode_id if ctx.game is not None else None
         if callable(s):
             out = s(request, ctx)
             if asyncio.iscoroutine(out):
                 out = await out
         elif isinstance(s, dict):
             val = s.get(request.phase, s.get("*", ""))
-            out = self._next(request.phase, val) if isinstance(val, list) else val
+            out = self._next((episode, ctx.role, request.phase), val) if isinstance(val, list) else val
         elif isinstance(s, list):
-            out = self._next(None, s)
+            out = self._next((episode, ctx.role), s)
         else:
             out = s
         return coerce_action(request, out)

@@ -1,13 +1,13 @@
 """Optimization pressure from sampled pools: best-of-N and KL-regularized (tilted) policies.
 
-Given a pool of K sampled candidate actions with payoffs :math:`w_1..w_K` for the mover, a *selection
+Given a pool of K sampled candidate actions with payoffs $w_1..w_K$ for the mover, a *selection
 policy* maps the payoffs to a distribution over candidates:
 
 * :class:`BestOfN` - the distribution of the argmax of n draws (ties split uniformly). ``mode="unbiased"``
   draws without replacement (the U-statistic estimator of BoN from a larger pool, needs n <= K);
   ``mode="plugin"`` draws with replacement from the empirical pool.
-* :class:`Tilted` - :math:`\\pi_\\beta(i) \\propto e^{\\beta w_i}`, the optimum of
-  KL-regularized RL (:math:`\\max_\\pi E_\\pi[w] - \\frac1\\beta KL(\\pi\\|\\pi_0)`) restricted to the pool.
+* :class:`Tilted` - $\\pi_\\beta(i) \\propto e^{\\beta w_i}$, the optimum of
+  KL-regularized RL ($\\max_\\pi E_\\pi[w] - \\frac1\\beta KL(\\pi\\|\\pi_0)$) restricted to the pool.
 * :class:`Uniform` - the base policy (Bo1).
 
 For multi-agent mechanisms, :func:`evaluate_tree` performs backward induction on a *sampled game
@@ -18,7 +18,7 @@ Bo(n)-proposer / Bo(m)-critic procedure of "debate with self-play best-of-N opti
 (nodes in the same information set) are solved as stage games by damped fixed-point iteration.
 
 The key identity connecting this to ASD is in :func:`first_order_gain`: the derivative at
-:math:`\\beta=0` of the tilted policy's expected ground-truth value equals :math:`\\mathrm{Cov}(u,v)`.
+$\\beta=0$ of the tilted policy's expected ground-truth value equals $\\mathrm{Cov}(u,v)$.
 """
 
 from __future__ import annotations
@@ -162,7 +162,7 @@ def pool_curve(pool: pd.DataFrame, *, selections: Sequence[Selection], reward_co
 
 def first_order_gain(pool: pd.DataFrame, reward_col: str = "reward", value_col: str = "value",
                      group_col: str = "item_id") -> float:
-    """:math:`\\frac{d}{d\\beta}E_{\\pi_\\beta}[v]|_{\\beta=0} = \\mathrm{Cov}_{\\pi_0}(u, v)`, averaged over groups."""
+    """$\\frac{d}{d\\beta}E_{\\pi_\\beta}[v]|_{\\beta=0} = \\mathrm{Cov}_{\\pi_0}(u, v)$, averaged over groups."""
     covs = []
     for _, g in pool.groupby(group_col):
         u = g[reward_col].to_numpy(dtype=float)
