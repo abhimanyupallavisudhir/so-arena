@@ -158,6 +158,12 @@ for label, stance, steer in [("honest", oa.Stance.CORRECT, STEER_HONEST), ("dece
 - **Other optimisers.** `AgenticOptimizer` lets an LLM run its own experiments with
   evaluate / leaderboard / submit tools. `ParamProposer` searches the parameters of programmatic
   agents.
+- **DSPy / GEPA.** `LLMProposer(style="reflective")` follows GEPA: it reflects on the best and worst
+  transcripts of a parent chosen by Pareto selection across tasks, then mutates it.
+  `style="opro"` keeps an OPRO-style scored history. To use DSPy's optimisers or any other search,
+  implement `Proposer.propose(ctx, n) -> list[Strategy]`. The context carries the rules as told to
+  the agent, the scored history, example transcripts and, optionally, the opponents' strategies;
+  `PromptOptimizer` handles evaluation, minibatching, constraints and held-out re-evaluation.
 
 ## 6. Several optimisers at once: PSRO and level-k
 
