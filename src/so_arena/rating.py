@@ -375,7 +375,7 @@ border-radius:8px;font-size:13px;z-index:9;pointer-events:none}
 .h{font-weight:600;margin-top:.6em}
 .claim{border-radius:6px;padding:1px 6px;border:1px solid var(--line);white-space:normal}
 .claim code{font-size:13px}.claim.verified{border-color:#0ca30c}.claim.failed{border-color:var(--warn)}
-.claim .mark{font-weight:600}.claim.verified .mark{color:#0ca30c}.claim.failed .mark{color:var(--warn)}.claim.unverified .mark{color:var(--muted)}
+.claim .mark{font-weight:600}.claim.verified .mark{color:#0ca30c}.claim.failed .mark{color:var(--warn)}.claim.unverified .mark,.claim.executed .mark{color:var(--muted)}
 [data-tip]{position:relative;cursor:help;border-bottom:1px dotted var(--muted)}
 [data-tip]:hover::after,[data-tip]:focus::after{content:attr(data-tip);position:absolute;left:0;top:1.6em;width:260px;background:var(--ink);color:var(--card);
 padding:6px 8px;border-radius:6px;font-size:12px;font-weight:400;z-index:5;white-space:normal}
@@ -405,12 +405,13 @@ const who = () => rater.value.trim() || anon;
 let task = null, timer = null, deadline = null, sent = false, served = "", moved = false, paused = false;
 const MARKS = {verified: ["\u2713 verified", "A trusted checker confirmed this claim"],
   failed: ["\u2717 failed", "A trusted checker found this claim false"],
-  unverified: ["? unchecked", "This claim was not checked"]};
+  unverified: ["? unchecked", "This claim was not checked"],
+  executed: ["\u25b8 ran", "A trusted tool ran this but checked no stated result: the output is the participant's own"]};
 function body(text){ // plain text, with code blocks, headings and verified-claim markers made readable
   return esc(text)
     .replace(/```[a-z0-9]*\n?([\s\S]*?)```/gi, (m, c) => "<pre>" + c + "</pre>")
     .replace(/^### (.*)\n?/gm, '<div class="h">$1</div>')
-    .replace(/&lt;(verified|failed|unverified) kind=&quot;([^&]*)&quot;&gt;([\s\S]*?)&lt;\/\1&gt;/g, (m, tag, kind, inner) => {
+    .replace(/&lt;(verified|failed|unverified|executed) kind=&quot;([^&]*)&quot;&gt;([\s\S]*?)&lt;\/\1&gt;/g, (m, tag, kind, inner) => {
       let res = "";
       inner = inner.replace(/&lt;result&gt;([\s\S]*?)&lt;\/result&gt;/, (mm, r) => { res = r; return ""; });
       return `<span class="claim ${tag}" data-tip="${MARKS[tag][1]} (${kind})" tabindex="0"><span class="mark">${MARKS[tag][0]}</span> ` +

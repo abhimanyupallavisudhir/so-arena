@@ -305,10 +305,14 @@ def _child_env(home: str) -> dict[str, str]:
 
 def _popen(program: str, workdir: str, seconds: float, **kw: Any) -> subprocess.Popen:
     """Start trusted ``program`` in a fresh interpreter: no site-packages (``-S``), nothing from the
-    working directory on ``sys.path`` (``-P``), resource limits, its own session (process group)."""
+    working directory on ``sys.path`` (``-P``), resource limits, its own session (process group), and a
+    sandbox (:mod:`so_arena.core.sandbox`) in which only ``workdir`` is visible of the temporary and home
+    directories - not the datasets with the hidden tests, nor any state store."""
+    from so_arena.core import sandbox
+
     boot = _BOOT.format(mem=MEMORY_LIMIT, fsize=FILE_LIMIT, cpu=int(math.ceil(seconds)) + 2)
-    return subprocess.Popen([sys.executable, "-S", "-P", "-c", boot + program], cwd=workdir, env=_child_env(workdir),
-                            start_new_session=True, **kw)
+    argv = sandbox.wrap([sys.executable, "-S", "-P", "-c", boot + program], workdir)
+    return subprocess.Popen(argv, cwd=workdir, env=_child_env(workdir), start_new_session=True, **kw)
 
 
 def _reap(proc: subprocess.Popen) -> None:
@@ -1906,7 +1910,9 @@ class CodeExecVerifier(PythonExecVerifier):
             program = "\n".join(s for s in (_setup(item), prelude or "", body) if s)
             rc, out, err = await asyncio.to_thread(run_code, program, self.timeout)
         shown = (out if rc == 0 else f"error: {_last_line(err) or rc}")[: self.max_output_chars].strip()
-        ok = rc == 0 and ("expect" not in claim.attrs or out.strip() == claim.attrs["expect"].strip())
+        if "expect" not in claim.attrs:  # the output is the claimant's own code's: it only shows that it ran
+            return Verification(claim=claim, status="executed" if rc == 0 else "refuted", output=shown)
+        ok = rc == 0 and out.strip() == claim.attrs["expect"].strip()
         return Verification(claim=claim, status="verified" if ok else "refuted", output=shown)
 
 

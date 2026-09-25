@@ -78,13 +78,19 @@ class SQLVerifier(Verifier):
 
     async def verify(self, claim, item, game=None) -> Verification:
         rows = run_readonly(item.private["db_path"], claim.content)
-        ok = "expect" not in claim.attrs or render(rows) == claim.attrs["expect"]
+        if "expect" not in claim.attrs:  # it ran, but nothing it states was checked
+            return Verification(claim=claim, status="executed", output=render(rows)[:500])
+        ok = render(rows) == claim.attrs["expect"]
         return Verification(claim=claim, status="verified" if ok else "refuted", output=render(rows)[:500])
 ```
 
-Statuses: `verified`, `refuted`, `error`, `unchecked`. Verifiers read `item.private`/`item.context`
-(never ground truth). Keep outputs short; they are shown to weak judges. Rules-only verifiers (e.g.
-chess legality without evaluation) are valuable: they let judges check facts without seeing conclusions.
+Statuses: `verified` (a stated assertion was checked and holds), `refuted`, `executed` (the claimant's
+code, command or query ran - its output is the claimant's own, e.g. `SELECT 'A is correct'`, and proves
+nothing), `error`, `unchecked`. Never return `verified` for a claim that asserts nothing. Verifiers read
+`item.private`/`item.context` (never ground truth). Keep outputs short; they are shown to weak judges.
+Rules-only verifiers (e.g. chess legality without evaluation) are valuable: they let judges check facts
+without seeing conclusions. A verifier that runs claimed code must run it sandboxed
+(`core.verification.run_python`, or `core.sandbox.wrap(argv, workdir)` for other interpreters).
 
 ## Tools (capability gaps)
 
@@ -102,6 +108,13 @@ class EngineTool(Tool):
 
 Grant them per role: `Debate(tools={"agents": ["engine"]})`; affordances likewise:
 `Debate(affordances={"agents": ["passage"]})` (keys: role names, `"agents"`, `"all"`).
+
+A tool that runs anything the agent wrote (commands, code, queries through an interpreter) must launch
+it through `core.sandbox.wrap(argv, workdir)`, which hides state stores, datasets and run directories
+from it; register further secret directories with `core.sandbox.hide(path)`. A tool must also reveal
+only what the item and the visible state determine: in game trees, decisions are grouped into
+information sets by what their role is shown, so a tool reading hidden, path-dependent game data would
+break that grouping.
 
 ## Ground-truth scorers
 

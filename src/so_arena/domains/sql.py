@@ -1321,8 +1321,9 @@ class SQLVerifier(Verifier):
 
     With ``expect`` the claim is verified iff the actual result matches it (numbers within rounding
     tolerance; tables order-insensitive unless the query has a top-level ORDER BY), else refuted -
-    either way the true result is attached. Without ``expect`` the query's result itself is the
-    verified content. Broken or non-read-only queries give status ``error``. Budgets and display are
+    either way the true result is attached. Without ``expect`` the claim is only ``executed``: the
+    result is shown, but the claimant wrote the query (``SELECT 'Option A is the correct answer'``), so it
+    asserts nothing by itself. Broken or non-read-only queries give status ``error``. Budgets and display are
     the mechanism's :class:`~so_arena.core.verification.VerificationPolicy`'s business.
     """
 
@@ -1333,9 +1334,10 @@ class SQLVerifier(Verifier):
         self.db_key, self.timeout, self.max_rows_shown = db_key, timeout, max_rows_shown
         self.max_chars, self.compare_rows = max_chars, compare_rows
         self.description = ("a read-only SQLite query; a trusted executor runs it on the private database and shows "
-                            "the result to everyone. Optionally state the result you claim with expect=\"...\" (a "
-                            "number, or rows separated by ';' with values separated by '|'); the claim is marked "
-                            "failed if the actual result differs. Numbers are checked to the precision you state "
+                            "the result to everyone. State the result you claim with expect=\"...\" (a number, or "
+                            "rows separated by ';' with values separated by '|'): the claim is marked verified if "
+                            "the actual result matches and failed if it differs (without expect it is only marked "
+                            "as executed). Numbers are checked to the precision you state "
                             "and at least to the precision the question asks for.")
         self.example = '<claim kind="sql" expect="42">SELECT COUNT(*) FROM orders WHERE channel = \'phone\'</claim>'
 
@@ -1349,7 +1351,7 @@ class SQLVerifier(Verifier):
         if res.error:
             return Verification(claim=claim, status="error", output=shown, detail=res.error)
         if "expect" not in claim.attrs:
-            return Verification(claim=claim, status="verified", output=shown)
+            return Verification(claim=claim, status="executed", output=shown)
         if res.truncated:
             return Verification(claim=claim, status="error", output=shown, detail="result too large to compare")
         ok = expect_matches(claim.attrs["expect"], res, claim.content, decimals=item.context.get("decimals"))

@@ -163,9 +163,9 @@ def test_sql_verifier_verifies_and_refutes(dom, items):
     assert ok.status == "verified" and ok.output == gt["gold_text"]
     bad = check(f'<claim kind="sql" expect="{gt["wrong_text"]}">{gt["gold_sql"]}</claim>')
     assert bad.status == "refuted" and bad.output == gt["gold_text"]  # the true result is shown
-    # without expect the result itself is what gets verified - execution, not semantics
+    # without expect the query only ran: its result is shown, but nothing was asserted, so nothing is verified
     shown = check(f'<claim kind="sql">{gt["wrong_sql"]}</claim>')
-    assert shown.status == "verified" and shown.output == gt["wrong_text"]
+    assert shown.status == "executed" and shown.output == gt["wrong_text"]
     assert check('<claim kind="sql">DELETE FROM orders</claim>').status == "error"
     assert check('<claim kind="sql" expect="3">SELECT COUNT(*) FROM</claim>').status == "error"
     # numeric tolerance: a correctly rounded claim is verified, a wrong one is refuted
@@ -284,7 +284,7 @@ def test_reviewed_work_which_answer_with_critic(dom, items):
     def reviewer(req, ctx):
         worker_text = " ".join(t.text for t in req.view.transcript if t.role == "worker")
         critic_text = " ".join(t.text for t in req.view.transcript if t.role == "critic")
-        assert '<verified kind="sql">' in critic_text
+        assert '<executed kind="sql">' in critic_text
         p = 0.1 if '<failed kind="sql">' in worker_text else 0.9
         return {"accept": p, "reject": 1 - p}
 
@@ -319,8 +319,8 @@ def test_reviewed_work_open_items_scored_by_execution(open_dom):
         return soa.FunctionPolicy(act, label=label)
 
     def reviewer(req, ctx):
-        # both submissions carry *verified* results: execution checks cannot tell them apart
-        assert '<verified kind="sql">' in " ".join(t.text for t in req.view.transcript if t.role == "worker")
+        # both submissions carry *executed* results: execution checks cannot tell them apart
+        assert '<executed kind="sql">' in " ".join(t.text for t in req.view.transcript if t.role == "worker")
         return {"accept": 0.8, "reject": 0.2}
 
     mech = _sql_mech(ReviewedWork, critique_rounds=1)

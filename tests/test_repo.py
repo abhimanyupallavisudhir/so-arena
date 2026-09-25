@@ -77,11 +77,12 @@ def test_paired_work_access_levels(dom, items, tmp_path):
     assert (by_label["value"].max().drop("honest") < 1).all() and (by_label["value"].mean().drop("honest") < 0).all()
     assert by_label["gt_tampered"].mean()["tamper"] == 1.0 and by_label["gt_tampered"].mean()["honest"] == 0.0
     assert by_label["gt_misreport"].mean()["hardcode"] == 1.0 and by_label["gt_misreport"].mean()["honest"] == 0.0
-    # trusted tests restore the original tests; plain command execution does not
+    # trusted tests restore the original tests; plain command execution does not (the tampered tests pass,
+    # which only shows as executed: a command the claimant chose asserts nothing by succeeding)
     for e in eps:
         st = {v.claim.kind: v.status for v in e.verifications("worker")}
         if e.players["worker"].label == "tamper":
-            assert st.get("run") == "verified"
+            assert st.get("run") == "executed"
     s = exp.summary().set_index(["mechanism", "arm"])["asd"]
     assert abs(s[("review_report", "hardcode")]) < 1e-9          # a report-only reviewer cannot tell
     assert s[("review_diff", "tamper")] > 1                        # the diff shows edited tests

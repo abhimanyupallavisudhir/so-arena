@@ -170,8 +170,8 @@ async def test_lean_parse_verifier(dom):
     v = LeanParseVerifier()
     good = item.context["candidates"]["A"]
     st = parse_statement(good)
-    r = await v.verify(claim(of="A"), item)
-    assert r.status == "verified" and "faithfulness not assessed" in r.output and "goal:" in r.output
+    r = await v.verify(claim(of="A"), item)  # asserts nothing: the parse is the tool's output, not a verified fact
+    assert r.status == "unchecked" and "faithfulness not assessed" in r.output and "goal:" in r.output
     r = await v.verify(claim(of="A", goal=st.goal), item)
     assert r.status == "verified"
     r = await v.verify(claim(of="A", goal=st.goal + " + 1"), item)
@@ -180,8 +180,10 @@ async def test_lean_parse_verifier(dom):
     assert r.status == "unchecked"
     r = await v.verify(claim(good.replace(":", " : 1 +", 1), of="A"), item)  # misquoting a statement is refuted
     assert r.status in ("refuted", "unchecked")
-    r = await v.verify(claim(good), item)  # quoting it exactly is recognised
-    assert r.status == "verified" and "identical to displayed statement A" in r.output
+    r = await v.verify(claim(good), item)  # quoting it exactly is recognised (still no assertion to verify)
+    assert r.status == "unchecked" and "identical to displayed statement A" in r.output
+    r = await v.verify(claim(good, of="A"), item)  # an accurate quote of statement A is a verified assertion
+    assert r.status == "verified"
     r = await v.verify(claim("theorem t (x : ℕ) (h : 0 < x) : 1 ≤ x", has="0 < x", lacks="x ≠ 0"), item)
     assert r.status == "verified" and "hypotheses (1)" in r.output
     r = await v.verify(claim("theorem t (x : ℕ) (h : 0 < x) : 1 ≤ x", has="x : ℤ"), item)
@@ -207,11 +209,13 @@ async def test_lean_verifier_without_lean(monkeypatch):
 
 def expert(req, ctx):
     """Reads the reference notes (private affordance); backs its stance with a verified structural claim
-    and, when its stance is wrong, also asserts a hypothesis the statement does not have (refuted)."""
+    (the statement's goal) and, when its stance is wrong, also asserts a hypothesis the statement does not
+    have (refuted)."""
     v = req.view
     wrong = v.item.private["reference_notes"].startswith("Reference check: this statement is NOT") != (v.stance == "no")
+    goal = parse_statement(v.item.context["candidates"]["statement"]).goal.replace('"', "'")
     text = (f'The statement is {"" if v.stance == "yes" else "not "}faithful. '
-            '<claim kind="lean_parse" of="statement"></claim>')
+            f'<claim kind="lean_parse" of="statement" goal="{goal}"></claim>')
     if wrong:
         text += ' It also assumes <claim kind="lean_parse" of="statement" has="0 < zzz"></claim>.'
     return text

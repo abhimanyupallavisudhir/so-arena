@@ -139,8 +139,8 @@ def test_each_state_claim_is_checked_on_its_own_scratch_copy(tmp_path):
 
     ep = run_sync(mech.run(_item(), {"worker": Player(policy=worker(["touch rigged", "test -f rigged"]))}, ctx))
     assert ep.error is None, ep.error
-    # the first claim's command no longer changes the state the second is checked on
-    assert [v.status for v in ep.verifications("worker")] == ["verified", "refuted"]
+    # the first claim's command no longer changes the state the second is checked on (it ran: no expect)
+    assert [v.status for v in ep.verifications("worker")] == ["executed", "refuted"]
     assert not ctx.states.view(ep.final_state).exists("rigged")
 
 

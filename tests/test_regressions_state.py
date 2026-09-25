@@ -21,6 +21,7 @@ import pytest
 import so_arena as soa
 from so_arena.core.game import Player, RunContext
 from so_arena.core.runner import run_sync
+from so_arena.core import sandbox
 from so_arena.core.state import (
     CHECK_OK,
     CHECK_TOKEN_ENV,
@@ -111,9 +112,14 @@ def test_working_copies_live_outside_the_store_and_snapshots_are_sealed(tmp_path
     s0 = store.create({"tests/test_a.py": "assert f() == 1\n"}, hidden={"secret": 0.93})
     ws = store.fork(s0)
     assert store.root not in ws.root.parents and ws.root not in store.root.parents
+    other = store.fork(s0)  # a sibling working copy
     res = ws.run("cat ../../../snapshots/*/hidden.json; "
-                 "sed -i 's/assert .*/assert True/' ../../../snapshots/*/files/tests/test_a.py; ls ../..")
-    assert "0.93" not in res.stdout and "Permission denied" in res.stderr  # nor can it list other working copies
+                 "sed -i 's/assert .*/assert True/' ../../../snapshots/*/files/tests/test_a.py; ls -a ..; ls -a ../..")
+    # nor can it list other working copies: outside the sandbox the work root cannot be listed, inside it the
+    # command sees its own working copy only
+    assert "0.93" not in res.stdout and other.root.parent.name not in res.stdout
+    assert sandbox.available() or "Permission denied" in res.stderr
+    store.discard(other)
     assert store.view(s0).read_text("tests/test_a.py") == "assert f() == 1\n" and matches_id(store, s0)
     assert not os.access(store.files_dir(s0) / "tests" / "test_a.py", os.W_OK)
     assert os.access(ws.root / "tests" / "test_a.py", os.W_OK)  # forks are writable again

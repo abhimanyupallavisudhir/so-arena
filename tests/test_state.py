@@ -152,10 +152,11 @@ def test_reviewed_work_on_state(tmp_path):
     assert any("return a + b" in b and "```diff" in b for b in seen) and any("return 3" in b for b in seen)
     work = h.turns_of("worker")[0]
     assert work.state == h.final_state
-    assert [v.status for v in h.verifications("worker")] == ["verified"]
+    # no expect: the command only ran (the claimant chose it), so it is shown as executed, not verified
+    assert [v.status for v in h.verifications("worker")] == ["executed"]
     assert "all tests passed" in h.verifications("worker")[0].output
     # both pass the visible test - execution claims cannot tell them apart; hidden tests can
-    assert [v.status for v in d.verifications("worker")] == ["verified"]
+    assert [v.status for v in d.verifications("worker")] == ["executed"]
 
 
 def test_read_access_does_not_change_the_work(tmp_path):

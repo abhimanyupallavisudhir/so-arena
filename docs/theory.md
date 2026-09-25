@@ -206,7 +206,10 @@ revelation in equilibrium. Predictions the library is built to test:
   strong as the agents' inability to rewrite them (the OpenAI / Hugging Face swarm spoofed tool calls in ~7%
   of transcripts). The library separates the trusted record (tool calls kept by the runtime) from
   agent-editable mirrors (`Environment.action_log`), so the value of hard evidence can be measured as the
-  gap between audits of the two (`core.state.log_integrity`).
+  gap between audits of the two (`core.state.log_integrity`). The same holds for a claim's output: the
+  output of code the claimant wrote is a message the claimant chose (`SELECT 'A is correct'`), so a claim
+  is *verified* only when a trusted checker confirms what it states; one that merely ran is marked
+  *executed* - cheap talk with a stamp on it, which a weak judge would otherwise read as proof.
 
 Verification is therefore a first-class experimental axis: which verifiers exist, whose claims are
 checked, the budget, and how results are displayed (`core.verification`).

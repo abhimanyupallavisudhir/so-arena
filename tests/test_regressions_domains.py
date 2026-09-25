@@ -181,7 +181,7 @@ def test_oracle_claims_learn_the_references_outputs_not_its_code():
              "for p in os.listdir('.'):\n    seen += open(p, errors='replace').read() if os.path.isfile(p) else ''\n"
              "print('MARK-' + 'ref-src' in seen, 'x ' + '* x' in seen)")  # (not spelled out: the claim is in its globals)
     v = claim(snoop)
-    assert v.status == "verified" and v.output == "False False"
+    assert v.status == "executed" and v.output == "False False"  # no expect: it only ran
     assert claim("try:\n    f('a')\nexcept TypeError:\n    print('TypeError')").output == "TypeError"
     assert claim("print(g(1))").status == "refuted"  # only the reference's functions exist
 

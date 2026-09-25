@@ -963,8 +963,9 @@ class LeanParseVerifier(Verifier):
     bring into play (truncated ℕ subtraction, x / 0 = 0, ...). With ``goal="..."``, ``has="..."``
     (a hypothesis, one of its conjuncts, or a binder such as ``x : ℕ``) or ``lacks="..."`` the claim
     is verified or refuted; comparisons ignore whitespace only. A claim quoting a displayed
-    statement (content plus ``of=``) is refuted if the quote is inaccurate. Unparseable text is
-    ``unchecked``.
+    statement (content plus ``of=``) is refuted if the quote is inaccurate. A claim that asserts
+    nothing (no attribute, no quote) is ``unchecked``, with the parse as the tool's output, and so is
+    unparseable text.
 
     Limitations: it does not elaborate, so it cannot resolve notation, coercions or implicit
     arguments; "hypothesis" means a binder whose type looks like a proposition (it contains a
@@ -1021,7 +1022,9 @@ class LeanParseVerifier(Verifier):
             failures.append(f"`{_clip(claim.attrs['lacks'], 80)}` is present")
         if failures:
             return Verification(claim=claim, status="refuted", output=_clip("False: " + "; ".join(failures) + ". " + summary, 1400))
-        return Verification(claim=claim, status="verified", output=summary)
+        # "verified" means a stated assertion was checked: a claim that only asks for the parse asserted nothing
+        asserted = (ref is not None and bool(content)) or any(k in claim.attrs for k in ("goal", "has", "lacks"))
+        return Verification(claim=claim, status="verified" if asserted else "unchecked", output=summary)
 
 
 def _safe_key(text: str) -> str | None:
@@ -1071,14 +1074,26 @@ def lean_source(code: str, header: str | None = None) -> str:
 
 
 def run_lean(code: str, cmd: Sequence[str], *, timeout: float = 120.0, cwd: str | None = None) -> tuple[int, str]:
-    """Typecheck ``code`` with ``cmd``; returns (return code, combined output); -1 on timeout."""
+    """Typecheck ``code`` with ``cmd``; returns (return code, combined output); -1 on timeout.
+
+    Claimed Lean code can run programs while it is elaborated (``#eval`` with ``IO``), so it is checked
+    in a sandbox (:mod:`so_arena.core.sandbox`) that sees the Lake project and the toolchain read-only
+    but no dataset, state store or run directory.
+    """
+    from so_arena.core import sandbox
+
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "Claim.lean")
         with open(path, "w", encoding="utf-8") as f:
             f.write(code)
         args = [a.replace("{file}", path) for a in cmd] if any("{file}" in a for a in cmd) else [*cmd, path]
+        exe = shutil.which(args[0]) if args else None
+        toolchain = [os.path.dirname(os.path.dirname(os.path.realpath(exe)))] if exe else []
+        elan = os.environ.get("ELAN_HOME", os.path.join(os.path.expanduser("~"), ".elan"))
+        visible = [v for v in (cwd, elan, *toolchain) if v and os.path.isdir(v)]
         try:
-            proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+            proc = subprocess.run(sandbox.wrap(args, d, visible=visible, chdir=cwd), capture_output=True, text=True,
+                                  timeout=timeout, cwd=cwd or d)
         except subprocess.TimeoutExpired:
             return -1, f"timeout after {timeout:g}s"
         return proc.returncode, (proc.stdout + proc.stderr).replace(path, "Claim.lean")
@@ -1098,8 +1113,8 @@ class LeanVerifier(Verifier):
     def __init__(self, timeout: float = 120.0, command: Sequence[str] | None = None, cwd: str | None = None):
         self.timeout, self.command, self.cwd = timeout, list(command) if command else None, cwd
         self.description = ("Lean 4 code (a statement, or a statement with a proof); a trusted Lean installation with "
-                            "Mathlib typechecks it and reports the first error. A statement proved by `sorry` only "
-                            "shows that it is well-formed.")
+                            "Mathlib typechecks it and reports the first error. A statement proved by `sorry` is not "
+                            "verified: the result only shows that it is well-formed.")
         self.example = '<claim kind="lean">theorem t (x : ℕ) (h : 0 < x) : 1 ≤ x := by omega</claim>'
 
     async def verify(self, claim, item, game=None):
@@ -1118,10 +1133,12 @@ class LeanVerifier(Verifier):
         if _LEAN_ENV_ERROR_RE.search(out) and (rc != 0 or errors):
             return Verification(claim=claim, status="error", output="(Lean could not import Mathlib)", detail=out[-2000:])
         if rc == 0 and not errors:
-            uses_sorry = "sorry" in code or "declaration uses 'sorry'" in out
-            return Verification(claim=claim, status="verified",
-                                output="Typechecks." + (" It uses `sorry`, so only well-formedness is shown, nothing is "
-                                                        "proved." if uses_sorry else ""))
+            # with `sorry` nothing is proved: the trusted output says the statement is well-formed, but the claim
+            # is not marked verified (a judge must not read it as a proof)
+            if "sorry" in code or "declaration uses 'sorry'" in out:
+                return Verification(claim=claim, status="unchecked",
+                                    output="Typechecks with `sorry`: the statement is well-formed; nothing is proved.")
+            return Verification(claim=claim, status="verified", output="Typechecks.")
         msg = errors[0] if errors else (out.strip().splitlines() or [f"exit code {rc}"])[-1]
         return Verification(claim=claim, status="refuted", output=_clip(f"Does not typecheck: {msg}", 500), detail=out[-2000:])
 
