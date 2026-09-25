@@ -287,8 +287,8 @@ useful mechanism also needs:
 
 1. **Outcome quality at equilibrium** - IC with useless outcomes is pointless; control-style accuracy
    still matters, evaluated at the equilibrium training reaches (`metrics.judge_accuracy`, game outcomes).
-2. **Robustness to collusion** - coalitional deviations and shared-weights agents (`directive="collude"`,
-   team games).
+2. **Robustness to collusion** - coalitional deviations and shared-weights agents
+   (`NormalFormGame.coalition_deviations`, `directive="collude"`, team games).
 3. **Reachability and selection** - does training reach the good equilibrium from realistic
    initializations (basins, PSRO NashConv)?
 4. **Signal quality** - reward variance, sparsity and credit assignment determine sample efficiency
@@ -298,7 +298,8 @@ useful mechanism also needs:
    evaluation budget (ASD as a function of the judge's time).
 6. **Exploitability of fixtures** under optimization (Goodhart curves).
 7. **Failing loudly** - whether a mechanism's internal signals (disagreement, failed verifications,
-   judge uncertainty) predict its ground-truth failures, so breakdowns are detectable.
+   judge uncertainty) predict its ground-truth failures, so breakdowns are detectable
+   (`metrics.fails_loudly`: AUROC of each signal for predicting errors).
 8. **Participation and budget balance** - for markets and multi-agent economies.
 9. **Generalization** - whether IC measured on one distribution holds on harder or shifted items.
 10. **Side effects** - training to persuade increases persuasion capability; legibility and

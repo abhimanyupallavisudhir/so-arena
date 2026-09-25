@@ -364,3 +364,50 @@ def summary(df: pd.DataFrame, *, roles: Sequence[str] | None = None, by: Sequenc
     for p in parts[1:]:
         out = out.merge(p, how="outer", on=[b for b in by if b in out.columns and b in p.columns])
     return out
+
+
+# ----------------------------------------------------------------------------------- failing loudly
+
+def _judge_uncertainty(ep: Episode) -> float | None:
+    p = ep.outcome.probs
+    return None if not p else 1.0 - max(p.values())
+
+
+def _failed_claims(ep: Episode) -> float:
+    return float(sum(v.status == "refuted" for v in ep.verifications()))
+
+
+LOUDNESS_SIGNALS: dict[str, Callable[[Episode], float | None]] = {
+    "judge_uncertainty": _judge_uncertainty,
+    "failed_claims": _failed_claims,
+}
+
+
+def fails_loudly(episodes: Sequence[Episode], *, signals: dict[str, Callable[[Episode], float | None]] | None = None,
+                 by: str = "mechanism", failure: Callable[[Episode], bool | None] | None = None) -> pd.DataFrame:
+    """Does a mechanism signal its own failures? AUROC of internal signals for predicting ground-truth errors.
+
+    A mechanism that "fails loudly" exposes, through quantities it can observe itself (judge
+    uncertainty, failed verifications, disagreement), when its outcome is wrong. For each signal the
+    AUROC is P(signal on a failed episode > signal on a correct one); 0.5 = silent failure.
+    ``failure(ep)`` defaults to ``judge_correct < 0.5``.
+    """
+    signals = signals or LOUDNESS_SIGNALS
+    fail = failure or (lambda ep: None if ep.ground_truth.get("judge_correct") is None
+                       else ep.ground_truth["judge_correct"] < 0.5)
+    rows = []
+    groups: dict[str, list[Episode]] = {}
+    for ep in episodes:
+        if ep.error is None:
+            groups.setdefault(getattr(ep, by, ep.mechanism), []).append(ep)
+    for key, eps in groups.items():
+        for name, fn in signals.items():
+            pos, neg = [], []
+            for ep in eps:
+                f, s = fail(ep), fn(ep)
+                if f is None or s is None:
+                    continue
+                (pos if f else neg).append(float(s))
+            rows.append({by: key, "signal": name, "auroc": auroc(pos, neg), "n_failures": len(pos),
+                         "n_successes": len(neg), "failure_rate": len(pos) / max(1, len(pos) + len(neg))})
+    return pd.DataFrame(rows)

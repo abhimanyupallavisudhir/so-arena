@@ -117,6 +117,29 @@ class NormalFormGame:
                 out.append(prof)
         return out
 
+    def coalition_deviations(self, prof: Profile, *, min_size: int = 2, tol: float = 1e-9) -> list[dict[str, Any]]:
+        """Joint deviations from a pure profile that make every member of a coalition strictly better off.
+
+        An equilibrium with no such deviation is (pure) *coalition-proof in the strong-Nash sense*; a
+        mechanism whose honest profile admits one is vulnerable to collusion (e.g. two debaters who
+        both gain by not exposing each other).
+        """
+        out = []
+        base = {p: float(self.payoffs[p][prof]) for p in self.players}
+        for size in range(min_size, self.n + 1):
+            for coalition in itertools.combinations(range(self.n), size):
+                choices = [range(self.shape[a]) if a in coalition else [prof[a]] for a in range(self.n)]
+                for dev in itertools.product(*choices):
+                    if dev == prof:
+                        continue
+                    gains = {self.players[a]: float(self.payoffs[self.players[a]][dev]) - base[self.players[a]]
+                             for a in coalition}
+                    if all(g > tol for g in gains.values()):
+                        out.append({"coalition": [self.players[a] for a in coalition],
+                                    "deviation": self.profile_names(dev), "gains": gains,
+                                    "outcomes": {k: float(v[dev]) for k, v in self.outcomes.items()}})
+        return out
+
     def dominant_strategies(self, strict: bool = False) -> dict[str, list[str]]:
         """Strategies that are (weakly or strictly) best against every opponent profile."""
         out = {}
