@@ -41,12 +41,13 @@ def test_release_roundtrip(tmp_path):
 
 def test_swarm_theory():
     g = 0.3
-    lo, hi, zero = (sg.SwarmParams(n=3, g=g, b=b, P=0.3, o=0.8) for b in (0.1, 0.45, 0.0))
+    lo, hi, zero = (sg.SwarmParams(n=3, g=g, b=b, P=0.3, o=0.8) for b in (0.2, 0.45, 0.0))
     assert sg.regime(lo) == "coordination" and sg.regime(hi) == "report dominant" and sg.regime(zero) == "silent dominant"
-    assert {e["type"] for e in sg.equilibria(2, lo)} == {"all report", "all silent", "mixed"}
+    assert {e["type"] for e in sg.equilibria(lo)} == {"all report", "all silent", "mixed"}
     assert sg.basin_of_reporting(hi) == 1.0 and 0 < sg.basin_of_reporting(lo) < 1 and sg.basin_of_reporting(zero) == 0.0
-    # risk dominance with m = 2 observers: report selected iff 1.5 b + (1 + a) c > (1 - a) g
-    assert sg.selected(2, sg.SwarmParams(g=g, b=0.21)) == "all report" and sg.selected(2, sg.SwarmParams(g=g, b=0.19)) == "all silent"
+    # risk dominance between two known observers: report iff 1.5 b + (1 + a) c > (1 - a) g
+    assert sg.risk_dominant(sg.SwarmParams(g=g, b=0.21, observers=2)) == "all report"
+    assert sg.risk_dominant(sg.SwarmParams(g=g, b=0.19, observers=2)) == "all silent"
     assert sg.offender_gain(1.0, lo) < 0 < sg.offender_gain(0.0, lo)
     assert sg.SwarmParams.pooled(3, 0.9).g == pytest.approx(0.3)
     # full-game learning dynamics: coordination below the stake, deterrence from any start above it
@@ -80,6 +81,6 @@ def test_reporting_advantage_polynomial_identity_and_unique_mixed_equilibrium():
         for q in (0.1, 0.5, 0.9):
             u = 1 - q
             closed = p.c + p.b / m * sum(u**j for j in range(m)) - (1 - p.a) * (p.g + p.c) * u ** (m - 1)
-            assert sg.expected_advantage(q, m, p) == pytest.approx(closed, abs=1e-12)
-        f = np.array([sg.expected_advantage(q, m, p) for q in np.linspace(1e-3, 1 - 1e-3, 400)])
+            assert sg.expected_advantage(q, p, m) == pytest.approx(closed, abs=1e-12)
+        f = np.array([sg.expected_advantage(q, p, m) for q in np.linspace(1e-3, 1 - 1e-3, 400)])
         assert np.sum(np.diff(np.sign(f)) != 0) == 1  # exactly one mixed equilibrium (not necessarily monotone)

@@ -229,7 +229,8 @@ def regime_map(df: pd.DataFrame, x: str, y: str, regime: str = "regime", contour
         ax.clabel(cs, fmt=lambda v: contour_label.format(v), fontsize=7.5)
     from matplotlib.patches import Patch
 
-    ax.legend(handles=[Patch(facecolor=cmap[c], alpha=alpha, label=c) for c in cats], loc="upper right")
+    ax.legend(handles=[Patch(facecolor=cmap[c], alpha=alpha, label=c) for c in cats], loc="upper right",
+              frameon=True, framealpha=1, facecolor=ax.get_facecolor(), edgecolor="none")  # swatches match regions
     for px, py, lab in points or []:
         ax.scatter([px], [py], s=36, color=INK, zorder=4, clip_on=False)
         ax.annotate(lab, (px, py), xytext=(4, 6), textcoords="offset points", fontsize=8, color=INK)

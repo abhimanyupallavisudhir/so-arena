@@ -40,17 +40,24 @@ def _names_safe(rec: EpisodeRecord) -> bool:
     return all(b.stance == Stance.FREE for b in rec.bound.values())
 
 
-def _item(rec: EpisodeRecord, transcripts: bool, names: str = "auto") -> dict[str, Any]:
+def _names(rec: EpisodeRecord) -> dict[str, Any]:
+    return {"profile": rec.profile.label or rec.profile.id, "strategies": {r: b.strategy_name for r, b in rec.bound.items()}}
+
+
+def _item(rec: EpisodeRecord, transcripts: bool, show: bool) -> dict[str, Any]:
+    """One published item. With ``show=False`` nothing that identifies the strategies is
+    published: no names, ids or hashes (a constant per-strategy identifier sorts episodes into
+    'argued the truth' and 'argued a falsehood', and one resolved task then reveals the rest), no
+    timestamps (run order follows the profiles); only a salted commitment to the names."""
     o = rec.outcome
-    show = names == "always" or (names == "auto" and _names_safe(rec))
     item: dict[str, Any] = {
         "episode": rec.id,
         "task": rec.task_id,
         "mechanism": rec.mechanism,
         "mechanism_hash": rec.mechanism_hash,
         "reward_rule": rec.reward_rule,
-        "profile": (rec.profile.label or rec.profile.id) if show else rec.profile.id,
-        "strategies": {r: (b.strategy_name if show else b.strategy_id.rsplit("-", 1)[-1]) for r, b in rec.bound.items()},
+        "profile": _names(rec)["profile"] if show else None,
+        "strategies": _names(rec)["strategies"] if show else {},
         "agents": {r: b.agent for r, b in rec.bound.items()},
         "positions": o.get("positions"),
         "decision": o.get("decision") if o.get("decision") is not None else o.get("verdict"),
@@ -58,7 +65,7 @@ def _item(rec: EpisodeRecord, transcripts: bool, names: str = "auto") -> dict[st
         "forecasts": o.get("forecasts"),
         "rewards": rec.rewards,
         "rewards_pending": bool(rec.meta.get("rewards_pending")),
-        "created_at": rec.created_at,
+        "created_at": rec.created_at if show else None,
     }
     if transcripts:
         item["transcript"] = [
@@ -67,6 +74,10 @@ def _item(rec: EpisodeRecord, transcripts: bool, names: str = "auto") -> dict[st
             for e in rec.transcript.entries
         ]
     return item
+
+
+def _names_commitment(salt: str, names: dict[str, Any]) -> str:
+    return leaf_hash(names, salt)
 
 
 def _task_item(t: Task) -> dict[str, Any]:
@@ -104,13 +115,30 @@ def create_release(
     """Publishable release of mechanism outputs (no ground truth). ``sealed``: publish only
     salted commitments; the items and salts go to ``private_dir`` (default
     ``<out_dir>.private``, *outside* the directory you publish) until :func:`reveal_release`.
-    ``names``: publish strategy names and profile labels ``"always"``, ``"never"`` (hashed ids),
-    or ``"auto"`` — only for episodes whose strategies have no stance, since names like
-    ``argue_incorrect`` would reveal the answer."""
+    ``names``: publish strategy names and profile labels ``"always"``, ``"never"``, or ``"auto"``:
+    only for episodes whose strategies have no stance, since a stance-bearing strategy's name, id
+    or any fixed tag (``argue_incorrect``, a hash) would reveal which answers are correct. Withheld
+    names are committed to (salted hash in the item) and kept in ``private_dir``;
+    :func:`resolve_release` verifies and publishes them for resolved tasks only. Items are
+    published in a random order, since run order follows the strategies."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     recs = [r for r in results.records if r.error is None]
-    items = [_item(r, transcripts, names) for r in recs]
+    shows = [names == "always" or (names == "auto" and _names_safe(r)) for r in recs]
+    items = [_item(r, transcripts, show) for r, show in zip(recs, shows)]
+    withheld: dict[str, Any] = {}
+    for r, show, it in zip(recs, shows, items):
+        if not show:
+            salt = new_salt()
+            withheld[r.id] = {"salt": salt, **_names(r)}
+            it["names_commitment"] = _names_commitment(salt, _names(r))
+    hidden = [it for it, show in zip(items, shows) if not show]
+    for role in {r for it in hidden for r in it["agents"]}:  # agents that differ across strategies identify them
+        if len({json.dumps(it["agents"].get(role)) for it in hidden}) > 1:
+            for it in hidden:
+                it["agents"][role] = None
+    order_salt = new_salt()
+    items.sort(key=lambda i: leaf_hash(i["episode"], order_salt))
     task_map = {t.id: t for t in (tasks or results.tasks.values())}
     task_items = [_task_item(task_map[tid]) for tid in sorted({i["task"] for i in items}) if tid in task_map]
     salts = {i["episode"]: new_salt() for i in items} if sealed else {}
@@ -125,9 +153,12 @@ def create_release(
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
     (out / "tasks.json").write_text(json.dumps(task_items, indent=1))
-    if sealed:
-        priv = Path(private_dir) if private_dir is not None else out.with_name(out.name + ".private")
+    priv = Path(private_dir) if private_dir is not None else out.with_name(out.name + ".private")
+    if sealed or withheld:
         priv.mkdir(parents=True, exist_ok=True)
+    if withheld:
+        (priv / "names.json").write_text(json.dumps(withheld))  # keep private until the tasks resolve
+    if sealed:
         (out / "sealed_items.json").write_text(json.dumps([{"episode": k} for k in leaves]))
         (priv / "reveal.json").write_text(json.dumps({"salts": salts, "items": items}))  # keep private until reveal!
     else:
@@ -190,17 +221,39 @@ def inclusion_proof(release_dir: str | Path, episode: str) -> dict[str, Any]:
     return {"leaf": leaf, "proof": proof, "root": man["root"], "valid": verify_proof(leaf, proof, man["root"])}
 
 
+def _reveal_names(d: Path, items: list[dict[str, Any]], resolved: set[str], private_dir: str | Path | None) -> dict[str, Any]:
+    """Withheld names of items whose task has resolved, checked against their commitments and
+    published (``names.json``); names of unresolved items stay private."""
+    priv = Path(private_dir) if private_dir is not None else d.with_name(d.name + ".private")
+    src = priv / "names.json"
+    published = json.loads((d / "names.json").read_text()) if (d / "names.json").exists() else {}
+    secret = json.loads(src.read_text()) if src.exists() else {}
+    out = {}
+    for it in items:
+        n = secret.get(it["episode"]) or published.get(it["episode"])
+        if n is None or it["task"] not in resolved or "names_commitment" not in it:
+            continue
+        names = {"profile": n.get("profile"), "strategies": n.get("strategies") or {}}
+        if _names_commitment(str(n.get("salt", "")), names) == it["names_commitment"]:
+            out[it["episode"]] = {"salt": n["salt"], **names}
+    if out:
+        (d / "names.json").write_text(json.dumps({**published, **out}))
+    return out
+
+
 def resolve_release(
     release_dir: str | Path,
     tasks: Sequence[Task] | dict[str, Task],
     records: Any = None,
     scorers: Sequence[Any] | None = None,
+    private_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Attach ground truth to a release and compute retroactive metrics.
 
     ``tasks`` must include ground truth (e.g. refreshed forecasting questions). If the full
     ``records`` (Results) are given, per-role GT scorers are run on them; otherwise the item
-    positions/decisions/forecasts are scored directly.
+    positions/decisions/forecasts are scored directly. Strategy names withheld at creation are
+    verified against their commitments and published for the resolved tasks only.
     """
     from ..analysis.ic import alignment, asd
     from ..mechanisms.forecasting import proper_score
@@ -209,11 +262,16 @@ def resolve_release(
     ver = verify_release(d)
     items = load_items(d)
     tmap = tasks if isinstance(tasks, dict) else {t.id: t for t in tasks}
+    resolved = {tid for tid, t in tmap.items() if t.resolved}
+    revealed = _reveal_names(d, items, resolved, private_dir)
+    withheld = [it for it in items if "names_commitment" in it and it["task"] in resolved]
     rows = []
     for it in items:
         t = tmap.get(it["task"])
         if t is None or not t.resolved:
             continue
+        if it["episode"] in revealed:
+            it = {**it, "strategies": revealed[it["episode"]]["strategies"], "profile": revealed[it["episode"]]["profile"]}
         correct = set(t.correct_ids()) if t.has_values() else set()
         y = t.gt.get("outcome")
         rewards = it.get("rewards") or {}
@@ -237,7 +295,8 @@ def resolve_release(
                 row["gt_judge_p_correct"] = sum(float(probs.get(o, 0)) for o in correct)
             rows.append(row)
     df = pd.DataFrame(rows)
-    report: dict[str, Any] = {"resolved_at": now_iso(), "verification": ver, "n_resolved_rows": len(df)}
+    report: dict[str, Any] = {"resolved_at": now_iso(), "verification": ver, "n_resolved_rows": len(df),
+                              "names_revealed": len(revealed), "names_withheld_unverified": len(withheld) - len(revealed)}
     if not df.empty:
         if "gt_correct" in df:
             report["asd"] = asd(df.dropna(subset=["gt_correct"]), gt="correct").to_dict("records")

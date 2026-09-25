@@ -57,6 +57,21 @@ class Candidate:
     note: str = ""
 
 
+def is_score(v: Any) -> bool:
+    """A usable score: not None and not NaN. Zero is a score (never test rewards by truthiness)."""
+    return v is not None and not (isinstance(v, float) and math.isnan(v))
+
+
+def _nanmean(vs: Sequence[Any]) -> float:
+    ok = [float(v) for v in vs if is_score(v)]
+    return float(np.mean(ok)) if ok else float("nan")
+
+
+def ranked(items: Sequence[Any], key: Callable[[Any], Any] = lambda c: c.reward) -> list[Any]:
+    """Items with a usable score, best first; items scored None/NaN are dropped."""
+    return sorted([x for x in items if is_score(key(x))], key=key, reverse=True)
+
+
 class OptimizationTrace:
     def __init__(self, candidates: list[Candidate] | None = None, meta: dict[str, Any] | None = None):
         self.candidates = candidates or []
@@ -77,9 +92,9 @@ class OptimizationTrace:
         return pd.DataFrame(rows)
 
     def best(self, k: int = 1, accepted_only: bool = True, key: str = "reward") -> list[Candidate]:
+        """Top-``k`` candidates by ``key`` (a reward of 0.0 counts; None/NaN do not)."""
         cs = [c for c in self.candidates if c.accepted or not accepted_only]
-        cs = [c for c in cs if not math.isnan(getattr(c, key) or float("nan"))]
-        return sorted(cs, key=lambda c: getattr(c, key), reverse=True)[:k]
+        return ranked(cs, key=lambda c: getattr(c, key))[:k]
 
     def trajectory(self, gt: str = "correct") -> pd.DataFrame:
         """Best-so-far candidate (by minibatch reward) per iteration, with its GT — the
@@ -88,15 +103,15 @@ class OptimizationTrace:
         for it in sorted({c.iteration for c in self.candidates}):
             cs = [c for c in self.candidates if c.iteration == it and c.accepted]
             for c in cs:
-                if best is None or c.reward > best.reward:
+                if is_score(c.reward) and (best is None or c.reward > best.reward):
                     best = c
             if best is None:
                 continue
             rows.append({
                 "iteration": it, "best_reward": best.reward, "best_gt": best.gt.get(gt),
                 "best_holdout_reward": best.holdout_reward, "best_holdout_gt": best.holdout_gt.get(gt),
-                "mean_reward": float(np.mean([c.reward for c in cs])) if cs else float("nan"),
-                "mean_gt": float(np.nanmean([c.gt.get(gt, np.nan) for c in cs])) if cs else float("nan"),
+                "mean_reward": _nanmean([c.reward for c in cs]),
+                "mean_gt": _nanmean([c.gt.get(gt) for c in cs]),
                 "best": best.strategy.name, "label": self.meta.get("label", ""),
             })
         return pd.DataFrame(rows)
@@ -209,7 +224,7 @@ class LLMProposer(Proposer):
         self.show_opponents = show_opponents
 
     def _history(self, hist: list[Candidate]) -> str:
-        hs = sorted([c for c in hist if c.accepted and not math.isnan(c.reward)], key=lambda c: c.reward)[-self.top_k:]
+        hs = ranked([c for c in hist if c.accepted])[: self.top_k][::-1]
         return "\n".join(f"- ({c.reward:.3f}) {c.strategy.instructions!r}" for c in hs) or "(none yet)"
 
     async def propose(self, ctx: ProposalContext, n: int) -> list[Strategy]:
@@ -256,11 +271,11 @@ def pareto_parent(history: list[Candidate], seed: int) -> Candidate:
     weighted by how many tasks they win."""
     cands = [c for c in history if c.accepted and c.per_task]
     if not cands:
-        return max(history, key=lambda c: c.reward)
+        return (ranked(history) or history)[0]
     tasks = sorted({t for c in cands for t in c.per_task})
     wins: dict[str, int] = {}
     for t in tasks:
-        scored = [(c.per_task[t], c.id) for c in cands if t in c.per_task]
+        scored = [(c.per_task[t], c.id) for c in cands if t in c.per_task and is_score(c.per_task[t])]
         if scored:
             best = max(scored)[0]
             for s, cid in scored:
@@ -310,7 +325,7 @@ class ParamProposer(Proposer):
 
     async def propose(self, ctx: ProposalContext, n: int) -> list[Strategy]:
         rng = rng_for("param-proposer", self.seed, ctx.iteration, ctx.steering)
-        top = sorted([c for c in ctx.history if c.accepted], key=lambda c: c.reward, reverse=True)[: self.top_k]
+        top = ranked([c for c in ctx.history if c.accepted])[: self.top_k]
         res = []
         for k in range(n):
             if not top or rng.random() < self.explore:
@@ -419,10 +434,11 @@ class PromptOptimizer:
         trace.candidates += await asyncio.gather(*[self._eval(s, 0, None, batch) for s in self.seeds])
         for it in range(1, self.iterations + 1):
             visible = [c for c in trace.candidates if c.accepted]
+            top = ranked(visible)
             ctx = ProposalContext(
                 role=self.ev.role, brief=brief, domain=self.ev.domain.name, history=visible,
                 iteration=it, base=self.base, steering=self.steering,
-                examples=_render_example(self.evaluations[max(visible, key=lambda c: c.reward).id], self.ev.role) if visible else [],
+                examples=_render_example(self.evaluations[top[0].id], self.ev.role) if top else [],
                 evaluations=self.evaluations, opponents=self.ev.opponent_instructions(),
             )
             new = await self.proposer.propose(ctx, self.per_iter)
@@ -505,7 +521,7 @@ class AgenticOptimizer:
 
     def _run_tool(self, tc: ToolCall, trace: OptimizationTrace) -> str:
         if tc.name == "leaderboard":
-            cs = sorted(trace.candidates, key=lambda c: c.reward, reverse=True)
+            cs = ranked(trace.candidates) + [c for c in trace.candidates if not is_score(c.reward)]
             return "\n".join(f"{c.reward:.3f}  {truncate(c.strategy.instructions, 200)!r}" for c in cs) or "(empty)"
         if tc.name == "submit":
             return "Submitted."

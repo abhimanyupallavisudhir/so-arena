@@ -1,4 +1,4 @@
-"""Monitor-based rewards and obfuscation (docs/theory.md, Proposition 4).
+r"""Monitor-based rewards and obfuscation (docs/theory.md, Proposition 4).
 
 An actor chooses honest work (measured success $s$), overt misbehaviour ($s+\\Delta$, alarm
 probability $d_o$) or covert misbehaviour ($s+\\Delta-\\kappa$, alarm probability $d_c$); honest work
@@ -34,7 +34,7 @@ def best_response(lam: float, p: MonitorParams) -> str:
 
 
 def thresholds(p: MonitorParams) -> dict[str, float]:
-    """Penalties at which the best response changes. ``deterred``: honest beats both kinds of
+    r"""Penalties at which the best response changes. ``deterred``: honest beats both kinds of
     misbehaviour, $\max(\Delta/(d_o-d_h),\,(\Delta-\kappa)/(d_c-d_h))$ (inf if covert
     misbehaviour is no easier to detect than honest work). ``overt_to_covert``: overt turns
     covert, $\kappa/(d_o-d_c)$ — reported only if it happens before deterrence (else inf:

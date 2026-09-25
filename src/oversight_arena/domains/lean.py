@@ -53,7 +53,8 @@ class LocalLean(LeanChecker):
         try:
             p = subprocess.run(["lake", "env", "lean", path], cwd=self.project_dir, capture_output=True, text=True, timeout=timeout)
             msg = (p.stdout + p.stderr).strip()
-            ok = p.returncode == 0 and "error" not in msg.lower() and "sorry" not in msg.lower()
+            errors = re.search(r":\d+:\d+: error\b|^error\b", msg, re.M)  # Lean's message format, not names
+            ok = p.returncode == 0 and not errors and "declaration uses 'sorry'" not in msg
             return ok, msg[-3000:]
         except subprocess.TimeoutExpired:
             return False, "timeout"
@@ -98,12 +99,13 @@ class LeanVerifier(Verifier):
 
         if self.checker is None:
             return Evidence(verifier=self.name, kind=self.tag, claim=claim.content[:300], result="no Lean checker configured", verified=None)
-        code = (env.resources.get("header", self.header) + "\n\n" + claim.content).strip()
-        ok, msg = await asyncio.to_thread(self.checker.check, code)
+        ok, msg = await asyncio.to_thread(kernel_check, self.checker, env.resources.get("header", self.header), claim.content)
         return Evidence(verifier=self.name, kind=self.tag, claim=claim.content[:300],
                         result="kernel accepted" if ok else f"rejected: {msg[:400]}", verified=ok)
 
     def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        if shown.verified is None:
+            return shown
         return shown.model_copy(update={"result": "kernel accepted" if shown.verified else
                                         "rejected: error: unsolved goals"})
 
@@ -155,7 +157,38 @@ def perturb_statement(stmt: str, seed: int) -> tuple[str, str] | None:
     return (out, kind) if out != stmt else None
 
 
-FORBIDDEN = re.compile(r"\b(sorry|admit|axiom|unsafe|implemented_by|extern)\b|@\[\s*(implemented_by|extern)")
+# Escape hatches refused before the kernel runs: unproved goals, new axioms, code the kernel
+# trusts without checking, disabling kernel checks, ending the file early, and metaprogramming
+# (which can add axioms without the keyword). Matched on the raw text, comments included:
+# stripping comments would let string literals hide code.
+FORBIDDEN = re.compile(
+    r"\b(sorry|sorryAx|admit|axiom|axioms|unsafe|implemented_by|extern|native_decide|ofReduceBool|ofReduceNat"
+    r"|opaque|run_cmd|run_elab|run_meta|elab|elab_rules|macro|macro_rules|syntax|initialize|builtin_initialize"
+    r"|addDecl|skipKernelTC)\b|#exit|@\[\s*(implemented_by|extern|csimp)")
+STANDARD_AXIOMS = frozenset({"propext", "Classical.choice", "Quot.sound"})
+_DECL = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)?(?:(?:private|protected|noncomputable)\s+)*(?:theorem|lemma)\s+([^\s:({\[]+)", re.M)
+
+
+def nonstandard_axioms(msg: str) -> set[str]:
+    """Axioms reported by ``#print axioms`` beyond Lean's standard three (e.g. ``sorryAx``)."""
+    out: set[str] = set()
+    for m in re.finditer(r"depends on axioms:\s*\[([^\]]*)\]", msg):
+        out |= {a.strip() for a in m.group(1).split(",") if a.strip()} - STANDARD_AXIOMS
+    return out
+
+
+def kernel_check(checker: LeanChecker, header: str, code: str) -> tuple[bool, str]:
+    """Static screen (:data:`FORBIDDEN`), then the kernel, then an axiom audit: every theorem the
+    code declares must depend only on the standard axioms (``#print axioms``)."""
+    bad = FORBIDDEN.search(code)
+    if bad:
+        return False, f"uses {bad.group(0)!r}, which is not allowed"
+    names = _DECL.findall(code)
+    audit = "".join(f"\n#print axioms {n}" for n in names)
+    ok, msg = checker.check((header + "\n\n" + code).strip() + "\n" + audit)
+    if ok and nonstandard_axioms(msg):
+        return False, f"depends on non-standard axioms: {', '.join(sorted(nonstandard_axioms(msg)))}"
+    return ok, msg
 
 
 def _ws(s: str) -> str:
@@ -171,7 +204,7 @@ def proves_statement(code: str, stmt: str) -> tuple[bool, str]:
     """Static checks before the kernel: the exact given statement appears (up to whitespace) and
     no escape hatches (sorry, admit, new axioms, unsafe/extern implementations) are used."""
     if FORBIDDEN.search(code):
-        return False, "uses a forbidden construct (sorry/admit/axiom/unsafe/extern)"
+        return False, f"uses a forbidden construct ({FORBIDDEN.search(code).group(0)!r})"
     if statement_head(stmt) not in _ws(code):
         return False, "does not contain the given theorem statement verbatim"
     return True, ""
@@ -194,7 +227,7 @@ class LeanProofGT(GTScorer):
             code = m.group(1) if m else str(art)
             ok, _ = proves_statement(code, task.resources.get("statement", ""))
             if ok:
-                ok, _ = checker.check(task.resources.get("header", "") + "\n\n" + code)
+                ok, _ = kernel_check(checker, task.resources.get("header", ""), code)
             out[role] = float(ok)
         return out
 

@@ -193,7 +193,9 @@ For finite strategy sets you already have, estimate the game directly:
   - `MechanismEnv(domain, mechanism, fixtures, trainable=[...])` is a turn-based text environment
     for any RL stack: `reset()` / `step(text)`, then rewards from the mechanism.
   - `reward_function(domain, mechanism, role, fixtures)` is a TRL/GRPO reward for single-turn
-    roles (see `examples/rl_trl_grpo.py`).
+    roles (see `examples/rl_trl_grpo.py`). Give each dataset row the stance its prompt asked for
+    (a `stance`, `position` or `strategy` column), so every completion is scored at the position
+    it argued.
   - `preference_pairs(results, role)` produces DPO pairs, with a column saying whether ground truth
     agrees with each preference.
 
@@ -203,12 +205,30 @@ For finite strategy sets you already have, estimate the game directly:
 |---|---|
 | `ChessMoves(judge_trap_depth=2, gt_depth=14, verify_depth=8)` | Engine experts (`EngineAdvocate`, honest or cherry-picking lines) vs LLM or engine judges; the gap is measured in search depth. `verify_depth` sets verifier strength (0 = legality only). |
 | `PrivateSQL(format="answers" \| "queries" \| "open")` | Experts query the database, the judge sees the schema. `<sql>` claims show true outputs, but not whether the query means what the question asks. |
-| `HiddenTestsCode(format="pair" \| "single")`, `CodeProposal` | Experts execute code, the judge reads it. Ground truth is the hidden EvalPlus tests; wrong implementations are subtle mutants that pass the docstring examples. |
+| `HiddenTestsCode(format="pair" \| "single")`, `CodeProposal` | Experts execute code, the judge reads it. Ground truth is the hidden EvalPlus tests, graded in isolation (below); wrong implementations are subtle mutants that pass the docstring examples. |
 | `MiniF2F(format="faithfulness" \| "proof", checker=LocalLean(...) \| KiminaLean(url))` | "Does the Lean statement mean the English?" (the question the kernel cannot answer), or proofs checked by the kernel against the exact statement. |
 | `ManifoldForecasting(status="resolved" \| "open", resolved_after=...)`, `FileForecasting` | Delayed ground truth (see §12). |
 
 Configs: `configs/chess_engine_vs_llm_judge.yaml`, `sql_private_db.yaml`, `code_hidden_tests.yaml`,
 `lean_faithfulness.yaml`.
+
+**Model-written code.** Ground truth must not be gameable by the code it grades, and tools must not
+leak it:
+- `domains._exec.run_python` runs code in a process that confines itself first: reads only from
+  the Python installation, system directories and `allow_read` paths; writes only in its own
+  directory; no new processes, sockets, signals to other processes or exec; time and memory
+  limits. On Linux this is kernel-enforced (Landlock, seccomp, rlimits), plus a Python audit hook.
+  Model code cannot read the parent's environment (API keys), data caches (which implementation is
+  the mutant) or hidden tests. `_exec.sandbox_layers()` reports what is active.
+- `domains._exec.run_isolated(harness, code=...)` is for grading: trusted test code runs in one
+  process and calls the untrusted code, confined in another, through plain-data proxies. Printing
+  a fake verdict, exiting early, patching the tests or returning an always-equal object cannot
+  pass. `passes_hidden` (code ground truth), `<run>` / `<assert>` verifiers and SimOps' true score
+  use it.
+- `<lean>` claims and proofs are screened for escape hatches (`sorry`, `axiom`, `native_decide`,
+  metaprogramming, ...) and every declared theorem's axioms are audited with `#print axioms`.
+- For adversarial workloads at scale, run inside a container as well, or plug in your own executor
+  (`_exec.set_executor`).
 
 ## 9. Verified claims as a controlled variable
 
@@ -278,10 +298,12 @@ oa.Experiment(GSM8K(limit=20), Debate(rounds=2, evidence=EvidencePolicy()),
 
 ## 12. Swarms and equilibrium
 
-- **Theory, instantly.** `oversight-arena theory swarm --stake 0.3 --bounty 0.1 --plot regimes.png`
-  prints the equilibria, the risk-dominant one and the basin of reporting. The functions are in
-  `oversight_arena.theory.swarm_game`: `equilibria`, `selected`, `mean_field`,
-  `basin_of_deterrence`, `phase_diagram`.
+- **Theory, instantly.** `oversight-arena theory swarm --stake 0.3 --bounty 0.2 --plot regimes.png`
+  prints the regime, the equilibria, the bounties above which reporting is an equilibrium and above
+  which it is dominant, and the basin of reporting (`--observers 2` for two known observers, which
+  adds the risk-dominant equilibrium). The functions are in `oversight_arena.theory.swarm_game`:
+  `equilibria`, `report_equilibrium_bounty`, `risk_dominant`, `mean_field`, `basin_of_deterrence`,
+  `phase_diagram`.
 - **Empirical game** *(no LLM)*: programmatic workers in `AbstractSwarm`, all strategy
   combinations, re-scored under each reward rule:
 
@@ -321,6 +343,11 @@ report = resolve_release("releases/2026-10-forecasts", resolved_tasks)   # verif
 - The release folder is static: `index.html` shows the mechanism's leaderboard and transcripts,
   with no verdict on who was right.
 - `sealed=True` publishes only salted commitments; `reveal_release` opens them later.
+- When strategies have stances (ASD-style runs), nothing published identifies them: a fixed
+  identifier would sort the episodes into "argued the truth" and "argued a falsehood", and one
+  resolved task would reveal the rest. The names are committed to and kept in
+  `<release>.private/names.json`; `resolve_release` verifies and publishes them for resolved tasks
+  only, so the resolved leaderboard is per strategy.
 - CLI: `oversight-arena release create|verify|resolve`.
 
 ## 14. Beyond incentive compatibility

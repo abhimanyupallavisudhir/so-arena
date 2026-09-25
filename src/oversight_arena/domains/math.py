@@ -13,7 +13,7 @@ import math
 import operator
 from typing import ClassVar
 
-from ..channels.evidence import Claim, Verifier, VerifyEnv
+from ..channels.evidence import Claim, Verifier, VerifyEnv, perturb_output
 from ..core.task import Answer, InfoBlock, Task
 from ..core.tools import Tool, tool
 from ..core.transcript import Evidence
@@ -96,7 +96,11 @@ class CalcVerifier(Verifier):
     def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
         text = claim.content
         if "=" not in text:
-            return shown
+            if shown.verified is None:  # a computed value, shown slightly wrong
+                return shown.model_copy(update={"result": perturb_output(shown.result, text)})
+            if shown.verified:  # an expression that failed, shown as a value
+                return shown.model_copy(update={"verified": None, "result": "= 0"})
+            return shown.model_copy(update={"result": "error: could not evaluate"})
         lhs, rhs = (x.strip() for x in text.rsplit("=", 1))
         if shown.verified:  # a false claim reported as correct: echo the claimed value
             return shown.model_copy(update={"result": f"{lhs} = {rhs}"})

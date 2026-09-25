@@ -53,8 +53,9 @@ Best-of-N analyses: exact order-statistics selection from empirical pools.
 - **`Node`** (class) — A node in a sampled game tree.
 - **`bon_curve`**`(results, roles: 'str | Sequence[str] | None' = None, gt: 'str' = 'correct', n_values: 'Sequence[float]' = (1, 2, 4, 8, 16, 32, 64), by: 'Sequence[str]' = ('...)` — Expected reward and GT under Bo(n) selection by the mechanism's reward, per pool.
 - **`bon_expectation`**`(scores, values, n: 'float', maximize: 'bool' = True) -> 'float'`
-- **`bon_kl`**`(n: 'float') -> 'float'` — KL(best-of-n || base policy) $= \log n - (n-1)/n$ nats (Stiennon et al. 2020; an upper bound for discrete pools with ties). The standard x-axis for optimisation-pressure curves.
+- **`bon_kl`**`(n: 'float') -> 'float'` — $\log n - (n-1)/n$ nats: KL(best-of-n || base policy) for a *continuous* reward distribution (Stiennon et al. 2020), the standard x-axis for optimisation-pressure curves. For a finite pool it is only an upper bound (Beirami et al. 2024); :func:`pool_kl` is exact.
 - **`bon_weights`**`(scores: 'Sequence[float] | np.ndarray', n: 'float', maximize: 'bool' = True) -> 'np.ndarray'` — Selection probabilities of each pool element under best-of-``n`` (``n`` may be fractional).
+- **`pool_kl`**`(scores: 'Sequence[float] | np.ndarray', n: 'float', maximize: 'bool' = True) -> 'float'` — Exact KL(best-of-n || uniform) over a finite pool of samples, $\sum_i w_i \log(N w_i)$. At most :func:`bon_kl` ``(n)``, and at most $\log N$ however large $n$ is.
 - **`tree_mesh`**`(roots: 'Sequence[Node]', ks_grid: 'Sequence[Sequence[float]]', maximize: 'Sequence[bool]') -> 'pd.DataFrame'` — Evaluate :func:`tree_value` over many roots (tasks) for a grid of per-level pressures.
 - **`tree_value`**`(node: 'Node', ks: 'Sequence[float]', maximize: 'Sequence[bool]', depth: 'int' = 0, gt: 'float | None' = None) -> 'tuple[float, float]'` — Backward induction with Bo(k) selection at each level.
 - **`trees_from_results`**`(results, levels: 'Sequence[str | tuple[str, str]]', payoff: 'str' = 'accept_prob', gt: 'tuple[str, str] | None' = ('correct', 'proposer')) -> 'list[Node]'` — Build game trees from episodes whose profiles vary role seeds jointly.
@@ -115,7 +116,7 @@ Self-contained HTML report for a set of results (tables + figures + transcript b
 
 Statistics helpers: cluster (task-level) bootstrap and summaries.
 
-- **`bootstrap_ci`**`(values: 'Sequence[float] | np.ndarray', stat: 'Callable[[np.ndarray], float]' = <function mean at 0x7f41567dc8b0>, n_boot: 'int' = 2000, alpha: 'float' = 0....)` — Point estimate and percentile CI of ``stat`` over i.i.d. units (e.g. per-task values).
+- **`bootstrap_ci`**`(values: 'Sequence[float] | np.ndarray', stat: 'Callable[[np.ndarray], float]' = <function mean at 0x7f03f9bdc6b0>, n_boot: 'int' = 2000, alpha: 'float' = 0....)` — Point estimate and percentile CI of ``stat`` over i.i.d. units (e.g. per-task values).
 - **`cluster_bootstrap`**`(df: 'pd.DataFrame', cluster: 'str', fn: 'Callable[[pd.DataFrame], float]', n_boot: 'int' = 1000, alpha: 'float' = 0.05, seed: 'int' = 0) -> 'tuple[float, fl...)` — Bootstrap resampling whole clusters (tasks) — the right unit for per-task correlation.
 - **`fmt_ci`**`(est: 'float', lo: 'float', hi: 'float', digits: 'int' = 3) -> 'str'`
 
@@ -130,6 +131,7 @@ Verified claims.
 - **`annotate`**`(text: 'str', claims: 'list[Claim]', statuses: 'list[str]') -> 'str'` — Rewrite claim markup to carry verification status, e.g. <quote status="VERIFIED">.
 - **`claim_help_text`**`(verifiers: 'list[Verifier]', budget: 'float | None' = None) -> 'str'`
 - **`extract_claims`**`(text: 'str', tags: 'list[str]') -> 'list[Claim]'`
+- **`perturb_output`**`(text: 'str', seed: 'Any' = 0, skip_first_line: 'bool' = False) -> 'str'` — A plausible wrong version of an informational verifier output, for :meth:`Verifier.forge`: one number changed, else a boolean flipped, else one line dropped, else a string shortened. ``skip_first_line`` leaves a header (e.g. a table's column names) alone.
 
 ## `oversight_arena.channels.gt_channels`
 
@@ -310,7 +312,7 @@ Code with hidden tests: an *execution* capability gap (HumanEval+ / MBPP+).
 - **`exec_tool`**`(resources: 'dict[str, Any]') -> 'Tool'`
 - **`mutants`**`(src: 'str', max_n: 'int' = 30, seed: 'int' = 0) -> 'list[tuple[str, str]]'` — Single-site mutants of ``src`` as (description, source).
 - **`normalize_code`**`(src: 'str') -> 'str'` — Canonical formatting (``ast.unparse``: comments and blank lines removed). Applied to every candidate implementation, so formatting cannot reveal which one is the generated mutant.
-- **`passes_hidden`**`(code: 'str', test: 'str', entry: 'str', timeout: 'float' = 20.0) -> 'bool'`
+- **`passes_hidden`**`(code: 'str', test: 'str', entry: 'str', timeout: 'float' = 20.0, spec: 'str' = '') -> 'bool'` — Whether ``code`` passes the hidden tests. The tests run in a trusted process and call the candidate (confined in another process) through plain-data proxies, so printing a fake verdict, exiting early, patching the test's helpers or returning an always-equal object cannot pass.
 - **`passes_visible`**`(code: 'str', examples: 'list[tuple[str, str]]', timeout: 'float' = 10.0) -> 'bool'`
 
 ## `oversight_arena.domains.forecasting`
@@ -333,6 +335,8 @@ Lean 4 / miniF2F: formal proofs checked by the kernel — and the question the k
 - **`LeanVerifier`** (class)
 - **`LocalLean`** (class) — Run ``lake env lean`` on a temp file inside a Lean project that has Mathlib.
 - **`MiniF2F`** (class)
+- **`kernel_check`**`(checker: 'LeanChecker', header: 'str', code: 'str') -> 'tuple[bool, str]'` — Static screen (:data:`FORBIDDEN`), then the kernel, then an axiom audit: every theorem the code declares must depend only on the standard axioms (``#print axioms``).
+- **`nonstandard_axioms`**`(msg: 'str') -> 'set[str]'` — Axioms reported by ``#print axioms`` beyond Lean's standard three (e.g. ``sorryAx``).
 - **`perturb_statement`**`(stmt: 'str', seed: 'int') -> 'tuple[str, str] | None'` — A meaning-changing perturbation of a Lean statement: (new statement, description).
 - **`proves_statement`**`(code: 'str', stmt: 'str') -> 'tuple[bool, str]'` — Static checks before the kernel: the exact given statement appears (up to whitespace) and no escape hatches (sorry, admit, new axioms, unsafe/extern implementations) are used.
 - **`statement_head`**`(stmt: 'str') -> 'str'` — The statement without its placeholder proof (``:= sorry`` / ``:= by sorry``).
@@ -445,7 +449,9 @@ Prompt (strategy) optimisation against a mechanism's rewards.
 - **`PromptOptimizer`** (class) — Search for strategies that maximise a role's mechanism reward.
 - **`ProposalContext`** (class) — ProposalContext(role: 'str', brief: 'str', domain: 'str', history: 'list[Candidate]', iteration: 'int', base: 'Strategy', steering: 'str | None' = None, examples: 'list[str]' = <factory>, evaluations: 'dict[str, Evaluation]' = <factory>, opponents: 'dict[str, list[tuple[str, float]]]' = <factory>)
 - **`Proposer`** (class)
+- **`is_score`**`(v: 'Any') -> 'bool'` — A usable score: not None and not NaN. Zero is a score (never test rewards by truthiness).
 - **`pareto_parent`**`(history: 'list[Candidate]', seed: 'int') -> 'Candidate'` — GEPA-style parent selection: sample among candidates that are best on some task, weighted by how many tasks they win.
+- **`ranked`**`(items: 'Sequence[Any]', key: 'Callable[[Any], Any]' = <function <lambda> at 0x7f03e82be020>) -> 'list[Any]'` — Items with a usable score, best first; items scored None/NaN are dropped.
 
 ## `oversight_arena.elicitation.rl`
 
@@ -719,11 +725,11 @@ Hash commitments: leaf hashes, Merkle roots, inclusion proofs (tamper-evident re
 Releasing mechanism results *before* ground truth is known — and resolving them later.
 
 - **`Release`** (class)
-- **`create_release`**`(results: 'Any', out_dir: 'str | Path', *, title: 'str' = 'Mechanism results', description: 'str' = '', transcripts: 'bool' = True, sealed: 'bool' = False, p...)` — Publishable release of mechanism outputs (no ground truth). ``sealed``: publish only salted commitments; the items and salts go to ``private_dir`` (default ``<out_dir>.private``, *outside* the directory you publish) until :func:`reveal_release`. ``names``: publish strategy names and profile labels ``"always"``, ``"never"`` (hashed ids), or ``"auto"`` — only for episodes whose strategies have no stance, since names like ``argue_incorrect`` would reveal the answer.
+- **`create_release`**`(results: 'Any', out_dir: 'str | Path', *, title: 'str' = 'Mechanism results', description: 'str' = '', transcripts: 'bool' = True, sealed: 'bool' = False, p...)` — Publishable release of mechanism outputs (no ground truth). ``sealed``: publish only salted commitments; the items and salts go to ``private_dir`` (default ``<out_dir>.private``, *outside* the directory you publish) until :func:`reveal_release`. ``names``: publish strategy names and profile labels ``"always"``, ``"never"``, or ``"auto"``: only for episodes whose strategies have no stance, since a stance-bearing strategy's name, id or any fixed tag (``argue_incorrect``, a hash) would reveal which answers are correct. Withheld names are committed to (salted hash in the item) and kept in ``private_dir``; :func:`resolve_release` verifies and publishes them for resolved tasks only. Items are published in a random order, since run order follows the strategies.
 - **`inclusion_proof`**`(release_dir: 'str | Path', episode: 'str') -> 'dict[str, Any]'`
 - **`load_items`**`(release_dir: 'str | Path') -> 'list[dict[str, Any]]'`
 - **`render_html`**`(release_dir: 'str | Path') -> 'Path'`
-- **`resolve_release`**`(release_dir: 'str | Path', tasks: 'Sequence[Task] | dict[str, Task]', records: 'Any' = None, scorers: 'Sequence[Any] | None' = None) -> 'dict[str, Any]'` — Attach ground truth to a release and compute retroactive metrics.
+- **`resolve_release`**`(release_dir: 'str | Path', tasks: 'Sequence[Task] | dict[str, Task]', records: 'Any' = None, scorers: 'Sequence[Any] | None' = None, private_dir: 'str | Pat...)` — Attach ground truth to a release and compute retroactive metrics.
 - **`reveal_release`**`(release_dir: 'str | Path', private_dir: 'str | Path | None' = None) -> 'dict[str, Any]'` — Open a sealed release: publish its items and salts, then verify them against the commitments made at creation time.
 - **`verify_release`**`(release_dir: 'str | Path') -> 'dict[str, Any]'` — Recompute every leaf and the Merkle root; report tampered, missing and extra items. (A sealed, unrevealed release can only have its root checked.)
 
@@ -793,19 +799,21 @@ Monitor-based rewards and obfuscation (docs/theory.md, Proposition 4).
 
 ## `oversight_arena.theory.swarm_game`
 
-Analytic model of whistleblowing in agent swarms (see docs/theory.md, §6).
+Analytic model of whistleblowing in agent swarms (see docs/theory.md, §8).
 
-- **`SwarmParams`** (class) — SwarmParams(n: 'int' = 3, g: 'float' = 0.3, b: 'float' = 0.1, P: 'float' = 0.3, a: 'float' = 0.0, c: 'float' = 0.0, o: 'float' = 0.8, beta: 'float' = 0.0)
+- **`SwarmParams`** (class) — SwarmParams(n: 'int' = 3, g: 'float' = 0.3, b: 'float' = 0.1, P: 'float' = 0.3, a: 'float' = 0.0, c: 'float' = 0.0, o: 'float' = 0.8, beta: 'float' = 0.0, observers: 'int | None' = None)
 - **`advantage`**`(K: 'int', p: 'SwarmParams') -> 'float'` — $\Delta(K)$: gain from reporting vs staying silent when $K$ other observers report.
 - **`basin_of_deterrence`**`(p: 'SwarmParams', x0: 'float' = 0.5, q0s: 'np.ndarray | None' = None, iters: 'int' = 600, lr: 'float' = 1.0) -> 'float'` — Share of initial report propensities $q_0$ (with initial violation propensity $x_0$) from which the full-game dynamics (:func:`mean_field`) end with the violation deterred ($x<1/2$).
 - **`basin_of_reporting`**`(p: 'SwarmParams', m: 'int | None' = None) -> 'float'` — Fraction of initial report propensities from which (replicator) learning reaches 'report'.
-- **`detection_prob`**`(q: 'float', p: 'SwarmParams') -> 'float'` — P(violation detected) if each other worker observes w.p. $o$ and then reports w.p. $q$.
-- **`equilibria`**`(m: 'int', p: 'SwarmParams') -> 'list[dict]'` — Symmetric equilibria of the reporting subgame among $m$ observers ($q$ = report prob.).
-- **`expected_advantage`**`(q: 'float', m: 'int', p: 'SwarmParams') -> 'float'` — $E[\Delta]$ for an observer when each of the other $m-1$ observers reports w.p. $q$.
+- **`detection_prob`**`(q: 'float', p: 'SwarmParams') -> 'float'` — P(violation detected) if each other worker observes w.p. $o$ and then reports w.p. $q$ (with ``observers=m``: exactly $m$ observers).
+- **`equilibria`**`(p: 'SwarmParams', m: 'int | None' = None) -> 'list[dict]'` — Symmetric equilibria of the reporting subgame ($q$ = report probability of an observer).
+- **`expected_advantage`**`(q: 'float', p: 'SwarmParams', m: 'int | None' = None) -> 'float'` — $E[\Delta(K)]$ for an observer when every other observer reports w.p. $q$.
 - **`mean_field`**`(x0: 'float', q0: 'float', p: 'SwarmParams', iters: 'int' = 600, lr: 'float' = 1.0, opportunity: 'float | None' = None) -> 'pd.DataFrame'` — Learning dynamics of the *full* game — whether to commit the violation and whether to report others' — for symmetric workers trained by multiplicative weights (the replicator dynamics :meth:`EmpiricalGame.replicator` runs, and the mean-field limit of natural-policy-gradient training).
 - **`offender_gain`**`(q: 'float', p: 'SwarmParams') -> 'float'` — Expected payoff of committing the violation vs not, given reporting propensity $q$.
+- **`other_reporters`**`(q: 'float', p: 'SwarmParams', m: 'int | None' = None) -> 'np.ndarray'` — Distribution of $K$ (index = number of other reporters) when each observer reports w.p. $q$.
 - **`payoff_matrix_2`**`(p: 'SwarmParams') -> 'tuple[np.ndarray, np.ndarray]'` — 2-observer reporting game (rows/cols: report, silent), payoffs relative to the clean outcome — handy for :class:`~oversight_arena.analysis.games.EmpiricalGame` checks.
 - **`phase_diagram`**`(b_over_stake: 'np.ndarray | None' = None, audit: 'np.ndarray | None' = None, **kw: 'float') -> 'pd.DataFrame'` — Grid over bounty (in units of each worker's stake $g$) and audit probability.
 - **`regime`**`(p: 'SwarmParams', m: 'int | None' = None) -> 'str'` — 'report dominant', 'coordination' (both pure equilibria strict) or 'silent dominant'.
-- **`selected`**`(m: 'int', p: 'SwarmParams') -> 'str'` — Equilibrium picked by global-games / risk-dominance reasoning (Laplacian beliefs: the number of *other* reporters is uniform on $\{0,…,m-1\}$).
+- **`report_equilibrium_bounty`**`(p: 'SwarmParams', m: 'int | None' = None) -> 'float'` — Smallest bounty at which *all report* is an equilibrium: $E[\Delta(K)] \ge 0$ at $q = 1$. $b_R = (P_0 T - (1-P_0)c) / (P_0 + \sum_{k\ge1} P_k/(1+k))$ with $P_k$ the distribution of $K$ at $q=1$.
+- **`risk_dominant`**`(p: 'SwarmParams') -> 'str'` — Risk-dominant equilibrium of the game between two known observers (Harsanyi & Selten, 1988): reporting iff $\tfrac32 b + (1+a)c > (1-a)g$. Only defined for two observers: with more, $\Delta(K)$ is not increasing in $K$, so global-games selection results do not apply.
 - **`summary`**`(p: 'SwarmParams') -> 'dict'`

@@ -51,16 +51,52 @@ class Verifier(ABC):
     async def verify(self, claim: Claim, env: VerifyEnv) -> Evidence: ...
 
     def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
-        """What an *erring* verifier outputs when its verdict is flipped (verification noise).
-        ``shown`` carries the flipped verdict and the true output; return output in exactly the
-        format of a genuine verdict, so flipped verdicts cannot be told apart. Required for
-        verification noise: without it flipped verdicts would be recognisable."""
+        """What an *erring* verifier outputs (verification noise). For a verdict, ``shown``
+        carries the flipped verdict and the true output. For an informational output
+        (``verified is None``: query rows, program output, a computed value), ``shown`` is the true
+        evidence and the forgery should be a plausible wrong output. Either way, return output in
+        exactly the format of genuine output, so errors cannot be told apart. Required for
+        verification noise: without it erring outputs would be recognisable."""
         raise NotImplementedError(
             f"{type(self).__name__} has no forge(): with verification noise its flipped verdicts would be "
             "recognisable. Implement forge() or use noise=0.")
 
     def describe(self) -> dict[str, Any]:
         return {"name": self.name, "tag": self.tag, "cost": self.cost}
+
+
+_NUM = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
+
+
+def perturb_output(text: str, seed: Any = 0, skip_first_line: bool = False) -> str:
+    """A plausible wrong version of an informational verifier output, for :meth:`Verifier.forge`:
+    one number changed, else a boolean flipped, else one line dropped, else a string shortened.
+    ``skip_first_line`` leaves a header (e.g. a table's column names) alone."""
+    from ..core.util import rng_for
+
+    rng = rng_for("perturb-output", seed)
+    head, sep, body = text.partition("\n") if skip_first_line else ("", "", text)
+    nums = list(_NUM.finditer(body))
+    if nums:
+        m = nums[rng.randrange(len(nums))]
+        x = m.group(0)
+        if "." in x:
+            dec = len(x.split(".")[1])
+            new = f"{float(x) * rng.choice([0.8, 0.9, 1.1, 1.25]):.{dec}f}"
+            new = new if new != x else f"{float(x) + 10 ** -dec:.{dec}f}"
+        else:
+            new = str(int(x) + rng.choice([-2, -1, 1, 2, 3]))
+        return head + sep + body[: m.start()] + new + body[m.end():]
+    for a, b in (("True", "False"), ("False", "True"), ("true", "false"), ("false", "true")):
+        if re.search(rf"\b{a}\b", body):
+            return head + sep + re.sub(rf"\b{a}\b", b, body, count=1)
+    lines = body.split("\n")
+    if len(lines) > 1:
+        del lines[rng.randrange(len(lines))]
+        return head + sep + "\n".join(lines)
+    if len(body) > 2 and body[0] == body[-1] and body[0] in "'\"":
+        return head + sep + body[:-2] + body[-1]
+    return text
 
 
 _ATTR = r"""[a-zA-Z_]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s<>"']+)"""
@@ -98,16 +134,19 @@ class EvidencePolicy(BaseModel):
 
     Attributes:
         verifiers: enabled verifier names (None = all verifiers the domain provides).
-        roles: roles whose inline claims are verified (None = every speaker).
+        roles: roles whose inline claims are verified (None = every role except judge-like ones,
+            which evaluate claims; a judge's claims would give it the verifiers' capabilities).
         budget: max verification cost per role per episode (None = unlimited).
         auto_verify: verify inline claims when a message is posted.
         show_to: roles that see verification verdicts (None = everyone who sees the message, and
             verdicts are also marked inline in the message text).
-        noise: probability that a verdict is flipped (imperfect verification); agents then see
-            the verifier's (wrong) output, the truth is kept for ground-truth scoring only.
+        noise: probability that the verifier errs (imperfect verification): a verdict is flipped,
+            or an informational output (query rows, program output) is replaced by a plausible
+            wrong one. Agents see the wrong output; the truth is kept for ground-truth scoring only.
         annotate_unchecked: mark claims beyond budget as UNCHECKED (else leave raw markup).
         share_tool_results: show speakers' trusted tool calls/outputs to the other roles.
-        requests: roles that may actively request verification via tools (e.g. ["judge"]).
+        requests: roles that may actively request verification via tools (e.g. ["judge"]). This
+            gives them the verifiers' capabilities (with SQL, running their own queries).
     """
 
     verifiers: list[str] | None = None
@@ -121,6 +160,8 @@ class EvidencePolicy(BaseModel):
     requests: list[str] = Field(default_factory=list)
 
     def applies_to(self, role: str) -> bool:
+        """Whether ``roles`` names ``role`` (None = all; the episode context also excludes
+        judge-like roles in that case)."""
         return self.roles is None or role in self.roles
 
 

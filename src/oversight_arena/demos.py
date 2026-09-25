@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import warnings
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -291,19 +293,23 @@ def demo_swarm(out: Path) -> list[Path]:
     # programmatic workers' behaviour does not depend on the stated incentives.
     res = _run(dom, Swarm(n_workers=3, rounds=1, reward=TeamReward()), agents,
                Cartesian(strategies={w: list(strat.values()) for w in workers}))
-    b_lo, b_hi = 0.1, 0.45
+    # bounties: below b_R (an observer may be alone, so silence is the only equilibrium; b_R = g/3
+    # here), between b_R and the stake (coordination), above the stake (reporting dominant)
+    b_min, b_lo, b_hi = 0.05, 0.2, 0.45
     rules = {
         "shared reward": TeamReward(),
+        f"bounty {b_min:g} (< stake/3)": Whistleblower(bounty=b_min, offender_penalty=pen),
         f"bounty {b_lo:g} (< stake)": Whistleblower(bounty=b_lo, offender_penalty=pen),
         f"bounty {b_hi:g} (> stake)": Whistleblower(bounty=b_hi, offender_penalty=pen),
     }
+    dyn_rules = [r for r in rules if not r.startswith(f"bounty {b_min:g}")]
     figs: dict[str, Path] = {}
     theory = sg.phase_diagram(n=3, g=g, P=pen, o=obs, b_over_stake=np.linspace(0, 1.5, 151), audit=np.linspace(0, 0.9, 91))
     fig, ax = P.regime_map(theory, "bounty_over_stake", "audit", contour="basin_report",
                            title="When does reporting pay? (theory)",
                            xlabel="bounty ÷ each worker's stake in the undetected violation",
                            ylabel="random audit probability",
-                           points=[(0.0, 0.0, "shared"), (b_lo / g, 0.0, f"b={b_lo:g}"), (b_hi / g, 0.0, f"b={b_hi:g}")])
+                           points=[(0.0, 0.0, "shared")] + [(b / g, 0.0, f"b={b:g}") for b in (b_min, b_lo, b_hi)])
     figs["Theory: regimes"] = P.save(fig, out / "theory_regimes.png")
 
     eq_rows, dyn_rows = [], []
@@ -318,7 +324,10 @@ def demo_swarm(out: Path) -> list[Path]:
             "worst-equilibrium true score": oc["gt[clean:_outcome]"].min(),
             "honest+report is an equilibrium": max(honest.values()) <= 1e-9,
             "cheat+silent is an equilibrium": max(silent.values()) <= 1e-9,
+            "reporting subgame (theory)": sg.regime(sg.SwarmParams(n=3, g=g, b=getattr(rule, "bounty", 0.0), P=pen, o=obs)),
         })
+        if rname not in dyn_rules:
+            continue
         for init, q0 in (("expect silence", 0.1), ("expect reporting", 0.9)):
             for t, mix in enumerate(game.replicator(game.mix(_swarm_mix(0.5, q0)), iters=300, lr=1.0, record_every=3)):
                 dyn_rows.append({"rule": rname, "init": init, "step": t * 3,
@@ -491,9 +500,30 @@ DEMOS = {"hiddenbits": demo_hiddenbits, "chess": demo_chess, "bon": demo_bon, "o
          "swarm": demo_swarm, "monitoring": demo_monitoring, "release": demo_release}
 
 
-def run(name: str, out: Path) -> list[Path]:
+def _missing_requirement(name: str) -> str | None:
+    """Why a demo cannot run here (None if it can)."""
+    if name == "chess":
+        try:
+            import chess  # noqa: F401
+
+            from .domains.chess import find_stockfish
+
+            find_stockfish()
+        except (ImportError, RuntimeError) as e:
+            return str(e) or type(e).__name__
+    return None
+
+
+def run(name: str, out: Path, on_skip: Any = None) -> list[Path]:
+    """Run one demo, or ``"all"`` of them; with ``"all"``, demos whose requirements are missing
+    (the chess demo needs Stockfish) are skipped with a warning (or ``on_skip(message)``)."""
     names = list(DEMOS) if name == "all" else [name]
     paths: list[Path] = []
     for n in names:
+        why = _missing_requirement(n) if name == "all" else None
+        if why:
+            msg = f"skipping the {n} demo: {why}"
+            on_skip(msg) if on_skip else warnings.warn(msg, stacklevel=2)
+            continue
         paths += DEMOS[n](Path(out) / n)
     return paths

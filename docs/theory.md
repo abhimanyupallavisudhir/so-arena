@@ -131,9 +131,12 @@ unrelated to the sign of ASD.
 and $0$ otherwise. Then $\mathrm{ASD} = 0.5 - 0.09 > 0$, yet $\mathrm{Bo}(\infty)$ always selects a
 dishonest argument. This is *extremal Goodhart* (Manheim & Garrabrant, 2018); heavy-tailed reward
 errors make it the generic case (Kwa et al., 2024). `bon_curve` computes the selection exactly
-(no resampling noise) and reports $\mathrm{KL}(\mathrm{Bo}(n)\,\|\,\pi^0) = \log n - (n-1)/n$, the
-standard optimisation-pressure axis (Stiennon et al., 2020; Gao et al., 2023). A mechanism
-Goodharts when its curve in the (reward, ground truth) plane bends downward.
+(no resampling noise). Its x-axis options are the standard optimisation-pressure measure
+$\log n - (n-1)/n$ (Stiennon et al., 2020; Gao et al., 2023), which equals
+$\mathrm{KL}(\mathrm{Bo}(n)\,\|\,\pi^0)$ only for continuous reward distributions and is an upper
+bound for a finite pool (Beirami et al., 2024), and the exact KL for each pool (`kl_pool`), which
+never exceeds $\log N$ for $N$ samples. A mechanism Goodharts when its curve in the
+(reward, ground truth) plane bends downward.
 
 ### 2.2 Rung 2: beyond the local policy
 
@@ -331,7 +334,8 @@ the actor's reward is apparent task success minus a penalty on alarms (`Monitori
   language, and a principled rationale for regularising optimisation (KL penalties, early stopping)
   when the reward measures only part of what we want.
 - **Costly verification and bounded penalties.** Random audits with probability $a$ and penalty $P$
-  deter a gain $G$ iff $aP \ge G$ (Becker, 1968; Townsend, 1979; Mookherjee & Png, 1989). RL
+  deter a gain $G$ that is forfeited on detection (as in §8) iff $aP \ge (1-a)G$, and a gain that
+  is kept iff $aP \ge G$ (Becker, 1968; Townsend, 1979; Mookherjee & Png, 1989). RL
   rewards are clipped and normalised, which is *limited liability*. So audits must be frequent
   enough to compensate for bounded penalties.
 
@@ -392,9 +396,10 @@ reward hacking, forbidden access) can inflate. The economics of *teams* and *col
 
 **Model** (`theory.swarm_game`). One violation has occurred. Each worker's *stake* $g$ is how much
 its own reward rises if the violation stays undetected: $g = G$ if every worker is paid the team
-score, $g = G/n$ if a pool is split. Each other worker observed the violation with probability $o$.
-Detection comes from a verified report or, failing that, a random audit with probability $a$. On
-detection:
+score, $g = G/n$ if a pool is split. Each other worker observed the violation independently with
+probability $o$, as in the simulated environments, so an observer does not know how many others
+saw it. Detection comes from a verified report or, failing that, a random audit with probability
+$a$. On detection:
 - the gain is forfeited;
 - the offender pays $P$;
 - reporters share a bounty $b$;
@@ -403,40 +408,59 @@ detection:
 
 Let $K$ be the number of *other* observers who report. Reporting beats silence by
 $$\Delta(K) = \begin{cases} b + ac - (1-a)g, & K = 0,\\[2pt] \dfrac{b}{1+K} + c, & K \ge 1.\end{cases}$$
+If every observer reports with probability $q$, an observer faces $K \sim \mathrm{Bin}(n-2, oq)$:
+each of the $n-2$ other non-offenders observed with probability $o$ and then reports with
+probability $q$. Write $T = (1-a)g - ac$ and $\bar\Delta(q) = \mathbb E_{K \sim \mathrm{Bin}(n-2,\,oq)}\Delta(K)$.
 
-**Proposition 5 (the reporting game).** With $m$ observers:
+**Proposition 5 (the reporting game).** Let $b > 0$ or $c > 0$.
 
-1. If $b > (1-a)g - ac$, reporting is a best response to any behaviour of the others, and all
-   reporting is the unique equilibrium.
-2. If $b < (1-a)g - ac$ and $b + c > 0$, all reporting and all silence are both strict
-   equilibria, with an unstable mixed equilibrium at $q^*$ solving
-   $\mathbb E_{K \sim \mathrm{Bin}(m-1, q^*)}\Delta(K) = 0$. Whether snitching pays depends entirely
-   on whether the agent expects others to snitch.
-3. The global-games selection (Carlsson & van Damme, 1993; Morris & Shin, 2003) picks reporting iff
-   $\frac1m \sum_{K=0}^{m-1}\Delta(K) > 0$, i.e. under uniform beliefs about how many others report.
-   For $m = 2$ this is $\tfrac32 b + (1+a)c > (1-a) g$, which coincides with risk dominance
-   (Harsanyi & Selten, 1988).
+1. If $b > T$, reporting is a best response to any behaviour of the others, and all reporting is
+   the unique equilibrium.
+2. If $b < T$, all silence is a strict equilibrium. All reporting is an equilibrium iff
+   $\bar\Delta(1) \ge 0$, that is iff $b \ge b_R$ with
+   $$b_R = \frac{P_0\,T - (1 - P_0)\,c}{P_0 + \sum_{k \ge 1} P_k/(1+k)}, \qquad P_k = \Pr[\mathrm{Bin}(n-2, o) = k].$$
+   - For $b_R < b < T$ both are strict equilibria, with exactly one mixed equilibrium between them.
+     Whether snitching pays depends entirely on whether the agent expects others to snitch.
+   - For $b < b_R$ silence is the only equilibrium. An observer may be the only one ($P_0 > 0$),
+     and the bounty does not pay for the risk of reporting alone. For example, with $n = 3$,
+     $o = 0.8$ and $a = c = 0$, $b_R = g/3$.
+3. With exactly $m$ observers who all know it, replace $\mathrm{Bin}(n-2, oq)$ by
+   $\mathrm{Bin}(m-1, q)$. Then $P_0 = 0$ for $m \ge 2$, so all reporting is an equilibrium at any
+   bounty. For $m = 2$ the game is a $2\times2$ coordination game, in which reporting is risk
+   dominant (Harsanyi & Selten, 1988) iff $\tfrac32 b + (1+a)c > (1-a)g$. For $m \ge 3$ there is
+   no comparable selection result: $\Delta(K)$ *falls* for $K \ge 1$ (bounties are shared), so the
+   game lacks the strategic complementarity that global-games selection requires (Carlsson &
+   van Damme, 1993; Morris & Shin, 2003). Which equilibrium training reaches is then a question of
+   basins of attraction (Proposition 6).
 4. **Fully shared objective** ($b = c = 0$, detected gains forfeited). Silence weakly dominates
    reporting, strictly when nobody else reports. Anticipating silence, a worker with the
    opportunity commits the violation whenever $(1-a)g + \beta > 0$, with no offender penalty under
    a purely shared reward. Every worker is a stakeholder in undetected misconduct.
 
-*Proof.* (1)–(2): $\Delta(K)$ for $K \ge 1$ is positive whenever $b > 0$ or $c > 0$, and
-$\Delta(0)$ has the sign of $b - [(1-a)g - ac]$. For the mixed equilibrium, write $u = 1-q$ and use
-$\mathbb E[1/(1+K)] = \frac{1-(1-q)^m}{mq}$ for $K \sim \mathrm{Bin}(m-1, q)$. Then
-$$\mathbb E_q\,\Delta(K) = c + \frac bm\,(1 + u + \dots + u^{m-1}) - (1-a)(g+c)\,u^{m-1}.$$
-This is a polynomial in $u$ whose coefficients change sign exactly once: in the coordination region
-the leading coefficient $b/m - (1-a)(g+c)$ is negative and the others are nonnegative. By
-Descartes' rule of signs it has at most one positive root. It is positive at $u = 0$ ($q = 1$) and
-negative at $u = 1$ ($q = 0$), so the root in $(0,1)$ is unique, even though the expected advantage
-need not be monotone in $q$. (3): the Laplacian-belief criterion for symmetric binary-action global
-games (Morris & Shin, 2003; see Morris, Rob & Shin, 1995 for the related p-dominance).
-(4): substitute $b = c = 0$. $\square$
+*Proof.* (1) $\Delta(0) = b - T > 0$, and $\Delta(K) > 0$ for $K \ge 1$ when $b > 0$ or $c > 0$.
+(2) $\bar\Delta(0) = \Delta(0) < 0$, and $\bar\Delta(1)$ is affine in $b$ with root $b_R$. For the
+mixed equilibrium, let $s = oq$, $N = n-2$ and $t = s/(1-s)$. Then
+$\bar\Delta = (1-s)^N \sum_{k=0}^{N}\binom Nk \Delta(k)\,t^k$. The coefficients change sign
+exactly once ($\Delta(0) < 0 < \Delta(k)$ for $k \ge 1$), so by Descartes' rule of signs
+$\bar\Delta$ has at most one zero in $(0, 1)$. It has exactly one iff $\bar\Delta(1) > 0$. The
+expected advantage need not be monotone in $q$. (3) Set $N = m - 1$ and $s = q$. In the $2\times2$
+game, (report, report) risk-dominates iff the product of deviation losses favours it:
+$(b/2 + c)^2 > (T - b)^2$. (4) Substitute $b = c = 0$. $\square$
 
-So bounties must exceed each agent's *stake* in the undetected violation, not merely be positive.
-The stake is the full team score when everyone is paid the team score. Audits and misprision
-penalties lower the threshold. Paying only the first reporter, with leniency for self-reports,
-turns cover-up into a race.
+So bounties must exceed each agent's *stake* in the undetected violation, not merely be positive,
+to make reporting safe whatever the others do. Below the stake, a bounty creates a coordination
+game only if an observer is unlikely to be alone; otherwise it achieves nothing. The stake is the
+full team score when everyone is paid the team score. Audits and misprision penalties lower both
+thresholds. Paying only the first reporter, with leniency for self-reports, turns cover-up into a
+race.
+
+Proposition 5 is about the *reporting subgame*, played after a violation. In the normal-form game
+where every worker fixes its whole strategy (violate? report?) in advance, "nobody violates and
+everyone would report" is a Nash equilibrium even below $b_R$: reports are never tested, and the
+threat of them deters violations. It is not subgame perfect, since an observer who actually sees a
+violation prefers silence. The `swarm` demo's empirical game shows exactly this at $b = 0.05$.
+Training only on episodes where nobody violates never tests the threat, so such an "honest"
+outcome is fragile.
 
 **Proposition 6 (training dynamics of the full game are two-dimensional).** Let workers choose both
 whether to commit the violation (probability $x$) and whether to report others' violations
@@ -587,6 +611,7 @@ per episode as part of the protocol.
 - Baker, B. et al. (2025). Monitoring reasoning models for misbehavior and the risks of promoting obfuscation.
 - Barnes, B. & Christiano, P. (2020). Debate update: obfuscated arguments problem. *AI Alignment Forum*.
 - Becker, G. (1968). Crime and punishment: an economic approach. *JPE*.
+- Beirami, A. et al. (2024). Theoretical guarantees on the best-of-n alignment policy. *arXiv:2401.01879*.
 - Ben-Porath, E., Dekel, E. & Lipman, B. (2014). Optimal allocation with costly verification. *AER*.
 - Bowman, S. et al. (2022). Measuring progress on scalable oversight for large language models.
 - Brier, G. (1950). Verification of forecasts expressed in terms of probability. *Monthly Weather Review*.

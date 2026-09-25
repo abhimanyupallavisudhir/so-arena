@@ -36,7 +36,7 @@ from ..experiment.results import Results
 from ..experiment.runner import AgentTable, run_episode
 from ..mechanisms.base import Mechanism
 from .evaluator import Evaluator
-from .optimize import PromptOptimizer, Proposer
+from .optimize import PromptOptimizer, Proposer, ranked
 
 Oracle = Callable[[Evaluator, list[Strategy]], Awaitable[Strategy | None]]
 
@@ -60,7 +60,8 @@ def pool_oracle(pool: Sequence[Strategy]) -> Oracle:
 
     async def oracle(ev: Evaluator, population: list[Strategy]) -> Strategy | None:
         evals = await asyncio.gather(*[ev.evaluate(s) for s in pool])
-        return max(evals, key=lambda e: e.reward).strategy
+        top = ranked(evals)
+        return top[0].strategy if top else None
 
     return oracle
 

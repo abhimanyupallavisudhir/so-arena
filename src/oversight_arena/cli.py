@@ -129,17 +129,20 @@ def theory() -> None:
 @click.option("--audit", "a", default=0.0, help="Random audit probability.")
 @click.option("--misprision", "c", default=0.0, help="Penalty for silent observers when detected.")
 @click.option("--observe", "o", default=0.8, help="Probability each other worker observes the violation.")
+@click.option("--observers", type=int, default=None,
+              help="Fix the number of observers (common knowledge) instead of random observation.")
 @click.option("--plot", type=click.Path(), default=None, help="Save the phase diagram PNG here.")
-def theory_swarm(n: int, g: float, b: float, P: float, a: float, c: float, o: float, plot: str | None) -> None:
+def theory_swarm(n: int, g: float, b: float, P: float, a: float, c: float, o: float, observers: int | None,
+                 plot: str | None) -> None:
     """Equilibria of the whistleblowing game."""
     from .theory import swarm_game as sg
 
-    p = sg.SwarmParams(n=n, g=g, b=b, P=P, a=a, c=c, o=o)
+    p = sg.SwarmParams(n=n, g=g, b=b, P=P, a=a, c=c, o=o, observers=observers)
     click.echo(json.dumps(sg.summary(p), indent=1))
     if plot:
         from .analysis import plots as P_
 
-        fig, _ = P_.regime_map(sg.phase_diagram(n=n, g=g, P=P, c=c, o=o), "bounty_over_stake", "audit",
+        fig, _ = P_.regime_map(sg.phase_diagram(n=n, g=g, P=P, c=c, o=o, observers=observers), "bounty_over_stake", "audit",
                                contour="basin_report", title="When does reporting pay?",
                                xlabel="bounty ÷ each worker's stake", ylabel="audit probability")
         click.echo(str(P_.save(fig, plot)))
@@ -152,7 +155,7 @@ def demo(name: str, out: str) -> None:
     """Run a built-in demo that needs no API keys (figures + HTML reports)."""
     from . import demos
 
-    for p in demos.run(name, Path(out)):
+    for p in demos.run(name, Path(out), on_skip=lambda msg: click.echo(f"warning: {msg}", err=True)):
         click.echo(str(p))
 
 

@@ -19,6 +19,7 @@ Three levels of fidelity:
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import queue
 import threading
@@ -30,7 +31,7 @@ import pandas as pd
 
 from ..agents.base import Action, Agent, Observation
 from ..core.episode import EpisodeRecord
-from ..core.strategy import Assignment, Profile, Strategy
+from ..core.strategy import Assignment, Profile, Strategy, argue
 from ..core.task import Task
 from ..core.util import gather_limited, rng_for
 from ..domains.base import Domain
@@ -39,7 +40,7 @@ from ..mechanisms.base import Mechanism
 
 
 class StrategyGradient:
-    """Independent softmax-policy learners over strategy populations, trained on real episodes.
+    r"""Independent softmax-policy learners over strategy populations, trained on real episodes.
 
     With ``natural=False`` (REINFORCE) the expected logit update is
     $\Delta\theta_a = \eta\,\pi_a (u_a - \bar u)$: rarely played strategies learn slowly. With
@@ -253,19 +254,46 @@ class MechanismEnv:
         return [{"role": m.role, "content": m.content} for m in render_observation(obs)]
 
 
+def _row_assignment(i: int, kw: dict[str, Any]) -> Assignment | None:
+    """The trainable role's assignment for completion ``i`` from per-row dataset columns:
+    ``strategy`` (a Strategy or its dict), ``stance`` (+ ``option`` for OPTION) or ``position``."""
+
+    def col(k: str) -> Any:
+        v = kw.get(k)
+        return v[i] if isinstance(v, (list, tuple)) and i < len(v) else None
+
+    strat, stance, pos = col("strategy"), col("stance"), col("position")
+    if strat is not None:
+        s = strat if isinstance(strat, Strategy) else Strategy.model_validate(json.loads(strat) if isinstance(strat, str) else strat)
+        return Assignment(strategy=s, position=pos)
+    if stance is not None:
+        s = argue(stance)
+        if col("option") is not None:
+            s = s.model_copy(update={"option": col("option")})
+        return Assignment(strategy=s, position=pos)
+    if pos is not None:
+        return Assignment(position=pos)
+    return None
+
+
 def reward_function(domain: Domain, mechanism: Mechanism, role: str, fixtures: dict[str, Agent],
                     profile: Profile | None = None) -> Any:
     """A TRL-GRPO-compatible reward function for a *single-turn* trainable role.
 
-    Returns ``fn(prompts, completions, task_id=[...], **kw) -> list[float]``: each completion is
-    used as ``role``'s (only) move; the rest of the mechanism runs with ``fixtures``.
+    Returns ``fn(prompts, completions, task_id=[...], **columns) -> list[float]``: each completion
+    is used as ``role``'s (only) move; the rest of the mechanism runs with ``fixtures`` and
+    ``profile``. What the completion was asked to do comes from the same dataset row, so it is
+    scored at the position it argued: pass a ``stance`` column (``"correct"`` / ``"incorrect"``,
+    or ``"option"`` with an ``option`` column), a ``position`` column (option id) or a
+    ``strategy`` column. Build prompts with the same strategy (e.g. ``oa.argue(stance)``).
     """
     tasks = {t.id: t for t in domain.tasks()}
+    base = profile or Profile()
 
     def fn(prompts: list[Any], completions: list[Any], task_id: list[str] | None = None, **kw: Any) -> list[float]:
         assert task_id is not None, "pass task ids via the dataset column 'task_id'"
 
-        async def one(c: Any, tid: str) -> float:
+        async def one(i: int, c: Any, tid: str) -> float:
             text = c if isinstance(c, str) else (c[-1]["content"] if isinstance(c, list) else str(c))
 
             class _Fixed(Agent):
@@ -277,12 +305,14 @@ def reward_function(domain: Domain, mechanism: Mechanism, role: str, fixtures: d
                     parsed, _ = LLMAgent._parse(None, text, obs.response)  # type: ignore[arg-type]
                     return Action(text=text, parsed=parsed)
 
+            asg = _row_assignment(i, kw)
+            prof = base if asg is None else base.model_copy(update={"assignments": {**base.assignments, role: asg}})
             agents = {**fixtures, role: _Fixed()}
-            rec = await run_episode(mechanism, tasks[tid], profile or Profile(), agents, domain)
+            rec = await run_episode(mechanism, tasks[tid], prof, agents, domain)
             return float(rec.rewards.get(role, math.nan))
 
         async def all_():
-            return await asyncio.gather(*[one(c, t) for c, t in zip(completions, task_id)])
+            return await asyncio.gather(*[one(i, c, t) for i, (c, t) in enumerate(zip(completions, task_id))])
 
         return asyncio.run(all_())
 

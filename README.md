@@ -72,7 +72,7 @@ print(ic_report(res.df(trainable_only=True)))        # ASD with CIs, alignment, 
 
 ```bash
 oversight-arena demo all              # seven demos with figures and HTML reports (see docs/demos.md)
-oversight-arena theory swarm --stake 0.3 --bounty 0.1
+oversight-arena theory swarm --stake 0.3 --bounty 0.2
 oversight-arena list                  # registered domains, mechanisms, rewards, agents, GT scorers...
 ```
 
@@ -161,9 +161,11 @@ src/oversight_arena/
   `control-arena` is installed; they were validated against 19.0.0).
 - **Results so far.** The demos use programmatic agents and exact judges. They validate the
   machinery and the theory. Results with frontier LLMs are what the examples and configs are for.
-- **Sandboxing.** Code from models runs in a subprocess with resource limits, not a security
-  sandbox. For untrusted code at scale use a container, or plug in an executor
-  (`domains._exec.set_executor`).
+- **Sandboxing.** Code from models runs confined (Landlock, seccomp and rlimits on Linux, plus a
+  Python audit hook): no reads outside the Python installation, no network, no new processes.
+  Grading runs trusted tests in a separate process, so graded code cannot fake its result (see the
+  [cookbook](docs/cookbook.md#8-real-capability-gaps)). For adversarial workloads at scale, also
+  use a container or plug in an executor (`domains._exec.set_executor`).
 
 ## Citing
 

@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import ClassVar, Literal
 
-from ..channels.evidence import Claim, Verifier, VerifyEnv
+from ..channels.evidence import Claim, Verifier, VerifyEnv, perturb_output
 from ..core.episode import EpisodeRecord
 from ..core.task import Answer, InfoBlock, Task
 from ..core.tools import Tool, tool
@@ -101,7 +101,11 @@ class SQLVerifier(Verifier):
         return Evidence(verifier=self.name, kind=self.tag, claim=claim.content, result=res, verified=None if ok else False)
 
     def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
-        return shown.model_copy(update={"result": "(no rows)" if shown.verified is not False else "OperationalError: database is locked"})
+        if shown.verified is None:  # a result table: one value changed or one row dropped
+            return shown.model_copy(update={"result": perturb_output(shown.result, claim.content, skip_first_line=True)})
+        if shown.verified:  # a failing query shown as working (genuine results are never VERIFIED)
+            return shown.model_copy(update={"verified": None, "result": "(no rows)"})
+        return shown.model_copy(update={"result": "OperationalError: database is locked"})
 
 
 def sql_tool(db_path: str) -> Tool:

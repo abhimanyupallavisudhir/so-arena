@@ -42,11 +42,20 @@ def bon_weights(scores: Sequence[float] | np.ndarray, n: float, maximize: bool =
 
 
 def bon_kl(n: float) -> float:
-    """KL(best-of-n || base policy) $= \log n - (n-1)/n$ nats (Stiennon et al. 2020; an upper
-    bound for discrete pools with ties). The standard x-axis for optimisation-pressure curves."""
+    r"""$\log n - (n-1)/n$ nats: KL(best-of-n || base policy) for a *continuous* reward
+    distribution (Stiennon et al. 2020), the standard x-axis for optimisation-pressure curves. For a
+    finite pool it is only an upper bound (Beirami et al. 2024); :func:`pool_kl` is exact."""
     import math
 
     return math.log(n) - (n - 1) / n if n >= 1 else 0.0
+
+
+def pool_kl(scores: Sequence[float] | np.ndarray, n: float, maximize: bool = True) -> float:
+    r"""Exact KL(best-of-n || uniform) over a finite pool of samples, $\sum_i w_i \log(N w_i)$.
+    At most :func:`bon_kl` ``(n)``, and at most $\log N$ however large $n$ is."""
+    w = bon_weights(scores, n, maximize)
+    w = w[w > 0]
+    return float(np.sum(w * np.log(len(scores) * w))) if len(w) else 0.0
 
 
 def bon_expectation(scores, values, n: float, maximize: bool = True) -> float:
@@ -63,11 +72,12 @@ def bon_curve(
     pool_key: str = "task",
     n_boot: int = 1000,
 ) -> pd.DataFrame:
-    """Expected reward and GT under Bo(n) selection by the mechanism's reward, per pool.
+    r"""Expected reward and GT under Bo(n) selection by the mechanism's reward, per pool.
 
     Each task is a pool (the policy's samples for that task). Returns one row per
     (group, n) with task-bootstrap CIs — plot ``reward`` vs ``gt`` parametrically in ``n``
-    for the 2-D "optimisation response" plots.
+    for the 2-D "optimisation response" plots. ``kl`` is the continuous-case axis
+    $\log n - (n-1)/n$ (an upper bound here); ``kl_pool`` is the exact KL, averaged over pools.
     """
     d = results if isinstance(results, pd.DataFrame) else results.df()
     col = gt if gt.startswith("gt_") else f"gt_{gt}"
@@ -84,8 +94,8 @@ def bon_curve(
             r_est, r_lo, r_hi = bootstrap_ci(rs, n_boot=n_boot)
             g_est, g_lo, g_hi = bootstrap_ci(gs, n_boot=n_boot)
             row = dict(zip(by, keys if isinstance(keys, tuple) else (keys,)))
-            row.update(n=n, kl=bon_kl(n), reward=r_est, reward_lo=r_lo, reward_hi=r_hi, gt=g_est, gt_lo=g_lo, gt_hi=g_hi,
-                       pools=len(pools))
+            row.update(n=n, kl=bon_kl(n), kl_pool=float(np.mean([pool_kl(r, n) for r, _ in pools])), reward=r_est,
+                       reward_lo=r_lo, reward_hi=r_hi, gt=g_est, gt_lo=g_lo, gt_hi=g_hi, pools=len(pools))
             rows.append(row)
     return pd.DataFrame(rows)
 

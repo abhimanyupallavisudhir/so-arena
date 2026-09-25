@@ -356,7 +356,7 @@ class EpisodeContext:
         self.usage[role] = self.usage.get(role, Usage()) + action.usage
         pol = self.mechanism.evidence
         if pol is not None:
-            if verify and pol.auto_verify and pol.applies_to(role):
+            if verify and pol.auto_verify and self._checks_claims_of(role, pol):
                 await self._verify_inline(role, entry, pol)
             if pol.share_tool_results and entry.tool_trace:
                 entry.data["_share_tools"] = True
@@ -414,15 +414,20 @@ class EpisodeContext:
             vs = [v for v in vs if v.name in pol.verifiers or v.tag in pol.verifiers]
         return vs
 
-    def _claim_help(self, role: str) -> str:
-        """How to make verifiable claims — for roles whose claims are verified (by default every
-        role except judge-like ones, which evaluate claims rather than make them)."""
+    def _checks_claims_of(self, role: str, pol: EvidencePolicy) -> bool:
+        """Whose inline claims trusted code checks: ``pol.roles`` if given, else every role except
+        judge-like ones. Judges evaluate claims; checking theirs would hand them the experts'
+        capabilities through the verifiers (e.g. querying a private database with ``<sql>``)."""
         from ..domains.base import JUDGE_KINDS
 
+        if pol.roles is not None:
+            return role in pol.roles
+        return self._roles[role].kind not in JUDGE_KINDS
+
+    def _claim_help(self, role: str) -> str:
+        """How to make verifiable claims, for roles whose claims are checked."""
         pol = self.mechanism.evidence
-        if pol is None or not pol.applies_to(role):
-            return ""
-        if pol.roles is None and self._roles[role].kind in JUDGE_KINDS:
+        if pol is None or not self._checks_claims_of(role, pol):
             return ""
         return claim_help_text(self.enabled_verifiers(), pol.budget)
 
@@ -458,11 +463,13 @@ class EpisodeContext:
         ev.cost = v.cost
         ev.requested_by = role
         truth = {"verified": ev.verified, "result": ev.result, "flipped": False}
-        if pol.noise > 0 and ev.verified is not None:
-            if rng_for("vnoise", self.episode_key, role, claim.content).random() < pol.noise:
-                shown = ev.model_copy(update={"verified": not ev.verified})
-                ev = v.forge(claim, shown, venv)
-                truth["flipped"] = True
+        if pol.noise > 0 and rng_for("vnoise", self.episode_key, role, claim.content).random() < pol.noise:
+            # the verifier errs: a verdict is flipped, or an informational output (query rows,
+            # program output, a computed value) is replaced by a plausible wrong one
+            shown = ev if ev.verified is None else ev.model_copy(update={"verified": not ev.verified})
+            forged = v.forge(claim, shown, venv)
+            if (forged.result, forged.verified) != (ev.result, ev.verified):
+                ev, truth["flipped"] = forged, True
         if pol.show_to is not None:
             ev.visible_to = sorted(set(pol.show_to))
         return ev, truth

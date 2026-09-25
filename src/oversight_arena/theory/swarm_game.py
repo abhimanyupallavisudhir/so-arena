@@ -1,32 +1,35 @@
-"""Analytic model of whistleblowing in agent swarms (see docs/theory.md, §6).
+r"""Analytic model of whistleblowing in agent swarms (see docs/theory.md, §8).
 
 Setting (one violation has occurred). $n$ workers are paid from a shared score that the
 violation inflated. Each worker's *stake* $g$ is how much its own payoff rises if the violation
 goes undetected ($g = G$ when every worker is paid the team score, as with
 :class:`~oversight_arena.mechanisms.swarm.TeamReward`; $g = G/n$ when a pool $G$ is split).
-Each of the other workers observed the violation independently with probability $o$; say $m$
-did. Each observer chooses to **report** or stay **silent**. A verified report detects the
-violation; otherwise a random audit detects it with probability $a$. On detection the gain is
-forfeited, the offender pays $P$, reporters share a bounty $b$ (equal split, or
-winner-take-all in random order — same expectation) and observers who stayed silent pay $c$
-("misprision").
+Each of the other workers observes the violation independently with probability $o$, as in the
+simulated environments, so an observer does not know how many others saw it. (``observers=m``
+instead fixes the number of observers at $m$, common knowledge.) Each observer chooses to
+**report** or stay **silent**. A verified report detects the violation; otherwise a random audit
+detects it with probability $a$. On detection the gain is forfeited, the offender pays $P$,
+reporters share a bounty $b$ (equal split, or winner-take-all in random order: same expectation)
+and observers who stayed silent pay $c$ ("misprision").
 
 Let $K$ be the number of *other* observers who report. Reporting's advantage over silence is
-$$\\Delta(K) = \\begin{cases} b + a\\,c - (1-a)\\,g & K = 0 \\\\ \\dfrac{b}{1+K} + c & K \\ge 1 \\end{cases}$$
-Reporting when others report is always (weakly) better — the gain is lost anyway and the bounty
-is pure upside. Reporting when nobody else does costs your stake. Hence:
+$$\Delta(K) = \begin{cases} b + a\,c - (1-a)\,g & K = 0 \\ \dfrac{b}{1+K} + c & K \ge 1 \end{cases}$$
+If every observer reports with probability $q$, then $K \sim \mathrm{Bin}(n-2, oq)$ (or
+$\mathrm{Bin}(m-1, q)$ with $m$ known observers). With $T = (1-a)g - ac$:
 
-- $b > (1-a)g - ac$ ⇒ reporting is a best response to anything ⇒ unique equilibrium: report
-  (*full implementation* of honest oversight).
-- $b < (1-a)g - ac$ ⇒ a coordination game: *all silent* and *all report* are both equilibria
-  (plus an unstable mixed one at $q^*$). Whether snitching pays depends on what you expect
-  others to do. Replicator/policy-gradient learning converges to *report* iff the initial report
-  propensity exceeds $q^*$; global-games/risk-dominance selection picks *report* iff
-  $\\frac1m\\sum_{K=0}^{m-1}\\Delta(K) > 0$ (Laplacian beliefs; for $m=2$:
-  $\\tfrac32 b + (1+a)c > (1-a)g$).
+- $b > T$: reporting is a best response to anything; all reporting is the unique equilibrium.
+- $b < T$: all silence is a strict equilibrium. All reporting is one too iff $b \ge b_R$
+  (:func:`report_equilibrium_bounty`); then there is also a unique mixed equilibrium and the game
+  is a coordination game: whether snitching pays depends on what the others are expected to do.
+  Below $b_R$ silence is the only equilibrium, because an observer may be the only one.
 - With a fully shared objective ($b = c = 0$), silence weakly dominates (strictly, if detection
   forfeits the gain): nobody reports and, anticipating that, misconduct pays $(1-a)g$ per
-  worker — every worker is *complicit* in the offender's gain.
+  worker. Every worker is *complicit* in the offender's gain.
+
+Equilibrium selection: for two known observers the game is a 2x2 coordination game and
+:func:`risk_dominant` applies (Harsanyi-Selten). For more observers $\Delta(K)$ falls in $K \ge 1$
+(bounties are shared), so the game is not supermodular and global-games selection does not
+apply; learning dynamics select by basin (:func:`basin_of_reporting`, :func:`mean_field`).
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ class SwarmParams:
     c: float = 0.0  # penalty for silent observers when the violation is detected
     o: float = 0.8  # probability each other worker observes the violation
     beta: float = 0.0  # offender's private benefit from misconduct (beyond its stake)
+    observers: int | None = None  # None: random observers (each w.p. o); m: exactly m, common knowledge
 
     @classmethod
     def pooled(cls, n: int, G: float, **kw: float) -> "SwarmParams":
@@ -60,50 +64,76 @@ class SwarmParams:
         """Bounty above which reporting is a best response even if nobody else reports."""
         return (1 - self.a) * self.g - self.a * self.c
 
-    @property
-    def m(self) -> int:
-        """Typical number of observers (≥ 2 so that the reporting subgame is a game)."""
-        return max(2, round(self.o * (self.n - 1)))
+
+_EPS = 1e-12
 
 
 def advantage(K: int, p: SwarmParams) -> float:
-    """$\\Delta(K)$: gain from reporting vs staying silent when $K$ other observers report."""
+    r"""$\Delta(K)$: gain from reporting vs staying silent when $K$ other observers report."""
     if K == 0:
         return p.b + p.a * p.c - (1 - p.a) * p.g
     return p.b / (1 + K) + p.c
 
 
-def expected_advantage(q: float, m: int, p: SwarmParams) -> float:
-    """$E[\\Delta]$ for an observer when each of the other $m-1$ observers reports w.p. $q$."""
-    ks = np.arange(m)
-    w = binom.pmf(ks, m - 1, q) if m > 1 else np.array([1.0])
-    return float(sum(wi * advantage(int(k), p) for wi, k in zip(w, ks)))
+def _others(p: SwarmParams, m: int | None) -> tuple[int, float]:
+    r"""(N, r): an observer faces $K \sim \mathrm{Bin}(N, r\,q)$ other reporters."""
+    m = p.observers if m is None else m
+    return (max(p.n - 2, 0), p.o) if m is None else (max(m - 1, 0), 1.0)
 
 
-def equilibria(m: int, p: SwarmParams) -> list[dict]:
-    """Symmetric equilibria of the reporting subgame among $m$ observers ($q$ = report prob.)."""
-    f = lambda q: expected_advantage(q, m, p)  # noqa: E731
+def other_reporters(q: float, p: SwarmParams, m: int | None = None) -> np.ndarray:
+    """Distribution of $K$ (index = number of other reporters) when each observer reports w.p. $q$."""
+    N, r = _others(p, m)
+    return binom.pmf(np.arange(N + 1), N, r * q) if N > 0 else np.array([1.0])
+
+
+def expected_advantage(q: float, p: SwarmParams, m: int | None = None) -> float:
+    r"""$E[\Delta(K)]$ for an observer when every other observer reports w.p. $q$."""
+    w = other_reporters(q, p, m)
+    return float(sum(wi * advantage(k, p) for k, wi in enumerate(w)))
+
+
+def report_equilibrium_bounty(p: SwarmParams, m: int | None = None) -> float:
+    r"""Smallest bounty at which *all report* is an equilibrium: $E[\Delta(K)] \ge 0$ at $q = 1$.
+    $b_R = (P_0 T - (1-P_0)c) / (P_0 + \sum_{k\ge1} P_k/(1+k))$ with $P_k$ the distribution of $K$ at $q=1$."""
+    w = other_reporters(1.0, p, m)
+    num = w[0] * p.threshold - (1 - w[0]) * p.c
+    den = w[0] + sum(wk / (1 + k) for k, wk in enumerate(w) if k >= 1)
+    return max(0.0, num / den) if den > 0 else 0.0
+
+
+def equilibria(p: SwarmParams, m: int | None = None) -> list[dict]:
+    """Symmetric equilibria of the reporting subgame ($q$ = report probability of an observer)."""
+    f = lambda q: expected_advantage(q, p, m)  # noqa: E731
+    f0, f1 = f(0.0), f(1.0)
+    f0, f1 = (0.0 if abs(v) < _EPS else v for v in (f0, f1))  # knife edges (e.g. b = b_R) are weak
+    N, _ = _others(p, m)
     out = []
-    if f(1.0) >= 0:
-        out.append({"q": 1.0, "type": "all report", "stable": f(1.0) > 0 or m == 1})
-    if f(0.0) <= 0:
-        out.append({"q": 0.0, "type": "all silent", "stable": f(0.0) < 0})
-    if f(0.0) < 0 < f(1.0) and m > 1:
-        q = brentq(f, 0.0, 1.0)
-        out.append({"q": float(q), "type": "mixed", "stable": False})
+    if f1 >= 0:
+        out.append({"q": 1.0, "type": "all report", "stable": f1 > 0 or N == 0})
+    if f0 <= 0:
+        out.append({"q": 0.0, "type": "all silent", "stable": f0 < 0})
+    if f0 < 0 < f1 and N > 0:
+        out.append({"q": float(brentq(f, 0.0, 1.0)), "type": "mixed", "stable": False})
     return out
 
 
-def selected(m: int, p: SwarmParams) -> str:
-    """Equilibrium picked by global-games / risk-dominance reasoning (Laplacian beliefs: the
-    number of *other* reporters is uniform on $\\{0,…,m-1\\}$)."""
-    avg = float(np.mean([advantage(k, p) for k in range(m)]))
-    return "all report" if avg > 0 else "all silent"
+def risk_dominant(p: SwarmParams) -> str:
+    r"""Risk-dominant equilibrium of the game between two known observers (Harsanyi & Selten, 1988):
+    reporting iff $\tfrac32 b + (1+a)c > (1-a)g$. Only defined for two observers: with more,
+    $\Delta(K)$ is not increasing in $K$, so global-games selection results do not apply."""
+    u, _ = payoff_matrix_2(p)
+    report_loss = u[0, 0] - u[1, 0]  # what a deviation from (report, report) costs
+    silent_loss = u[1, 1] - u[0, 1]  # what a deviation from (silent, silent) costs
+    if silent_loss <= 0:
+        return "all report"
+    return "all report" if report_loss > silent_loss else ("all silent" if report_loss < silent_loss else "tie")
 
 
 def detection_prob(q: float, p: SwarmParams) -> float:
-    """P(violation detected) if each other worker observes w.p. $o$ and then reports w.p. $q$."""
-    none_report = (1 - p.o * q) ** (p.n - 1)
+    """P(violation detected) if each other worker observes w.p. $o$ and then reports w.p. $q$
+    (with ``observers=m``: exactly $m$ observers)."""
+    none_report = (1 - p.o * q) ** (p.n - 1) if p.observers is None else (1 - q) ** p.observers
     return 1 - (1 - p.a) * none_report
 
 
@@ -114,23 +144,22 @@ def offender_gain(q: float, p: SwarmParams) -> float:
 
 
 def basin_of_reporting(p: SwarmParams, m: int | None = None) -> float:
-    """Fraction of initial report propensities from which (replicator) learning reaches 'report'.
+    r"""Fraction of initial report propensities from which (replicator) learning reaches 'report'.
 
-    $1 - q^*$ where $E[\\Delta(q^*)] = 0$; 1 if reporting is a best response even when nobody
+    $1 - q^*$ where $E[\Delta](q^*) = 0$; 1 if reporting is a best response even when nobody
     else reports; 0 if silence is a best response even when everyone reports."""
-    m = m or p.m
-    f = lambda q: expected_advantage(q, m, p)  # noqa: E731
+    f = lambda q: expected_advantage(q, p, m)  # noqa: E731
     f0, f1 = f(0.0), f(1.0)
-    if f0 >= -1e-12:
+    if f0 >= -_EPS:
         return 1.0
-    if f1 <= 0:
+    if f1 <= _EPS:
         return 0.0
     return 1 - brentq(f, 0.0, 1.0)
 
 
 def regime(p: SwarmParams, m: int | None = None) -> str:
     """'report dominant', 'coordination' (both pure equilibria strict) or 'silent dominant'."""
-    types = {e["type"] for e in equilibria(m or p.m, p) if e["stable"]}
+    types = {e["type"] for e in equilibria(p, m) if e["stable"]}
     if types == {"all report"}:
         return "report dominant"
     if {"all silent", "all report"} <= types:
@@ -145,31 +174,33 @@ def phase_diagram(
 
     Columns: ``regime`` ('report dominant' / 'coordination' / 'silent dominant'),
     ``basin_report`` (share of initial report propensities that learning takes to reporting),
-    ``selected`` (risk-dominant equilibrium), and whether misconduct is deterred in the *best*
-    and *worst* equilibria.
+    whether misconduct is deterred in the *best* and *worst* equilibria, and (for two known
+    observers only) the ``risk_dominant`` equilibrium.
     """
     b_over_stake = np.linspace(0, 1.5, 61) if b_over_stake is None else b_over_stake
     audit = np.linspace(0, 0.9, 46) if audit is None else audit
     base = SwarmParams(**kw)  # type: ignore[arg-type]
-    m = base.m
     rows = []
     for a in audit:
         for x in b_over_stake:
             p = replace(base, a=float(a), b=float(x) * base.g)
-            eqs = [e for e in equilibria(m, p) if e["stable"] or e["type"] != "mixed"]
+            eqs = equilibria(p)
             q_best = max(e["q"] for e in eqs)
             q_worst = min(e["q"] for e in eqs)
-            rows.append({
-                "audit": float(a), "bounty_over_stake": float(x), "regime": regime(p, m),
-                "basin_report": basin_of_reporting(p, m), "selected": selected(m, p),
+            row = {
+                "audit": float(a), "bounty_over_stake": float(x), "regime": regime(p),
+                "basin_report": basin_of_reporting(p),
                 "deterred_best": offender_gain(q_best, p) < 0, "deterred_worst": offender_gain(q_worst, p) < 0,
-            })
+            }
+            if base.observers == 2:
+                row["risk_dominant"] = risk_dominant(p)
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
 def mean_field(x0: float, q0: float, p: SwarmParams, iters: int = 600, lr: float = 1.0,
                opportunity: float | None = None) -> pd.DataFrame:
-    """Learning dynamics of the *full* game — whether to commit the violation and whether to report
+    r"""Learning dynamics of the *full* game — whether to commit the violation and whether to report
     others' — for symmetric workers trained by multiplicative weights (the replicator dynamics
     :meth:`EmpiricalGame.replicator` runs, and the mean-field limit of natural-policy-gradient training).
 
@@ -180,7 +211,7 @@ def mean_field(x0: float, q0: float, p: SwarmParams, iters: int = 600, lr: float
     $$\mathrm{logit}\,x \mathrel{+}= \eta\,\pi\,\mathrm{gain}(q),\qquad
       \mathrm{logit}\,q \mathrel{+}= \eta\,(1-\pi)\,x\,o\,E_{K\sim\mathrm{Bin}(n-2,\,oq)}[\Delta(K)],$$
     with $\pi$ the opportunity probability and $\mathrm{gain}(q)$ = :func:`offender_gain`.
-    Returns the trajectory (columns ``step, x, q``).
+    Returns the trajectory (columns ``step, x, q``). (Random observers; ``p.observers`` is ignored.)
     """
     pi = 1.0 / p.n if opportunity is None else opportunity
     lx = np.log(x0 / (1 - x0))
@@ -194,7 +225,7 @@ def mean_field(x0: float, q0: float, p: SwarmParams, iters: int = 600, lr: float
             break
         w = binom.pmf(ks, p.n - 2, p.o * q) if p.n > 2 else np.array([1.0])
         rep_adv = float(sum(wi * advantage(int(k), p) for wi, k in zip(w, ks)))
-        lx = float(np.clip(lx + lr * pi * offender_gain(q, p), -50, 50))
+        lx = float(np.clip(lx + lr * pi * offender_gain(q, replace(p, observers=None)), -50, 50))
         lq = float(np.clip(lq + lr * (1 - pi) * x * p.o * rep_adv, -50, 50))
     return pd.DataFrame(rows)
 
@@ -219,15 +250,16 @@ def payoff_matrix_2(p: SwarmParams) -> tuple[np.ndarray, np.ndarray]:
 
 
 def summary(p: SwarmParams) -> dict:
-    m = p.m
     return {
         "stake": p.g,
-        "threshold_bounty": p.threshold,
+        "observers": p.observers if p.observers is not None else f"random (each w.p. {p.o:g})",
+        "report_dominant_above": p.threshold,
+        "all_report_equilibrium_above": report_equilibrium_bounty(p),
         "bounty": p.b,
-        "regime": regime(p, m),
-        "equilibria": equilibria(m, p),
-        "risk_dominant": selected(m, p),
-        "basin_report": basin_of_reporting(p, m),
+        "regime": regime(p),
+        "equilibria": equilibria(p),
+        "risk_dominant": risk_dominant(p) if p.observers == 2 else None,
+        "basin_report": basin_of_reporting(p),
         "offender_gain_if_all_report": offender_gain(1.0, p),
         "offender_gain_if_all_silent": offender_gain(0.0, p),
     }

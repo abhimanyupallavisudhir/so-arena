@@ -1,5 +1,5 @@
 {
- "resolved_at": "2026-09-25T12:34:06+00:00",
+ "resolved_at": "2026-09-25T22:05:56+00:00",
  "verification": {
   "root_ok": true,
   "n_items": 240,
@@ -9,6 +9,8 @@
   "ok": true
  },
  "n_resolved_rows": 240,
+ "names_revealed": 0,
+ "names_withheld_unverified": 0,
  "alignment_forecast_log": [
   {
    "mechanism": "judged forecast",
@@ -18,7 +20,7 @@
    "pairwise_acc": 0.6672222222222222,
    "pairwise_lo": 0.5533194444444445,
    "pairwise_hi": 0.7708402777777775,
-   "slope": -0.1170196590270522,
+   "slope": -0.11701965902705223,
    "n_tasks": 60,
    "n_pairs": 347
   }

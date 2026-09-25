@@ -147,9 +147,9 @@ A mechanism's `EvidencePolicy` decides:
 | Field | Effect |
 |---|---|
 | `verifiers` | which domain verifiers are enabled |
-| `roles` | whose inline claims are checked |
+| `roles` | whose inline claims are checked (default: every role except judges, whose claims would give them the experts' capabilities, e.g. SQL queries) |
 | `budget` | verification cost per role per episode |
-| `noise` | probability a verdict is flipped; agents see the erring verifier's output (each verifier's `forge()` makes it look genuine), and the truth is kept for ground-truth scoring |
+| `noise` | probability the verifier errs: a verdict is flipped, or an informational output (query rows, program output) is replaced by a plausible wrong one. Agents see the erring output (each verifier's `forge()` makes it look genuine); the truth is kept for ground-truth scoring |
 | `show_to` | who sees verdicts |
 | `requests` | roles that may call `verify_*` tools themselves, e.g. a judge |
 | `share_tool_results` | show a speaker's trusted tool outputs to others |
@@ -265,8 +265,10 @@ persistence. `sweep` runs an experiment factory over a parameter grid. YAML conf
 probabilities, rewards, strategy labels, optionally transcripts) with no ground truth, as JSON plus
 a static `index.html`:
 - every item is hash-committed under a Merkle root (publish it to timestamp the release);
-- strategy names and profile labels that could reveal answers (e.g. `argue_incorrect`) are
-  replaced by hashed ids unless `names="always"`;
+- for episodes whose strategies have stances (e.g. `argue_incorrect`), nothing identifies the
+  strategies: no names, ids, hashes or timestamps, items in random order, and agent ids only when
+  they do not differ between strategies. A salted commitment to the names goes in each item; the
+  names stay private (`<release>.private/`) until their tasks resolve (`names="always"` overrides);
 - `sealed=True` publishes only salted commitments, keeping contents private until
   `reveal_release`;
 - `resolve_release(dir, resolved_tasks)` attaches ground truth once it exists (e.g. forecasting

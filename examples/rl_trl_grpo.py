@@ -30,7 +30,9 @@ def prompt_for(task, stance):
     return [{"role": m.role, "content": m.content} for m in render_observation(obs)]
 
 
-rows = [{"prompt": prompt_for(t, s), "task_id": t.id} for t in domain.tasks() for s in (oa.Stance.CORRECT, oa.Stance.INCORRECT)]
+# the "stance" column tells the reward function which answer each completion was asked to argue
+rows = [{"prompt": prompt_for(t, s), "task_id": t.id, "stance": s.value}
+        for t in domain.tasks() for s in (oa.Stance.CORRECT, oa.Stance.INCORRECT)]
 reward = reward_function(domain, mech, "agent", fixtures={"judge": judge})
 trainer = GRPOTrainer(model="Qwen/Qwen2.5-1.5B-Instruct", reward_funcs=reward, train_dataset=Dataset.from_list(rows),
                       args=GRPOConfig(output_dir="runs/grpo_propaganda", num_generations=8, max_completion_length=256))

@@ -392,7 +392,7 @@ def test_release_hides_stance_revealing_names_and_resume_dedups(tmp_path):
     agents = {"kind:judge": BayesianBitJudge(), "*": BitAdvocate()}
     res = run(HiddenBits(n_tasks=2), Propaganda(), agents, oa.Stances())
     items = json.loads((create_release(res, tmp_path / "rel").path / "items.json").read_text())
-    assert all("correct" not in json.dumps(i["strategies"]) + i["profile"] for i in items)
+    assert all("correct" not in json.dumps(i["strategies"]) + json.dumps(i["profile"]) for i in items)
     exp = lambda gt: oa.Experiment(HiddenBits(n_tasks=2), Propaganda(), agents, oa.Stances(), gt=gt, out=tmp_path / "run", progress=False)  # noqa: E731
     exp([TargetCorrect()]).run()
     exp([TargetCorrect(), DecisionCorrect()]).run()

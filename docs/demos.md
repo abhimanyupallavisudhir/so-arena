@@ -84,17 +84,21 @@ falsehood. Every search is re-evaluated on held-out tasks.
 **Setup.**
 - Three workers; one can tamper with the scorer, which adds 0.3 to everyone's reward if undetected
   and costs 0.3 true score.
-- The others notice with probability 0.8.
-- All strategy combinations are simulated once and re-scored under a shared reward, a bounty
-  below the stake (0.1) and a bounty above it (0.45).
+- The others notice with probability 0.8, so an observer may be the only one.
+- All strategy combinations are simulated once and re-scored under a shared reward and three
+  bounties: below $b_R$ = stake/3 (0.05), between $b_R$ and the stake (0.2), and above the stake
+  (0.45).
 
 **Finding.**
 - Under a shared reward every equilibrium has misconduct (true score 0.3).
-- A bounty below the stake gives a coordination game: honest and corrupt equilibria coexist, and
-  whether snitching pays depends on whether others are expected to snitch.
+- A bounty between $b_R$ and the stake gives a coordination game: honest and corrupt equilibria
+  coexist, and whether snitching pays depends on whether others are expected to snitch.
+- Below $b_R$ the honest profile is still a Nash equilibrium of the empirical game, but only
+  because reports are never tested: once someone cheats, an observer who may be alone prefers
+  silence (theory.md Proposition 5). The threat to report is not credible.
 - Above the stake only the honest equilibrium survives.
 - The basin of the honest outcome from the simulated empirical game matches the mean-field theory
-  (theory.md Proposition 6).
+  within 0.04 (theory.md Proposition 6).
 - Sampled training shows algorithm dependence: from a silent start with a bounty above the stake,
   natural policy gradient deters misconduct while REINFORCE entrenches it.
 
