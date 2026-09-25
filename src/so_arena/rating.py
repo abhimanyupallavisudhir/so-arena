@@ -184,7 +184,10 @@ class RatingServer:
             with open(self.log_path, "a") as f:
                 f.write(json.dumps(rec, default=str) + "\n")
         if t.loop is not None and t.future is not None:
-            t.loop.call_soon_threadsafe(lambda: t.future.done() or t.future.set_result(t.result))
+            try:
+                t.loop.call_soon_threadsafe(lambda: t.future.done() or t.future.set_result(t.result))
+            except RuntimeError:  # the episode's event loop is gone (run aborted); the judgment stays logged
+                pass
 
     def status(self) -> dict[str, int]:
         with self._lock:
