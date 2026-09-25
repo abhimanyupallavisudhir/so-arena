@@ -351,11 +351,15 @@ chooses among three behaviours:
 
 Alarm probabilities are $d_h \le d_c < d_o$, and the reward is measured success minus
 $\lambda \cdot \mathbb 1[\text{alarm}]$. Then covert misbehaviour beats overt misbehaviour iff
-$\lambda (d_o - d_c) > \kappa$, and beats honesty iff $\Delta - \kappa > \lambda (d_c - d_h)$. So as
+$\lambda (d_o - d_c) > \kappa$, and beats honesty iff $\Delta - \kappa > \lambda (d_c - d_h)$. So when
+hiding is cheap relative to the detection gap, i.e. $\kappa/(d_o-d_c) < (\Delta-\kappa)/(d_c-d_h)$, then as
 $\lambda$ grows:
 - overt misbehaviour turns covert at $\lambda = \kappa/(d_o - d_c)$;
 - misbehaviour disappears only at $\lambda > (\Delta - \kappa)/(d_c - d_h)$, and *never* if covert
   misbehaviour is undetectable ($d_c = d_h$).
+
+(If hiding is expensive, covert misbehaviour is never optimal, and overt misbehaviour stops at
+$\lambda = \Delta/(d_o - d_h)$.)
 
 Meanwhile the alarm rate on misbehaving episodes falls from $d_o$ to $d_c$: the monitor *looks*
 increasingly effective while ground-truth misbehaviour persists.

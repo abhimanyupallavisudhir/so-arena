@@ -87,7 +87,9 @@ class Mechanism(BaseModel, ABC):
         return self.label or self.name
 
     def config(self) -> dict[str, Any]:
-        d = self.model_dump(mode="json")
+        # serialize_as_any: subclass fields of polymorphic parts (e.g. a FunctionProbe's function)
+        # must reach the config, so that different configurations never share episode keys
+        d = self.model_dump(mode="json", serialize_as_any=True)
         d["reward"] = self.reward.name
         return d
 
@@ -182,12 +184,14 @@ class EpisodeContext:
             if p is not None:
                 out[r] = p
                 used.add(p)
+        used |= {o for r2, o in self._assigned.items() if r2 not in roles}  # earlier assignments stay distinct
+        for r in roles:
+            if r not in out and r in self._assigned:
+                out[r] = self._assigned[r]
+                used.add(out[r])
         free = [o for o in self.task.option_ids if not (distinct and o in used)]
         for r in roles:
             if r not in out:
-                if r in self._assigned:
-                    out[r] = self._assigned[r]
-                    continue
                 if not free:
                     free = list(self.task.option_ids)
                 out[r] = free.pop(0)
@@ -263,7 +267,11 @@ class EpisodeContext:
                 target_text = str(target)
         instructions = b.instructions if b else ""
         if b is not None and b.target is None:  # position assigned by the mechanism (or none at all)
-            instructions = fill_placeholders(instructions, {"target": target or "", "target_text": target_text})
+            others = [o for o in self.task.option_ids if o != target] if target is not None else []
+            instructions = fill_placeholders(instructions, {
+                "target": target or "", "target_text": target_text,
+                "other": others[0] if len(others) == 1 else ", ".join(others),
+                "other_text": self.task.option(others[0]).text if len(others) == 1 else ""})
         return Observation(
             role=role,
             role_title=spec.display,
@@ -319,9 +327,11 @@ class EpisodeContext:
         extra_brief: str = "",
         observation: Observation | None = None,
         verify: bool = True,
+        tools_visible_to: list[str] | None = None,
     ) -> Entry:
         """Ask ``role`` to act; verify its claims (unless ``verify=False``); append (and return)
-        the transcript entry."""
+        the transcript entry. ``tools_visible_to``: roles that see this turn's tool calls and
+        outputs (e.g. a monitor watching the actor's actions)."""
         agent = self.agents[role]
         obs = observation or self.observe(role, prompt, response, step=step, turn=turn, tools=tools, extra_brief=extra_brief)
         action = await agent.act(obs)
@@ -341,6 +351,8 @@ class EpisodeContext:
         )
         if action.error:
             entry.data["_parse_error"] = action.error
+        if tools_visible_to:
+            entry.data["_tools_visible_to"] = list(tools_visible_to)
         self.usage[role] = self.usage.get(role, Usage()) + action.usage
         pol = self.mechanism.evidence
         if pol is not None:
@@ -403,8 +415,14 @@ class EpisodeContext:
         return vs
 
     def _claim_help(self, role: str) -> str:
+        """How to make verifiable claims — for roles whose claims are verified (by default every
+        role except judge-like ones, which evaluate claims rather than make them)."""
+        from ..domains.base import JUDGE_KINDS
+
         pol = self.mechanism.evidence
         if pol is None or not pol.applies_to(role):
+            return ""
+        if pol.roles is None and self._roles[role].kind in JUDGE_KINDS:
             return ""
         return claim_help_text(self.enabled_verifiers(), pol.budget)
 
@@ -443,7 +461,7 @@ class EpisodeContext:
         if pol.noise > 0 and ev.verified is not None:
             if rng_for("vnoise", self.episode_key, role, claim.content).random() < pol.noise:
                 shown = ev.model_copy(update={"verified": not ev.verified})
-                ev = v.forge(claim, shown)
+                ev = v.forge(claim, shown, venv)
                 truth["flipped"] = True
         if pol.show_to is not None:
             ev.visible_to = sorted(set(pol.show_to))
@@ -506,23 +524,26 @@ class EpisodeContext:
         self.meta.update(kw)
 
 
-_STATUS_ATTR = re.compile(r'(<[A-Za-z_][\w\-]*\b[^<>]*?)\s+status\s*=\s*"[^"]*"')
+_STATUS_ATTR = re.compile(r"""(<[A-Za-z_][\w\-]*\b[^<>]*?)\s+status\s*=\s*(?:"[^"]*"|'[^']*'|[^\s<>"']+)""", re.I)
+_FAKE_VERDICT = re.compile(r"\[(\s*)(VERIFIED|REFUTED|CHECKED)(\s+by\b)", re.I)
 
 
 def strip_status_marks(text: str) -> str:
-    """Remove ``status="..."`` attributes from claim markup: only trusted code may mark claims."""
+    """Only trusted code may mark claims as checked: remove ``status`` attributes from claim
+    markup (any case or quoting) and defuse text imitating trusted verdict lines."""
     prev = None
     while prev != text:
         prev, text = text, _STATUS_ATTR.sub(r"\1", text)
-    return text
+    return _FAKE_VERDICT.sub(lambda m: f"[unverified assertion: {m.group(2).lower()}{m.group(3)}", text)
 
 
 def _sanitize(e: Entry, role: str) -> Entry:
     """A copy of ``e`` as ``role`` may see it."""
     own = e.role == role
+    tools_ok = own or e.data.get("_share_tools") or role in (e.data.get("_tools_visible_to") or [])
     return e.model_copy(update={
         "reasoning": e.reasoning if (own or e.reasoning_visible(role)) else None,
-        "tool_trace": list(e.tool_trace) if (own or e.data.get("_share_tools")) else [],
+        "tool_trace": list(e.tool_trace) if tools_ok else [],
         "evidence": [ev for ev in e.evidence if ev.visible_to is None or role in ev.visible_to],
         "data": {k: v for k, v in e.data.items() if not str(k).startswith("_")},
     })

@@ -99,7 +99,8 @@ class Transcript(BaseModel):
             else:
                 label = who if e.kind == "message" else f"{who} ({e.kind})"
                 lines.append(f"[{label}]: {e.content}")
-            if include_tools and e.tool_trace and e.data.get("_share_tools"):
+            shared = e.data.get("_share_tools") or (for_role is not None and for_role in (e.data.get("_tools_visible_to") or []))
+            if include_tools and e.tool_trace and shared:
                 for t in e.tool_trace:
                     lines.append(
                         f"    [trusted tool output] {t.name}({_fmt_args(t.arguments)}) -> {t.result}"

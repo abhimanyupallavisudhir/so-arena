@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 from ..core.util import clamp
 
@@ -39,7 +39,13 @@ class FunctionProbe(Probe):
     """``fn(entries) -> float | None`` over the role's own transcript entries (sync or async)."""
 
     name: str = "function_probe"
-    fn: Callable[[list[Any]], Any] = Field(exclude=True)
+    fn: Callable[[list[Any]], Any]
+
+    @field_serializer("fn")
+    def _fn_identity(self, fn: Callable[..., Any]) -> str:  # configs and episode keys see which function
+        from ..core.util import code_hash
+
+        return f"<fn {getattr(fn, '__qualname__', '?')}:{code_hash(fn)}>"
 
     async def query(self, ctx: "EpisodeContext", role: str | None = None, **kw: Any) -> float | None:
         assert role is not None

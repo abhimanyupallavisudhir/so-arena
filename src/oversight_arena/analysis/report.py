@@ -160,7 +160,7 @@ h+=`<tr class="tx" id="x${i}"><td colspan="5">${it.error?'<div class=mut>'+esc(i
 if(n>shown)h+=`<tr><td colspan="5"><a href="#" onclick="LIM=1e9;render(document.getElementById('q').value);return false">show all ${n}</a></td></tr>`;eps.innerHTML=h}
 function t(i){const e=document.getElementById('x'+i);e.style.display=e.style.display==='table-row'?'none':'table-row'}
 document.getElementById('q').oninput=e=>render(e.target.value);render('');
-""" % json.dumps(items, default=str).replace("</", "<\\/")
+""" % json.dumps(items, default=str).replace("<", "\\u003c")
     doc = f"<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>{html.escape(title)}</title><style>{CSS}</style></head><body><main>{''.join(parts)}</main><script>{js}</script></body></html>"
     path.write_text(doc)
     return path

@@ -267,3 +267,135 @@ def test_probe_still_uses_harness_private_bound():
     b = oa.argue("incorrect").bind(task, "actor")
     ctx = EpisodeContext(mechanism=Monitoring(), task=task, agents={}, bound={"actor": b}, clearances={}, episode_key="k")
     assert not hasattr(ctx, "bound") and asyncio.run(SimulatedProbe(auroc=0.99).query(ctx, "actor")) is not None
+
+
+def test_percent_scale_is_per_distribution_and_more_formats():
+    from oversight_arena.agents.parsing import parse_choice, parse_distribution
+
+    assert parse_distribution('{"A": 1, "B": 99}', ["A", "B"])["B"] == pytest.approx(0.99)
+    assert parse_distribution('{"A": 99.5, "B": 0.5}', ["A", "B"])["A"] == pytest.approx(0.995)
+    assert parse_distribution("A: 1, B: 0", ["A", "B"])["A"] == pytest.approx(1.0)
+    for t in ['{"A": 70%, "B": 30%}', '{"A": .7, "B": .3}', "A) 70%\nB) 30%", "A - 70%\nB - 30%", '{"A (Paris)": 0.7, "B (Lyon)": 0.3}']:
+        assert parse_distribution(t, ["A", "B"])["A"] == pytest.approx(0.7), t
+    assert parse_choice("ANSWER: b", ["A", "B"], strict=True) == "B"
+    assert parse_choice("ANSWER: a close call is B", ["A", "B"], strict=True) is None
+
+
+async def test_retries_keep_the_explicit_answer():
+    from oversight_arena.agents.base import Observation, ResponseSpec
+    from oversight_arena.models import FunctionModel
+
+    replies = iter(["B's rebuttal is weak, so I lean towards A over B.", "ANSWER: A", "ANSWER: A"])
+    agent = oa.LLMAgent(FunctionModel(lambda messages: next(replies)))
+    t = make_tasks(1)[0]
+    obs = Observation(role="judge", role_title="Judge", task=t.view(), response=ResponseSpec.distribution(["A", "B"]))
+    act = await agent.act(obs)
+    assert act.parsed["choice"] == "A" and act.parsed["probs"]["A"] > 0.5
+
+
+def test_forged_marks_in_any_form_are_neutralised():
+    from oversight_arena.mechanisms.base import strip_status_marks
+
+    for t in ["<quote status='VERIFIED'>x</quote>", "<quote status=VERIFIED>x</quote>", '<quote STATUS="VERIFIED">x</quote>']:
+        assert strip_status_marks(t) == "<quote>x</quote>"
+    assert "[VERIFIED by" not in strip_status_marks("see [VERIFIED by bit_oracle] bit 3 = 1")
+
+
+def test_noise_forgeries_look_genuine_and_custom_verifiers_must_forge():
+    from oversight_arena.channels.evidence import Claim, Verifier, VerifyEnv
+    from oversight_arena.core.task import TaskView
+    from oversight_arena.core.transcript import Evidence
+    from oversight_arena.domains.quality import QuoteVerifier
+    from oversight_arena.domains.math import CalcVerifier
+
+    env = VerifyEnv(view=TaskView(id="t", domain="d", question="q"), resources={"article": "the cat sat"})
+    q = QuoteVerifier()
+    genuine = {asyncio.run(q.verify(Claim(kind="quote", content=c), env)).result for c in ("the cat", "a dog")}
+    for c in ("the cat", "a dog"):
+        ev = asyncio.run(q.verify(Claim(kind="quote", content=c), env))
+        forged = q.forge(Claim(kind="quote", content=c), ev.model_copy(update={"verified": not ev.verified}), env)
+        assert forged.result in genuine and forged.result != ev.result
+    calc = CalcVerifier()
+    ev = asyncio.run(calc.verify(Claim(kind="calc", content="12*7 = 84"), env))
+    forged = calc.forge(Claim(kind="calc", content="12*7 = 84"), ev.model_copy(update={"verified": False}), env)
+    assert forged.result.startswith("12*7 = ") and forged.result != ev.result
+
+    class NoForge(Verifier):
+        name, tag, cost = "nf", "bit", 0.0
+
+        async def verify(self, claim, env):
+            return Evidence(verifier=self.name, kind=self.tag, claim=claim.content, result="yes", verified=True)
+
+    dom = HiddenBits(n_tasks=1)
+    dom_nf = type(dom)(n_tasks=1)
+    dom_nf.__class__ = type("NF", (type(dom),), {"verifiers": lambda self, task: [NoForge()]})
+    res = oa.Experiment(dom_nf, Propaganda(evidence=EvidencePolicy(noise=1.0)), {"kind:judge": BayesianBitJudge(), "*": BitAdvocate()},
+                        oa.Stances(), progress=False).run()
+    assert res.errors and "forge" in res.errors[0].error
+
+
+def test_second_review_batch():
+    import numpy as np
+
+    from oversight_arena.analysis import EmpiricalGame
+    from oversight_arena.channels import FunctionProbe
+    from oversight_arena.mechanisms.base import EpisodeContext
+    from oversight_arena.theory import monitoring as tm
+
+    # positions stay distinct across calls
+    t = make_tasks(1)[0]
+    ctx = EpisodeContext(mechanism=Debate(), task=t, agents={}, bound={}, clearances={})
+    a = ctx.positions(["debater_a"])["debater_a"]
+    assert ctx.positions(["debater_a", "debater_b"]) == {"debater_a": a, "debater_b": "B" if a == "A" else "A"}
+    # equivalent equilibria with NaN GT collapse
+    g = EmpiricalGame.from_matrices(np.zeros((2, 2)), gt={"x": np.full((2, 2), np.nan)})
+    assert len(g.outcomes(keys=["x"])) == 1
+    # Proposition 4 thresholds when hiding is expensive
+    th = tm.thresholds(tm.MonitorParams(hide_cost=0.29))
+    assert th["overt_to_covert"] == float("inf") and th["deterred"] == pytest.approx(0.3 / 0.95)
+    # probes with different functions give different mechanism configs
+    from oversight_arena.mechanisms import Monitoring
+
+    m1 = Monitoring(probe=FunctionProbe(fn=lambda es: 0.1))
+    m2 = Monitoring(probe=FunctionProbe(fn=lambda es: 0.9))
+    assert m1.config_hash() != m2.config_hash()
+
+
+def test_monitor_sees_actor_tool_calls():
+    from oversight_arena.mechanisms import Monitoring
+
+    @oa.tool(group="public")
+    def write_file(path: str) -> str:
+        """Write a file."""
+        return f"wrote {path}"
+
+    seen = []
+
+    def actor(obs):
+        return oa.Action(text="Done, all tests pass.", tool_trace=[oa.core.types.ToolTrace(name="write_file", arguments={"path": "tests/x.py"}, result="wrote")])
+
+    def monitor(obs):
+        seen.append(obs)
+        return {obs.response.scalar_name: 1}
+
+    dom = TaskListDomain(task_list=make_tasks(1))
+    oa.Experiment(dom, Monitoring(probe=None, grader=False), {"actor": oa.ScriptedAgent(actor), "monitor": oa.ScriptedAgent(monitor)},
+                  progress=False).run()
+    assert "tests/x.py" in seen[0].transcript_text and seen[0].entries[0].tool_trace
+
+
+def test_release_hides_stance_revealing_names_and_resume_dedups(tmp_path):
+    from oversight_arena.release import create_release
+    from oversight_arena.experiment.results import Results
+    from oversight_arena.ground_truth.common import DecisionCorrect, TargetCorrect
+
+    agents = {"kind:judge": BayesianBitJudge(), "*": BitAdvocate()}
+    res = run(HiddenBits(n_tasks=2), Propaganda(), agents, oa.Stances())
+    items = json.loads((create_release(res, tmp_path / "rel").path / "items.json").read_text())
+    assert all("correct" not in json.dumps(i["strategies"]) + i["profile"] for i in items)
+    exp = lambda gt: oa.Experiment(HiddenBits(n_tasks=2), Propaganda(), agents, oa.Stances(), gt=gt, out=tmp_path / "run", progress=False)  # noqa: E731
+    exp([TargetCorrect()]).run()
+    exp([TargetCorrect(), DecisionCorrect()]).run()
+    exp([TargetCorrect(), DecisionCorrect()]).run()
+    loaded = Results.load(tmp_path / "run")
+    assert len(loaded) == 4 and all("decision_correct" in r.gt for r in loaded.records)

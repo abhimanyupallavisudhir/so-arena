@@ -99,3 +99,41 @@ async def test_inspect_backend_mockllm():
     agent = oa.LLMAgent(m)
     act = await agent.act(obs(ResponseSpec.text()))
     assert isinstance(act.text, str)
+
+
+def test_web_human_agent_roundtrip():
+    import json as _json
+    import threading
+    import time
+    import urllib.request
+
+    from oversight_arena.agents.web import WebHumanAgent
+    from oversight_arena.channels import EvidencePolicy
+    from oversight_arena.domains.synthetic import HiddenBits
+    from oversight_arena.mechanisms import Debate
+    from oversight_arena.sim import BitAdvocate
+
+    judge = WebHumanAgent(port=0)
+    url = judge.url
+    stop = threading.Event()
+
+    def human():  # answers every pending request: 70% on option A
+        while not stop.is_set():
+            pending = _json.loads(urllib.request.urlopen(url + "api/pending").read())
+            for q in pending:
+                assert "hidden" not in q["task_text"].lower() or q["role"] == "judge"
+                opts = q["response"]["options"]
+                body = {"id": q["id"], "probs": {o: (0.7 if o == "A" else 0.3) for o in opts}}
+                req = urllib.request.Request(url + "api/answer", data=_json.dumps(body).encode(),
+                                             headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req).read()
+            time.sleep(0.05)
+
+    t = threading.Thread(target=human, daemon=True)
+    t.start()
+    page = urllib.request.urlopen(url).read().decode()
+    assert "<title>OversightArena</title>" in page
+    res = oa.Experiment(HiddenBits(n_tasks=2), Debate(rounds=1, evidence=EvidencePolicy(budget=2)),
+                        {"kind:judge": judge, "*": BitAdvocate()}, oa.Stances(), progress=False, concurrency=2).run()
+    stop.set()
+    assert not res.errors and all(abs(r.outcome["probs"]["A"] - 0.7) < 1e-9 for r in res.records)

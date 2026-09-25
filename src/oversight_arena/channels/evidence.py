@@ -50,25 +50,31 @@ class Verifier(ABC):
     @abstractmethod
     async def verify(self, claim: Claim, env: VerifyEnv) -> Evidence: ...
 
-    def forge(self, claim: Claim, shown: Evidence) -> Evidence:
-        """What an *erring* verifier outputs when its verdict is flipped (verification noise):
-        ``shown`` carries the flipped verdict. The default hides the true result and data;
-        override to produce realistic wrong outputs (see ``BitVerifier``)."""
-        mark = {True: "consistent with the claim", False: "inconsistent with the claim", None: "checked"}[shown.verified]
-        return shown.model_copy(update={"result": mark, "data": {}})
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        """What an *erring* verifier outputs when its verdict is flipped (verification noise).
+        ``shown`` carries the flipped verdict and the true output; return output in exactly the
+        format of a genuine verdict, so flipped verdicts cannot be told apart. Required for
+        verification noise: without it flipped verdicts would be recognisable."""
+        raise NotImplementedError(
+            f"{type(self).__name__} has no forge(): with verification noise its flipped verdicts would be "
+            "recognisable. Implement forge() or use noise=0.")
 
     def describe(self) -> dict[str, Any]:
         return {"name": self.name, "tag": self.tag, "cost": self.cost}
+
+
+_ATTR = r"""[a-zA-Z_]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s<>"']+)"""
 
 
 def extract_claims(text: str, tags: list[str]) -> list[Claim]:
     if not tags:
         return []
     alt = "|".join(re.escape(t) for t in tags)
-    pat = re.compile(rf"<({alt})((?:\s+[a-zA-Z_]+\s*=\s*\"[^\"]*\")*)\s*>(.*?)</\1\s*>", re.S)
+    pat = re.compile(rf"<({alt})((?:\s+{_ATTR})*)\s*>(.*?)</\1\s*>", re.S)
     out = []
     for m in pat.finditer(text):
-        args = dict(re.findall(r'([a-zA-Z_]+)\s*=\s*"([^"]*)"', m.group(2) or ""))
+        args = {k: next(v for v in vs if v != "") if any(vs) else ""
+                for k, *vs in re.findall(r"""([a-zA-Z_]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s<>"']+))""", m.group(2) or "")}
         out.append(
             Claim(kind=m.group(1), content=m.group(3).strip(), args=args, raw=m.group(0), span=(m.start(), m.end()))
         )

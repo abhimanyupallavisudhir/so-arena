@@ -85,12 +85,12 @@ class EmpiricalGame:
         depend on the stated incentives, and cheap (no episodes are re-run).
         """
         recs = [r for r in (results.records if hasattr(results, "records") else results) if r.error is None]
-        if reward is not None:
-            recs = [r.model_copy(update={"rewards": {k: float(v) for k, v in reward(r).items()}}) for r in recs]
         if task is not None:
             recs = [r for r in recs if r.task_id == task]
         if mechanism is not None:
             recs = [r for r in recs if r.mechanism == mechanism]
+        if reward is not None:
+            recs = [r.model_copy(update={"rewards": {k: float(v) for k, v in reward(r).items()}}) for r in recs]
         roles = list(roles)
         key_attr = {"strategy_name": "strategy_name", "strategy": "strategy_id"}.get(strategy_col, strategy_col)
         strat: dict[str, list[str]] = {r: [] for r in roles}
@@ -154,7 +154,9 @@ class EmpiricalGame:
             d = probs.get(r, {}) if per_role else probs
             v = np.array([float(d.get(s, 0.0)) for s in self.strategies[r]])  # type: ignore[union-attr]
             if v.sum() <= 0:
-                raise ValueError(f"no probability mass on {r}'s strategies {self.strategies[r]}")
+                if r in self.payoffs:
+                    raise ValueError(f"no probability mass on {r}'s strategies {self.strategies[r]}")
+                v = np.ones(len(v))  # fixtures not mentioned: uniform over their (fixed) strategies
             out[r] = v / v.sum()
         return out
 
@@ -415,7 +417,7 @@ class EmpiricalGame:
         rows, seen = [], set()
         for e in eqs:
             vals = [e.gt.get(k, float("nan")) for k in keys] if keys is not None else list(e.payoffs.values()) + list(e.gt.values())
-            key = tuple(round(v, digits) for v in vals)
+            key = tuple("nan" if v != v else round(v, digits) for v in vals)  # NaN != NaN: use a sentinel
             if key in seen:
                 continue
             seen.add(key)

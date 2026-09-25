@@ -119,7 +119,7 @@ class Domain(BaseModel, ABC):
         return [TargetCorrect(), DecisionCorrect(), JudgeProbCorrect()]
 
     def describe(self) -> dict[str, Any]:
-        return {"name": self.name, **self.model_dump()}
+        return {"name": self.name, **self.model_dump(serialize_as_any=True)}
 
 
 def default_render(view: TaskView, clearance: set[str] | None = None) -> str:

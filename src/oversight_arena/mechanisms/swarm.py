@@ -251,8 +251,8 @@ class Whistleblower(RewardRule):
             if x["reporter"] not in reporters:
                 reporters.append(x["reporter"])
         if reporters:
-            if self.split == "first":
-                r[reporters[0]] += self.bounty
+            if self.split == "first":  # reports are simultaneous: the "first" is drawn at random
+                r[rng_for("first-reporter", record.key).choice(sorted(reporters))] += self.bounty
             else:
                 for w in reporters:
                     r[w] += self.bounty / len(reporters)

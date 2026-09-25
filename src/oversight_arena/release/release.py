@@ -32,16 +32,25 @@ from ..core.util import now_iso
 from .commit import leaf_hash, merkle_proof, merkle_root, new_salt, verify_proof
 
 
-def _item(rec: EpisodeRecord, transcripts: bool) -> dict[str, Any]:
+def _names_safe(rec: EpisodeRecord) -> bool:
+    """Strategy names and profile labels may encode ground truth (``argue_incorrect``,
+    ``debater_a=correct``) when strategies have stances; publish them only if none does."""
+    from ..core.strategy import Stance
+
+    return all(b.stance == Stance.FREE for b in rec.bound.values())
+
+
+def _item(rec: EpisodeRecord, transcripts: bool, names: str = "auto") -> dict[str, Any]:
     o = rec.outcome
+    show = names == "always" or (names == "auto" and _names_safe(rec))
     item: dict[str, Any] = {
         "episode": rec.id,
         "task": rec.task_id,
         "mechanism": rec.mechanism,
         "mechanism_hash": rec.mechanism_hash,
         "reward_rule": rec.reward_rule,
-        "profile": rec.profile.label or rec.profile.id,
-        "strategies": {r: b.strategy_name for r, b in rec.bound.items()},
+        "profile": (rec.profile.label or rec.profile.id) if show else rec.profile.id,
+        "strategies": {r: (b.strategy_name if show else b.strategy_id.rsplit("-", 1)[-1]) for r, b in rec.bound.items()},
         "agents": {r: b.agent for r, b in rec.bound.items()},
         "positions": o.get("positions"),
         "decision": o.get("decision") if o.get("decision") is not None else o.get("verdict"),
@@ -90,14 +99,18 @@ def create_release(
     sealed: bool = False,
     private_dir: str | Path | None = None,
     tasks: Sequence[Task] | None = None,
+    names: str = "auto",
 ) -> Release:
     """Publishable release of mechanism outputs (no ground truth). ``sealed``: publish only
     salted commitments; the items and salts go to ``private_dir`` (default
-    ``<out_dir>.private``, *outside* the directory you publish) until :func:`reveal_release`."""
+    ``<out_dir>.private``, *outside* the directory you publish) until :func:`reveal_release`.
+    ``names``: publish strategy names and profile labels ``"always"``, ``"never"`` (hashed ids),
+    or ``"auto"`` — only for episodes whose strategies have no stance, since names like
+    ``argue_incorrect`` would reveal the answer."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     recs = [r for r in results.records if r.error is None]
-    items = [_item(r, transcripts) for r in recs]
+    items = [_item(r, transcripts, names) for r in recs]
     task_map = {t.id: t for t in (tasks or results.tasks.values())}
     task_items = [_task_item(task_map[tid]) for tid in sorted({i["task"] for i in items}) if tid in task_map]
     salts = {i["episode"]: new_salt() for i in items} if sealed else {}
@@ -246,7 +259,10 @@ def resolve_release(
     (d / "resolution.json").write_text(json.dumps(report, indent=1, default=str))
     df.to_csv(d / "resolution_rows.csv", index=False)
     man = json.loads((d / "manifest.json").read_text())
-    man["status"] = "resolved" if len(df) else man["status"]
+    if not ver["ok"]:
+        man["status"] = "resolution failed verification"
+    elif len(df):
+        man["status"] = "resolved"
     (d / "manifest.json").write_text(json.dumps(man, indent=1))
     render_html(d)
     return report
@@ -319,8 +335,8 @@ def render_html(release_dir: str | Path) -> Path:
     res = json.loads((d / "resolution.json").read_text()) if (d / "resolution.json").exists() else None
     slim = {k: v for k, v in man.items() if k != "leaves"}
 
-    def js(x: Any) -> str:
-        return json.dumps(x, default=str).replace("</", "<\\/")
+    def js(x: Any) -> str:  # no raw '<' inside <script> (e.g. '</script>' or '<!--' in item text)
+        return json.dumps(x, default=str).replace("<", "\\u003c")
 
     import html as _html
 

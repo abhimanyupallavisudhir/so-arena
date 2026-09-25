@@ -103,6 +103,10 @@ class LeanVerifier(Verifier):
         return Evidence(verifier=self.name, kind=self.tag, claim=claim.content[:300],
                         result="kernel accepted" if ok else f"rejected: {msg[:400]}", verified=ok)
 
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        return shown.model_copy(update={"result": "kernel accepted" if shown.verified else
+                                        "rejected: error: unsolved goals"})
+
 
 def perturb_statement(stmt: str, seed: int) -> tuple[str, str] | None:
     """A meaning-changing perturbation of a Lean statement: (new statement, description).

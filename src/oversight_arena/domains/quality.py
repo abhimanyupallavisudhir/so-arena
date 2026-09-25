@@ -45,7 +45,14 @@ class QuoteVerifier(Verifier):
         if self.max_words and len(q.split()) > self.max_words:
             return Evidence(verifier=self.name, kind=self.tag, claim=q[:200], result=f"quote too long (>{self.max_words} words)", verified=False)
         ok = _norm(q) in _norm(text) if q.strip() else False
-        return Evidence(verifier=self.name, kind=self.tag, claim=q, result="found verbatim in the source" if ok else "NOT found in the source", verified=ok)
+        return Evidence(verifier=self.name, kind=self.tag, claim=q, result=self._result(ok), verified=ok)
+
+    @staticmethod
+    def _result(ok: bool) -> str:
+        return "found verbatim in the source" if ok else "NOT found in the source"
+
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        return shown.model_copy(update={"result": self._result(bool(shown.verified))})
 
 
 class QuALITY(Domain):

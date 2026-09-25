@@ -188,6 +188,9 @@ class RunVerifier(Verifier):
         r = run_python(code, timeout=10)
         return Evidence(verifier=self.name, kind=self.tag, claim=expr, result=r.short(400), verified=None if r.ok else False)
 
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        return shown.model_copy(update={"result": "None" if shown.verified is not False else "Traceback: RuntimeError"})
+
 
 class AssertVerifier(Verifier):
     name = "python_assert"
@@ -203,6 +206,9 @@ class AssertVerifier(Verifier):
         r = run_python(code, timeout=10)
         ok = r.ok and r.stdout.strip().endswith("True")
         return Evidence(verifier=self.name, kind=self.tag, claim=expr, result="true" if ok else ("false" if r.ok else r.short(200)), verified=ok)
+
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        return shown.model_copy(update={"result": "true" if shown.verified else "false"})
 
 
 def exec_tool(resources: dict[str, Any]) -> Tool:

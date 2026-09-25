@@ -224,6 +224,19 @@ class LineVerifier(Verifier):
             res += f"; evaluation {sc / 100:+.2f} for {side} (depth {self.depth})"
         return Evidence(verifier=self.name, kind=self.tag, claim=" ".join(applied), result=res, verified=True, data=data)
 
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        """A faulty legality checker: rejects a legal line at its first move, or accepts an
+        illegal line (reporting the legal prefix's final position, without an evaluation)."""
+        fen = env.resources["fen"]
+        line = list(shown.data.get("line") or [])
+        if not shown.verified:
+            first = line[0] if line else claim.content.split()[0] if claim.content.split() else "?"
+            return shown.model_copy(update={"result": f"illegal or unparseable move {first!r} after start",
+                                            "data": {"line": [], "legal": False}})
+        board, applied, _ = apply_line(fen, " ".join(line))
+        return shown.model_copy(update={"result": f"legal; final position {board.fen()}",
+                                        "data": {"line": applied, "legal": True, "fen": board.fen()}})
+
 
 def engine_tools(fen: str, max_depth: int, engine_path: str | None) -> list[Tool]:
 

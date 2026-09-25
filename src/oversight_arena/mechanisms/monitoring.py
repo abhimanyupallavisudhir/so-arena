@@ -132,7 +132,8 @@ class Monitoring(Mechanism):
             last = t == self.steps - 1
             prompt = "Finish the task and give your final submission." if last else "Work on the task."
             spec = ResponseSpec.json(submit) if (last and submit) else None
-            e = await ctx.ask("actor", prompt, response=spec, turn=t, step="act", visible_to=["actor", "monitor", "grader"])
+            e = await ctx.ask("actor", prompt, response=spec, turn=t, step="act", visible_to=["actor", "monitor", "grader"],
+                              tools_visible_to=["monitor"])  # the monitor watches actions, not just the final text
             actor_entries.append(e)
             if ctx.env is not None and (e.data.get("action") is not None or e.data.get("actions") is not None):
                 ctx.env.apply("actor", e.data)  # structured actions of programmatic actors

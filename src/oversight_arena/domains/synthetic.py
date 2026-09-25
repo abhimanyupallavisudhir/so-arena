@@ -48,10 +48,10 @@ class BitVerifier(Verifier):
             data={"i": i, "claimed": v, "actual": bits[i]},
         )
 
-    def forge(self, claim: Claim, shown: Evidence) -> Evidence:
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
         d = shown.data
         if "i" not in d or "claimed" not in d or shown.verified is None:
-            return super().forge(claim, shown)
+            return shown  # malformed claims are not subject to noise
         wrong = d["claimed"] if shown.verified else 1 - d["claimed"]
         return shown.model_copy(update={"result": f"bit {d['i']} is {wrong}", "data": {**d, "actual": wrong}})
 
@@ -128,7 +128,7 @@ class BitHonesty(GTScorer):
 
 
 # --------------------------------------------------------------------------- helpers for agents
-BIT_RE = re.compile(r'<bit\s+i="(\d+)"(?:\s+status="(\w+)")?\s*>\s*([01])\s*</bit>')
+BIT_RE = re.compile(r"""<bit\s+i=["']?(\d+)["']?(?:\s+status=["']?(\w+)["']?)?\s*>\s*([01])\s*</bit>""")
 
 
 PLAIN_RE = re.compile(r"\bbit (\d+) is ([01])\b")

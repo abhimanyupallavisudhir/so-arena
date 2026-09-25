@@ -290,8 +290,9 @@ class Experiment:
                     rec = done[key]
                     missing = [g for g in (self.gt if self.gt is not None else self.domain.gt_scorers()) if g.name not in rec.gt]
                     if missing and rec.error is None:  # scorers added since the episode ran
+                        before = (dict(rec.gt), rec.gt_status)
                         await compute_gt(task, rec, missing)
-                        if path is not None:
+                        if path is not None and (dict(rec.gt), rec.gt_status) != before:
                             async with lock:
                                 write_jsonl(path, [rec], append=True)  # later lines supersede earlier ones
                     results[i] = rec

@@ -39,13 +39,31 @@ def _default(o: Any) -> Any:
     return f"<{type(o).__module__}.{type(o).__qualname__}>"
 
 
+def _code_parts(code: Any) -> list[Any]:
+    consts = [_code_parts(c) if hasattr(c, "co_code") else repr(c) for c in code.co_consts]
+    return [code.co_code.hex(), consts, list(code.co_names), list(code.co_varnames)]
+
+
 def code_hash(fn: Any) -> str:
-    """Hash of a function's code (bytecode, constants, names), e.g. to key scripted agents."""
+    """Hash of what a function does: bytecode (nested code objects included, never memory
+    addresses), names, defaults and closure contents — e.g. to key scripted agents, so that
+    ``make(0.3)`` and ``make(0.7)`` from one factory hash differently. Stable across processes."""
     code = getattr(fn, "__code__", None)
     if code is None:
-        return ""
-    parts = [code.co_code.hex(), repr(code.co_consts), code.co_names, getattr(fn, "__qualname__", "")]
-    return hashlib.sha256(repr(parts).encode()).hexdigest()[:10]
+        return stable_hash(f"<{type(fn).__module__}.{type(fn).__qualname__}>", getattr(fn, "__dict__", {}), length=10)
+    cells = []
+    for c in getattr(fn, "__closure__", None) or ():
+        try:
+            v = c.cell_contents
+        except ValueError:  # empty cell
+            v = None
+        cells.append(f"<fn {v.__qualname__}>" if callable(v) and hasattr(v, "__code__") else v)
+    parts = [_code_parts(code), getattr(fn, "__qualname__", ""), getattr(fn, "__defaults__", None),
+             getattr(fn, "__kwdefaults__", None)]
+    try:
+        return stable_hash(parts, cells, length=10)
+    except Exception:  # unserialisable closure contents
+        return stable_hash(parts, [type(c).__name__ for c in cells], length=10)
 
 
 def canonical_json(obj: Any) -> str:

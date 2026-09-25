@@ -100,6 +100,9 @@ class SQLVerifier(Verifier):
         res = fmt_rows(rows, cols) if ok else str(rows)  # type: ignore[arg-type]
         return Evidence(verifier=self.name, kind=self.tag, claim=claim.content, result=res, verified=None if ok else False)
 
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        return shown.model_copy(update={"result": "(no rows)" if shown.verified is not False else "OperationalError: database is locked"})
+
 
 def sql_tool(db_path: str) -> Tool:
     @tool(name="run_sql", group="db")

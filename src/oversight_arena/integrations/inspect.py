@@ -157,6 +157,12 @@ def oversight_task(
             prof = Profile.model_validate(state.metadata["oa_profile"])
             rec = await run_episode(mechanism, t, prof, table, domain, gt=gt_list, clearances=clearances,
                                     seed=max(0, int(state.epoch) - 1), experiment=name)
+            try:  # which models the roles were actually bound to in this eval
+                from inspect_ai.model import get_model
+
+                rec.meta["inspect_models"] = {r: str(get_model(role=r)) for r in (trusted, untrusted)}
+            except Exception:
+                pass
             state.store.set(RECORD_KEY, rec.model_dump(mode="json"))
             state.messages = record_messages(rec, t)
             decision = rec.outcome.get("decision")

@@ -54,10 +54,17 @@ class Results:
 
     @classmethod
     def load(cls, path: str | Path, tasks: dict[str, Task] | None = None) -> "Results":
+        """Load records; when an episode was appended again (e.g. after resuming added GT
+        scorers), the last line for its key wins."""
         path = Path(path)
         if path.is_dir():
             path = path / "episodes.jsonl"
-        return cls([EpisodeRecord.model_validate(r) for r in read_jsonl(path)], tasks)
+        latest: dict[str, EpisodeRecord] = {}
+        for row in read_jsonl(path):
+            rec = EpisodeRecord.model_validate(row)
+            latest.pop(rec.key, None)
+            latest[rec.key] = rec
+        return cls(latest.values(), tasks)
 
     # ------------------------------------------------------------------ tables
     def df(self, trainable_only: bool = False, include_fixtures: bool = True) -> pd.DataFrame:

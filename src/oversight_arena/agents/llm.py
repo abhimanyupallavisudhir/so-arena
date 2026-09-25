@@ -224,6 +224,7 @@ class LLMAgent(Agent):
         public, private = split_thinking(text) if scratch or "<think" in text else (text, None)
         reasoning = "\n\n".join(x for x in [reasoning, private] if x) or None
         parsed, err = self._parse(public, spec)
+        attempts = [(parsed, err, public)]
         tries = 0
         while err and tries < self.retries:
             tries += 1
@@ -237,11 +238,25 @@ class LLMAgent(Agent):
             out = await self.model.generate(messages, self._config(obs, temperature=0.0), None, obs.seed)
             usage = usage + out.usage
             messages = messages + [ChatMessage.assistant(out.text)]
-            p2, e2 = self._parse(split_thinking(out.text)[0], spec)
+            retry_text = split_thinking(out.text)[0]
+            p2, e2 = self._parse(retry_text, spec)
+            attempts.append((p2, e2, retry_text))
             if not e2:
                 parsed, err = p2, None
-        if err and not parsed:  # last resort: lenient parsing of the original answer (error kept)
-            parsed, _ = self._parse(public, spec, lenient=True)
+        if err:
+            # no clean parse: prefer the latest explicit (strict, e.g. inferred-from-choice) answer,
+            # then a lenient reading of the latest reply, then of the original; the error is kept
+            later = [p for p, _, _ in reversed(attempts) if p]
+            if later:
+                parsed = later[0]
+            else:
+                for _, _, t in reversed(attempts):
+                    lenient, lerr = self._parse(t, spec, lenient=True)
+                    if lenient and lerr != "unparseable distribution":
+                        parsed = lenient
+                        break
+                else:
+                    parsed, _ = self._parse(public, spec, lenient=True)  # uniform, error recorded
         if self.hard_word_limit and spec.max_words:
             lim = int(spec.max_words * self.hard_word_limit)
             if word_count(public) > lim:

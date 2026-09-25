@@ -93,6 +93,20 @@ class CalcVerifier(Verifier):
         except Exception as e:
             return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"error: {e}", verified=False)
 
+    def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
+        text = claim.content
+        if "=" not in text:
+            return shown
+        lhs, rhs = (x.strip() for x in text.rsplit("=", 1))
+        if shown.verified:  # a false claim reported as correct: echo the claimed value
+            return shown.model_copy(update={"result": f"{lhs} = {rhs}"})
+        try:  # a true claim reported as wrong: report a nearby wrong value
+            v = safe_eval(lhs)
+            wrong = v + 1 if float(v).is_integer() else v * 1.1
+            return shown.model_copy(update={"result": f"{lhs} = {wrong:g}"})
+        except Exception:
+            return shown.model_copy(update={"result": "error: could not evaluate"})
+
 
 class GSM8K(Domain):
     """GSM8K questions with one correct and one plausible incorrect answer (+ worked solutions)."""

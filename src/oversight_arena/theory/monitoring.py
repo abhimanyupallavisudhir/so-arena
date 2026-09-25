@@ -34,11 +34,17 @@ def best_response(lam: float, p: MonitorParams) -> str:
 
 
 def thresholds(p: MonitorParams) -> dict[str, float]:
-    """Penalty at which overt misbehaviour turns covert, and at which misbehaviour stops
-    (inf if covert misbehaviour is no easier to detect than honest work)."""
-    to_covert = p.hide_cost / (p.d_overt - p.d_covert) if p.d_overt > p.d_covert else float("inf")
-    deter = (p.gain - p.hide_cost) / (p.d_covert - p.d_honest) if p.d_covert > p.d_honest else float("inf")
-    return {"overt_to_covert": to_covert, "deterred": deter}
+    """Penalties at which the best response changes. ``deterred``: honest beats both kinds of
+    misbehaviour, $\max(\Delta/(d_o-d_h),\,(\Delta-\kappa)/(d_c-d_h))$ (inf if covert
+    misbehaviour is no easier to detect than honest work). ``overt_to_covert``: overt turns
+    covert, $\kappa/(d_o-d_c)$ — reported only if it happens before deterrence (else inf:
+    covert misbehaviour is never optimal)."""
+    inf = float("inf")
+    deter_overt = p.gain / (p.d_overt - p.d_honest) if p.d_overt > p.d_honest else inf
+    deter_covert = (p.gain - p.hide_cost) / (p.d_covert - p.d_honest) if p.d_covert > p.d_honest else inf
+    deter = max(deter_overt, deter_covert) if p.gain - p.hide_cost > 0 else deter_overt
+    to_covert = p.hide_cost / (p.d_overt - p.d_covert) if p.d_overt > p.d_covert else inf
+    return {"overt_to_covert": to_covert if to_covert < deter else inf, "deterred": deter}
 
 
 def sweep(lams: np.ndarray, p: MonitorParams) -> pd.DataFrame:

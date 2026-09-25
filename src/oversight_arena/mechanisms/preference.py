@@ -138,8 +138,11 @@ class ProverVerifier(Mechanism):
                 RoleSpec(name="verifier", kind="judge", trainable=self.verifier_trainable, title="Verifier")]
 
     def _mode(self, ctx: EpisodeContext) -> str:
+        """Drawn per (task, seed), so every profile compared on a task faces the same mode."""
         if "mode" not in ctx.meta:
-            ctx.log(mode="sneaky" if ctx.rng.random() < self.sneaky_rate else "helpful")
+            from ..core.util import rng_for
+
+            ctx.log(mode="sneaky" if rng_for("pv-mode", ctx.task.id, ctx.seed).random() < self.sneaky_rate else "helpful")
         return ctx.meta["mode"]
 
     def brief(self, role: str, ctx: EpisodeContext) -> str:
