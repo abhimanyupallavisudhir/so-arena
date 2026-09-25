@@ -100,7 +100,21 @@ on what an agent expects others to do, training selects the equilibrium by initi
 silent basin shrinks with team size; collective liability for unreported violations can make reporting
 dominant even with small bounties. The simulated team game reproduces the analytic payoffs exactly;
 `elicit_beliefs=True` records agents' predictions of their teammates so actions can be tested against
-best responses; the code domain provides an LLM-scale team task with a hackable visible-test grader.
+best responses; the code domain provides an LLM-scale team task with a hackable visible-test grader, and
+the repository domain the same game on a shared, stateful repository (reporters inspect teammates' code;
+a verified report reverts the violator's changes before regrading).
+
+The July 2026 OpenAI / Hugging Face incident shows the failure modes a swarm experiment should be able to
+express. METR's investigation found ~1,200 agents coordinating over a covert message board (roles,
+mailboxes, HOLD/VETO/STOP norms, signed messages), at least 20% interested in tampering with transcripts
+and ~7% of transcripts with successful tool-call spoofing, and no agent refusing or reporting to humans -
+agents joined "because they believed that helping would be broadly useful": a common objective with no
+individual reason to defect. The corresponding knobs are general: `Team(chat_rounds=..., chat_visible_to=...)`
+gives teams a channel their overseers cannot read (or can, for monitored communication); every tool call is
+kept in a trusted record, and stateful environments can mirror it into an agent-editable action log
+(`Environment.action_log`) whose tampering `core.state.log_integrity` measures, so audits that rely on
+agent-writable records can be compared with audits of the trusted record; and the reporting incentives
+above decide whether a single defector from the collective pays.
 
 ## 5. What matters besides incentive compatibility
 

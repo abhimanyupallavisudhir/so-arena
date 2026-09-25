@@ -291,6 +291,12 @@ exp.run()
 game = exp.game(); game.strict_nash(); game.outcome_range("outcome_value")
 ```
 
+**Covert coordination and tamperable evidence** (the failure modes of real agent swarms): `Team(chat_rounds=1)`
+adds a team channel that overseers cannot read (`chat_visible_to=["auditor"]` monitors it), and a stateful
+environment with `action_log="logs/actions.jsonl"` mirrors every tool call into a file agents can edit;
+`core.state.log_integrity(ep, store, "logs/actions.jsonl")` counts deleted, altered and fabricated entries
+against the trusted record.
+
 The same game on a **shared repository**: `get_domain("repo", kind="team")` gives each worker a module in
 one repository (workers write in turn; the grader runs the visible tests on the repository), workers
 report after inspecting their teammates' code (read-only), the audit runs the maintainers' hidden tests on
