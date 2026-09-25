@@ -136,20 +136,18 @@ def _clip(text: str, n: int) -> str:
     return f"{head}\n... [{len(text) - len(head) - len(tail)} characters omitted] ...\n{tail}"
 
 
-def _limits(memory_mb: int) -> Callable[[], None] | None:
-    if sys.platform == "win32":  # pragma: no cover
-        return None
+def _limited(args: list[str], memory_mb: int, max_file_mb: int = 256) -> list[str]:
+    """Wrap a command so that the shell sets resource limits before exec'ing it (no ``preexec_fn``,
+    which is unsafe in threaded parents): address space, file size and core dumps."""
+    prefix = f"ulimit -v {memory_mb * 1024} 2>/dev/null; ulimit -f {max_file_mb * 2048} 2>/dev/null; ulimit -c 0 2>/dev/null; "
+    return ["bash", "-c", prefix + 'exec "$0" "$@"', *args]
 
-    def apply() -> None:  # pragma: no cover - runs in the child
-        try:
-            import resource
 
-            lim = memory_mb * 1024 * 1024
-            resource.setrlimit(resource.RLIMIT_AS, (lim, lim))
-        except Exception:
-            pass
+def _kill_group(pid: int) -> None:
+    import signal
 
-    return apply
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+        os.killpg(pid, signal.SIGKILL)
 
 
 # ============================================================================== workspaces
@@ -242,16 +240,29 @@ class Workspace:
                 "PYTHONDONTWRITEBYTECODE": "1", "PYTHONHASHSEED": "0", "PYTHONPATH": str(self.root),
                 "GIT_TERMINAL_PROMPT": "0", "SO_ARENA_WORKSPACE": "1"}
         args = ["bash", "-c", command] if isinstance(command, str) else list(command)
-        try:
-            proc = subprocess.run(args, cwd=self.root, capture_output=True, text=True, timeout=timeout,
-                                  input=input, env={**base, **(env or {})}, preexec_fn=_limits(memory_mb))
-            return CommandResult(returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
-        except subprocess.TimeoutExpired as e:
-            out = e.stdout.decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-            err = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
-            return CommandResult(returncode=-1, stdout=out, stderr=err, timed_out=True)
-        except OSError as e:
-            return CommandResult(returncode=127, stderr=str(e))
+        # output goes to files, not pipes: a background process left running must not keep us waiting
+        with tempfile.TemporaryFile() as fo, tempfile.TemporaryFile() as fe, tempfile.TemporaryFile() as fi:
+            if input:
+                fi.write(input.encode())
+                fi.seek(0)
+            try:
+                proc = subprocess.Popen(_limited(args, memory_mb), cwd=self.root, stdin=fi if input else subprocess.DEVNULL,
+                                        stdout=fo, stderr=fe, env={**base, **(env or {})}, start_new_session=True)
+            except OSError as e:
+                return CommandResult(returncode=127, stderr=str(e))
+            timed_out = False
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            finally:
+                _kill_group(proc.pid)  # the command and anything it left running in the background
+                proc.wait()
+            fo.seek(0)
+            fe.seek(0)
+            out = fo.read(1 << 20).decode("utf-8", errors="replace")
+            err = fe.read(1 << 20).decode("utf-8", errors="replace")
+        return CommandResult(returncode=-1 if timed_out else proc.returncode, stdout=out, stderr=err, timed_out=timed_out)
 
     # -------------------------------------------------------------------------- lifecycle
     def diff(self, against: str | None = None, **kw: Any) -> str:
