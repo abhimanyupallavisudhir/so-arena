@@ -57,6 +57,7 @@ class ModelSpec(BaseModel):
 
 
 _REGISTRY: dict[str, ModelSpec] = {}
+_DEFAULTS_LOADED = False
 
 
 def _norm(name: str) -> str:
@@ -64,6 +65,9 @@ def _norm(name: str) -> str:
 
 
 def register_model(spec: ModelSpec | None = None, **kwargs: Any) -> ModelSpec:
+    """Add (or override) a model's spec; the bundled registry is loaded first, so registering a model never
+    hides the built-in ones."""
+    _ensure_defaults()
     spec = spec or ModelSpec(**kwargs)
     _REGISTRY[_norm(spec.name)] = spec
     return spec
@@ -77,8 +81,7 @@ def load_registry(path: str | Path) -> list[ModelSpec]:
 
 def get_spec(name: str) -> ModelSpec | None:
     """Look up a spec by exact name, then by suffix (so 'openai/gpt-4o-mini' matches 'gpt-4o-mini')."""
-    if not _REGISTRY:
-        _load_default()
+    _ensure_defaults()
     key = _norm(name)
     if key in _REGISTRY:
         return _REGISTRY[key]
@@ -108,15 +111,21 @@ def supports_logprobs(name: str) -> bool:
 
 
 def all_specs() -> list[ModelSpec]:
-    if not _REGISTRY:
-        _load_default()
+    _ensure_defaults()
     return list(_REGISTRY.values())
 
 
-def _load_default() -> None:
+def _ensure_defaults() -> None:
+    """Load the bundled registry once (``data/models.yaml``); specs registered by the user take precedence."""
+    global _DEFAULTS_LOADED
+    if _DEFAULTS_LOADED:
+        return
+    _DEFAULTS_LOADED = True
     path = Path(__file__).resolve().parent.parent / "data" / "models.yaml"
     if path.exists():
-        load_registry(path)
+        for entry in yaml.safe_load(path.read_text()).get("models", []):
+            spec = ModelSpec(**entry)
+            _REGISTRY.setdefault(_norm(spec.name), spec)
 
 
 def cost_of(model_name: str, usage: Usage) -> float | None:

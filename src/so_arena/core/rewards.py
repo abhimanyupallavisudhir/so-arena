@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 Rewards = dict[str, float | None]
 
 TRANSFORMS = ("prob", "log", "brier", "logodds", "accuracy", "spherical")
+# strictly proper: reporting one's belief maximizes the expected score (the others reward confidence)
+PROPER_TRANSFORMS = ("log", "brier", "spherical")
 
 
 def score_probability(probs: dict[str, float], position: str, transform: str = "log", eps: float = 1e-4) -> float:
@@ -352,6 +354,20 @@ class MonitorPenalty(RewardRule):
         return f"agents lose {self.lam:g} x the monitor's suspicion score (0-1)"
 
 
+def audit_draw(ep: "Episode", tag: str = "audit") -> float:
+    """The uniform draw in $[0, 1)$ that decides whether ``ep`` is audited (audited iff it is below $p$).
+
+    It depends only on the item, the repeat and the seed - never on the episode id, which in a sampled game
+    tree encodes the path, including the audited role's own sampled action: a draw from it would depend on
+    the action it checks, so best-of-N over a pool would select audit luck (an unaudited judgment pays 0,
+    more than any audited log score). Every play of an item with the same repeat and seed - each branch of a
+    tree, each profile of a run - therefore shares the draw: audits are independent of what any role does
+    (what inverse-probability weighting needs) and reproducible. Vary the seed to redraw them (e.g. per
+    training step).
+    """
+    return (stable_hash(tag, ep.item_id, ep.repeat, ep.seed) % 10**6) / 10**6
+
+
 class RandomAudit(RewardRule):
     """With probability ``p`` an audit oracle checks the episode (costly state verification).
 
@@ -364,7 +380,8 @@ class RandomAudit(RewardRule):
       audited value for *any* policy: the mechanism's reward only affects variance (a
       prediction-powered reward, see ``docs/theory.md``).
 
-    Whether an episode is audited is a deterministic function of its id (reproducible).
+    Whether an episode is audited is drawn by :func:`audit_draw` (from the item, repeat and seed only, so
+    that sampled candidates of one decision share it; reproducible).
     """
 
     def __init__(self, inner: RewardRule, oracle: Callable[..., Any], p: float = 0.1, *, mode: str = "penalty",
@@ -376,7 +393,7 @@ class RandomAudit(RewardRule):
         self.name = f"audit({inner.name},p={p:g},{mode})"
 
     def audited(self, ep: "Episode") -> bool:
-        return (stable_hash("audit", ep.id) % 10**6) / 10**6 < self.p
+        return audit_draw(ep, "audit") < self.p
 
     def compute(self, ep):
         raise RuntimeError("RandomAudit is async; use acompute")
@@ -419,11 +436,13 @@ class JudgeAuditScore(RewardRule):
 
     Training the judge (``trainable={"judge": True}``) needs a reward the mechanism can compute. Here
     it is a costly check - an expert review, a stronger model, hidden tests, the eventual resolution -
-    run on a random fraction ``p`` of episodes (reproducible from the episode id). The judge earns the
-    inverse-probability-weighted score $\mathbb 1[\text{audited}]\, s(p_{\text{judge}}, \text{label}) / p$
-    (0 when not audited), whose expectation is its score under a full audit, so reporting its honest
-    belief is optimal in expectation; with ``p=1`` every judgment is scored. Combine with the agents'
-    rule to train both sides: ``JudgeScore("log") + JudgeAuditScore(oracle, p=0.2)``.
+    run on a random fraction ``p`` of episodes. The judge earns the inverse-probability-weighted score
+    $\\mathbb 1[\\text{audited}]\\, s(p_{\\text{judge}}, \\text{label}) / p$ (0 when not audited), whose
+    expectation is its score under a full audit, so with a proper score $s$ (``PROPER_TRANSFORMS``; others
+    are rejected) reporting its honest belief is optimal in expectation; with ``p=1`` every judgment is
+    scored. The audit is drawn from the item, repeat and seed (:func:`audit_draw`), never from the judgment:
+    all sampled judgments of one decision are audited together. Combine with the agents' rule to train
+    both sides: ``JudgeScore("log") + JudgeAuditScore(oracle, p=0.2)``.
 
     ``oracle(ep) -> label`` (sync or async) returns the audited correct answer, or None if it cannot
     tell. In experiments it is often simulated from the experimenter's ground truth
@@ -434,13 +453,14 @@ class JudgeAuditScore(RewardRule):
                  eps: float = 1e-4):
         if not 0 < p <= 1:
             raise ValueError("p must be in (0, 1]")
-        if transform not in TRANSFORMS:
-            raise ValueError(f"unknown transform {transform!r}")
+        if transform not in PROPER_TRANSFORMS:
+            raise ValueError(f"JudgeAuditScore needs a proper scoring rule, one of {PROPER_TRANSFORMS}; with "
+                             f"{transform!r} the judge would be paid to misreport its belief")
         self.oracle, self.p, self.transform, self.role, self.eps = oracle, p, transform, role, eps
         self.name = f"judge_audit_{transform}(p={p:g})"
 
     def audited(self, ep: "Episode") -> bool:
-        return self.p >= 1 or (stable_hash("judge-audit", ep.id) % 10**6) / 10**6 < self.p
+        return self.p >= 1 or audit_draw(ep, "judge-audit") < self.p
 
     def compute(self, ep):
         raise RuntimeError("JudgeAuditScore may call an async oracle; use acompute")

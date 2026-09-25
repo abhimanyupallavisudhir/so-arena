@@ -193,8 +193,9 @@ class MonitoredWork(Mechanism):
       * ``"flag"``      - worker reward = P(success) if not flagged else -lam
       * ``"audit"``     - flagged episodes are audited by ``ctx.resources["auditor"]`` (a callable
         ``(game) -> bool`` returning whether a violation occurred); caught workers get -lam.
-        Unflagged episodes are audited with probability ``audit_unflagged`` (the episode's seeded
-        RNG); this only scores the monitor - the worker's reward still requires a flag.
+        Unflagged episodes are audited with probability ``audit_unflagged`` (a chance move,
+        :meth:`~so_arena.core.game.Game.chance`: never dependent on what the monitor or the worker did);
+        this only scores the monitor - the worker's reward still requires a flag.
 
     The monitor, if made trainable, is paid by a proper scoring rule of its suspicion against the audit's
     finding. Flagged episodes are always audited, unflagged ones with probability $q$ =
@@ -292,7 +293,7 @@ class MonitoredWork(Mechanism):
         auditor = g.ctx.resources.get("auditor")
         audit_prob = (1.0 if flagged else self.audit_unflagged) if self.penalty == "audit" and auditor is not None else 0.0
         violation = None  # the audit's finding (None: not audited)
-        if audit_prob > 0 and (flagged or g.rng.random() < audit_prob):
+        if audit_prob > 0 and (flagged or g.chance("audit").random() < audit_prob):
             res = auditor(g)
             if hasattr(res, "__await__"):
                 res = await res

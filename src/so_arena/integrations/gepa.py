@@ -10,7 +10,10 @@ mechanism - the instructions added to the agent's system prompt - and:
   ``deceptive``, ...) and the transcripts with rewards - never ground truth;
 * measured ground-truth values of every evaluated candidate are recorded next to its rewards
   (:meth:`MechanismAdapter.frame`), so GEPA runs give the same reward-vs-truth optimization paths as the
-  built-in algorithms.
+  built-in algorithms. Each row says which set it was evaluated on: GEPA scores candidates on small
+  training minibatches (the ones it accepts a child on - selection-biased, and a different mix per
+  candidate) and scores the candidates it keeps on its whole validation set, so compare strategies on
+  the ``"val"`` rows.
 
 Example::
 
@@ -18,11 +21,13 @@ Example::
                           policy_factory=lambda s: LLMPolicy("openai/gpt-4o-mini", strategy=s),
                           others={"judge": judge}, optimizer="anthropic/claude-sonnet-4-5", eval_items=held_out)
     result, records = gepa_search(search, max_metric_calls=60)
-    result.best_candidate["strategy"]; records.groupby("strategy_id")[["reward", "value"]].mean()
+    result.best_candidate["strategy"]
+    records[records.split == "val"].groupby("strategy_id")[["reward", "value"]].mean()
 """
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
@@ -84,12 +89,23 @@ def model_callable(model: Any, *, temperature: float = 1.0, max_tokens: int = 30
     return call
 
 
+@dataclasses.dataclass(frozen=True)
+class GEPAInstance:
+    """A task item as :func:`gepa_search` hands it to GEPA, tagged with the set GEPA drew it from
+    (``"train"``: its reflective minibatches; ``"val"``: its validation set), which a batch alone does not
+    tell when the two sets share items."""
+
+    item: TaskItem
+    split: str
+
+
 class MechanismAdapter:
-    """A ``gepa.core.adapter.GEPAAdapter``: GEPA's data instances are task items, its candidate is
-    ``{"strategy": text}``, and its per-item score is the role's mean mechanism reward on that item.
+    """A ``gepa.core.adapter.GEPAAdapter``: GEPA's data instances are task items (plain, or tagged with
+    their split as :class:`GEPAInstance`), its candidate is ``{"strategy": text}``, and its per-item
+    score is the role's mean mechanism reward on that item.
 
     Items where every episode failed get ``fail_score``. ``records`` collects one row per episode
-    (strategy id and text, item, reward, measured value) for analysis.
+    (strategy id and text, item, split, reward, measured value) for analysis.
     """
 
     propose_new_texts = None  # GEPA's reflective proposer (with our reflection template) writes new strategies
@@ -99,9 +115,11 @@ class MechanismAdapter:
         self.records: list[dict[str, Any]] = []
         self.metric_calls = 0
 
-    def evaluate(self, batch: list[TaskItem], candidate: dict[str, str], capture_traces: bool = False):
+    def evaluate(self, batch: list[TaskItem | GEPAInstance], candidate: dict[str, str], capture_traces: bool = False):
         from gepa.core.adapter import EvaluationBatch
 
+        splits = [x.split if isinstance(x, GEPAInstance) else None for x in batch]
+        batch = [x.item if isinstance(x, GEPAInstance) else x for x in batch]
         strategy = candidate.get(COMPONENT, "")
         rewards, values, eps = run_sync(self.search.evaluate_strategy(strategy, batch, capture=True))
         self.metric_calls += len(batch)
@@ -109,7 +127,7 @@ class MechanismAdapter:
         for ep in eps:
             by_item.setdefault(ep.item_id, []).append(ep)
         scores, outputs, trajectories = [], [], []
-        for item in batch:
+        for item, split in zip(batch, splits):
             its = by_item.get(item.id, [])
             rs = [e.rewards.get(self.search.role) for e in its if e.error is None]
             rs = [float(r) for r in rs if r is not None and math.isfinite(r)]
@@ -120,8 +138,8 @@ class MechanismAdapter:
             for e in its:
                 r = e.rewards.get(self.search.role)
                 self.records.append({"strategy_id": _cid(strategy), "strategy": strategy, "item_id": item.id,
-                                     "episode_id": e.id, "reward": r, "value": e.value(self.search.role),
-                                     "call": self.metric_calls})
+                                     "split": split, "episode_id": e.id, "reward": r,
+                                     "value": e.value(self.search.role), "call": self.metric_calls})
         return EvaluationBatch(outputs=outputs, scores=scores, trajectories=trajectories if capture_traces else None)
 
     def make_reflective_dataset(self, candidate: dict[str, str], eval_batch, components_to_update: list[str]
@@ -139,7 +157,8 @@ class MechanismAdapter:
         return {c: rows for c in components_to_update}
 
     def frame(self) -> pd.DataFrame:
-        """One row per evaluated episode: strategy, item, mechanism reward and measured ground-truth value."""
+        """One row per evaluated episode: strategy, item, split (``"train"``/``"val"``; None for plain
+        items), mechanism reward and measured ground-truth value."""
         return pd.DataFrame(self.records)
 
 
@@ -150,7 +169,8 @@ def gepa_search(search: PromptSearch, *, max_metric_calls: int = 60, reflection_
 
     Returns ``(GEPAResult, records)``: GEPA's result (``best_candidate["strategy"]``, the Pareto frontier,
     the candidate lineage) and one row per evaluated episode with reward *and* measured value, for
-    reward-vs-truth plots. Extra keyword arguments go to ``gepa.optimize``.
+    reward-vs-truth plots; its ``split`` column separates GEPA's training minibatches from its validation
+    set (the one to compare strategies on). Extra keyword arguments go to ``gepa.optimize``.
     """
     import gepa
 
@@ -159,7 +179,8 @@ def gepa_search(search: PromptSearch, *, max_metric_calls: int = 60, reflection_
                                           directive=search.directive, max_words=search.max_words)
     result = gepa.optimize(
         seed_candidate={COMPONENT: seed_strategy or "Play your role well."},
-        trainset=list(search.items), valset=list(search.eval_items or search.items), adapter=adapter,
+        trainset=[GEPAInstance(it, "train") for it in search.items],
+        valset=[GEPAInstance(it, "val") for it in search.eval_items or search.items], adapter=adapter,
         reflection_lm=model_callable(reflection_model or search.optimizer, temperature=search.opt_temp),
         reflection_prompt_template=template, max_metric_calls=max_metric_calls,
         reflection_minibatch_size=reflection_minibatch_size, seed=seed, **gepa_kwargs)

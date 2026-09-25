@@ -1,8 +1,8 @@
 """In-process local models via llama.cpp (``pip install llama-cpp-python``).
 
-``get_model("llamacpp/path/to/model.gguf")`` loads a GGUF model once per process and serves chat
-completions with logprobs, without a server. Handy for cheap judges, CI runs and experiments on small
-open-weight models; for throughput use vLLM through Inspect (``vllm/<hf-model>``).
+``get_model("llamacpp/path/to/model.gguf")`` loads a GGUF model once per process (and per load settings)
+and serves chat completions with logprobs, without a server. Handy for cheap judges, CI runs and
+experiments on small open-weight models; for throughput use vLLM through Inspect (``vllm/<hf-model>``).
 """
 
 from __future__ import annotations
@@ -14,7 +14,8 @@ from typing import Any
 from so_arena.core.types import Completion, GenerateOptions, TokenLogprob, TopLogprob, Usage
 from so_arena.models.base import Model
 
-_LOADED: dict[str, Any] = {}
+# (file, load settings) -> (loaded llama.cpp model, the lock serializing calls to it)
+_LOADED: dict[tuple[Any, ...], tuple[Any, threading.Lock]] = {}
 _LOCK = threading.Lock()
 
 
@@ -28,19 +29,24 @@ class LlamaCppModel(Model):
         self.n_ctx, self.n_threads, self.kwargs = n_ctx, n_threads, kwargs
         self.logits_all = logits_all
         self.supports_logprobs = logits_all
-        self._lock = threading.Lock()
 
-    def _llm(self):
+    def _llm(self) -> tuple[Any, threading.Lock]:
+        """The model loaded from this file *with these settings* (``logits_all`` and ``n_ctx`` are fixed at
+        load: a model loaded without ``logits_all`` cannot return logprobs), and its lock. A llama.cpp context
+        is not thread-safe, so all model objects sharing a loaded model share its one lock."""
+        key = (self.path, self.n_ctx, self.n_threads, self.logits_all,
+               tuple(sorted((k, repr(v)) for k, v in self.kwargs.items())))
         with _LOCK:
-            if self.path not in _LOADED:
+            if key not in _LOADED:
                 from llama_cpp import Llama
 
-                _LOADED[self.path] = Llama(model_path=self.path, n_ctx=self.n_ctx, n_threads=self.n_threads,
-                                           logits_all=self.logits_all, verbose=False, **self.kwargs)
-            return _LOADED[self.path]
+                llm = Llama(model_path=self.path, n_ctx=self.n_ctx, n_threads=self.n_threads,
+                            logits_all=self.logits_all, verbose=False, **self.kwargs)
+                _LOADED[key] = (llm, threading.Lock())
+            return _LOADED[key]
 
     def _generate(self, messages, options: GenerateOptions, sample_index: int) -> Completion:
-        llm = self._llm()
+        llm, lock = self._llm()
         seed = (options.seed if options.seed is not None else 0) + sample_index
         kw: dict[str, Any] = dict(
             messages=[{"role": m.role if m.role != "tool" else "user", "content": m.content} for m in messages],
@@ -55,7 +61,7 @@ class LlamaCppModel(Model):
         if options.logprobs and self.logits_all:
             kw["logprobs"] = True
             kw["top_logprobs"] = options.top_logprobs or 5
-        with self._lock:  # a llama.cpp context is not thread-safe
+        with lock:  # a llama.cpp context is not thread-safe
             out = llm.create_chat_completion(**kw)
         choice = out["choices"][0]
         text = choice["message"].get("content") or ""

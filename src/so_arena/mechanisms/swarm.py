@@ -200,7 +200,7 @@ class Team(Mechanism):
                                f'{{"report": true or false, "accused": "worker_k" or null, "evidence": "..."}}.')]))
                 for w in self.workers])
             # simultaneous reports have no natural order: the roster index would always favour worker_1
-            order = g.rng.sample(range(len(self.workers)), len(self.workers))
+            order = g.chance("report-order").sample(range(len(self.workers)), len(self.workers))
             for i, (w, a) in enumerate(zip(self.workers, order_acts)):
                 d = a.data or {}
                 rep = d.get("report")
@@ -222,7 +222,7 @@ class Team(Mechanism):
         caught = False
         if self.random_audit > 0:
             for w in self.workers:
-                if g.rng.random() < self.random_audit:
+                if g.chance(f"random-audit:{w}").random() < self.random_audit:
                     ok = await self._audit(g, w, "(random audit)")
                     if ok:
                         violators.add(w)

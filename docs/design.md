@@ -90,7 +90,8 @@ database, sends mail, moves money. `core.state` makes state a first-class part o
   plus the rows its tools recorded, and any other change to customers, payments or activity counts as
   tampering; the repository's trusted test runner must confirm success with a per-run token, since code
   under test can exit early with status 0. Every tool call is also kept in the episode (the trusted
-  record), whatever the agent does to its own logs.
+  record), whatever the agent does to its own logs or says about its calls (a policy's own account is
+  kept apart, as `metadata["reported_tool_calls"]`, when it differs).
 * LLM roles with tools **investigate before deciding**: a verdict, score or probability is elicited
   after a tool loop ending in private notes, so a reviewer with read access really inspects the work
   (`LLMPolicy(investigate=True)`, the default).
@@ -130,7 +131,11 @@ The protocol is ordinary async Python calling `g.act(role, kind=..., prompt=...,
   candidates; replaying the protocol under different plans (with memoized prefixes) expands any
   imperative protocol into a sampled game tree. Node keys depend only on role, phase, a deterministic
   slot counter and earlier choices, so simultaneous movers share pools (information sets). Each pool's
-  cost is charged to exactly one leaf episode, so leaves add up to the tree's cost.
+  cost is charged to exactly one leaf episode, so leaves add up to the tree's cost;
+* draws **nature's moves** (audits, tie-breaks) with `g.chance(tag)`, from the item, repeat, seed and tag
+  only - never from what a role did. Every candidate of a decision faces the same draw, so best-of-N
+  selects on what the audit would find rather than on audit luck, and arms are compared on the same
+  audits (common random numbers). Reward-time audits (`RandomAudit`, `JudgeAuditScore`) draw the same way.
 
 Episode ids hash the mechanism's full configuration (including its verification policy and the structure
 of its reward rule), the item's censored content, each player's policy description, stance and label,

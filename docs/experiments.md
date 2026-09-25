@@ -384,10 +384,13 @@ Evaluation-budget curves (ASD as a function of the judge's time) are the same sw
 
 ## 13. Human judges
 
-Any role can be a person. `so_arena.rating` serves decisions to raters in the browser - the transcript
-the role may see (with verified claims rendered as checked/failed chips), a form for the requested
-answer (probability sliders, a choice, a score or text) and a countdown of the evaluation budget - and
-records the time each rater spent as oversight effort. Budgets are the experimental variable, so ASD as
+Any role can be a person. `so_arena.rating` serves decisions to raters in the browser - the role's
+instructions and the transcript it may see (with verified claims rendered as checked/failed chips), a
+form for the requested answer (probability sliders, a choice, a score, text, or one field per key of a
+JSON answer such as a team report) and a countdown of the evaluation budget - and records the time each
+rater spent as oversight effort. When an enforced budget runs out, only what the rater entered is
+submitted: anything left open is an abstention (`parse_ok=False`, `metadata["human"]["auto"]`), never a
+default answer, and the page waits for the rater before serving the next task. Budgets are the experimental variable, so ASD as
 a function of evaluation time (the Kinniment curve) is one loop:
 
 ```python

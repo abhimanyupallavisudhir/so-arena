@@ -2,12 +2,13 @@
 
 :class:`HumanPolicy` makes any role - a judge, a reviewer, a monitor - a person. Each decision becomes
 a *rating task* on a :class:`RatingServer` (a local web app, standard library only): a rater opens
-the page, reads what the role may see, answers with the form the request needs (probabilities over
-the options, a choice, a score or text) and submits. The time between opening and submitting is
-recorded as oversight effort (``Usage.effort_seconds``), and a per-policy **time budget** is shown as
-a countdown - and, with ``enforce_budget=True``, the current answer is submitted when it runs out - so
-the evaluation budget is an experimental variable: run the same items with 2-, 10- and 30-minute judges
-and plot ASD against the budget (the Kinniment curve).
+the page, reads what the role may see (its instructions included), answers with the form the request
+needs (probabilities over the options, a choice, a score, text, or one field per key of a JSON answer)
+and submits. The time between opening and submitting is recorded as oversight effort
+(``Usage.effort_seconds``), and a per-policy **time budget** is shown as a countdown - and, with
+``enforce_budget=True``, what the rater has entered is submitted when it runs out (anything left open
+is an abstention) - so the evaluation budget is an experimental variable: run the same items with 2-,
+10- and 30-minute judges and plot ASD against the budget (the Kinniment curve).
 
 Every judgment is appended to ``judgments.jsonl`` in the server's directory (rater, budget, time
 spent, answer). By default the server listens on localhost only; ``token=`` protects it when it must
@@ -37,7 +38,14 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from so_arena.core.actions import Action, ActionRequest
-from so_arena.core.policy import ActContext, Policy, coerce_action, format_instructions
+from so_arena.core.policy import (
+    ActContext,
+    Policy,
+    coerce_action,
+    finalize_from_text,
+    format_instructions,
+    neutral_action,
+)
 from so_arena.core.types import Usage
 
 
@@ -59,13 +67,21 @@ class RatingTask:
     result: dict[str, Any] | None = None
     loop: Any = None
     future: Any = None
+    json_keys: list[str] = field(default_factory=list)  # kind "json": the page shows one field per key
+    expand_instructions: bool = False  # show the role's instructions (system messages) unfolded
+    cancelled: bool = False  # nobody awaits the answer any more (the run was interrupted)
 
     def public(self) -> dict[str, Any]:
         return {"id": self.id, "kind": self.kind, "title": self.title, "messages": self.messages,
                 "options": self.options, "option_texts": self.option_texts,
                 "score_range": list(self.score_range) if self.score_range else None,
                 "score_meaning": self.score_meaning, "budget_s": self.budget_s, "enforce_budget": self.enforce_budget,
-                "opened_at": self.opened_at}
+                "opened_at": self.opened_at, "json_keys": self.json_keys,
+                "expand_instructions": self.expand_instructions}
+
+
+class RatingConflict(Exception):
+    """A judgment the server cannot record (HTTP 409): the task is answered, cancelled or another rater's."""
 
 
 class RatingServer:
@@ -128,7 +144,10 @@ class RatingServer:
                 try:
                     n = int(self.headers.get("Content-Length") or 0)
                     payload = json.loads(self.rfile.read(n) or b"{}")
-                    server.submit(payload["task_id"], payload.get("result") or {}, payload.get("rater"))
+                    rater, served_to = (str(payload[k])[:80] if payload.get(k) else None for k in ("rater", "served_to"))
+                    server.submit(payload["task_id"], payload.get("result") or {}, rater, served_to=served_to)
+                except RatingConflict as e:  # the page tells the rater and moves on
+                    return self._send(HTTPStatus.CONFLICT, json.dumps({"error": str(e), **server.status()}).encode())
                 except (KeyError, ValueError) as e:
                     return self._send(HTTPStatus.BAD_REQUEST, json.dumps({"error": str(e)}).encode())
                 return self._send(HTTPStatus.OK, json.dumps(server.status()).encode())
@@ -165,17 +184,28 @@ class RatingServer:
                     return t
         return None
 
-    def submit(self, task_id: str, result: dict[str, Any], rater: str | None = None) -> None:
+    def submit(self, task_id: str, result: dict[str, Any], rater: str | None = None, *,
+               served_to: str | None = None) -> None:
+        """Record a judgment by ``rater``; ``served_to`` is who the task was handed to, if the rater has
+        renamed since. Raises :class:`RatingConflict` rather than silently dropping a judgment that cannot
+        count: a second answer to a task, an answer by someone the task is not assigned to (two tabs, a task
+        reassigned after ``reassign_after_s``), or one for a cancelled task."""
         with self._lock:
             t = self._tasks.get(task_id)
             if t is None:
                 raise KeyError(f"unknown task {task_id}")
+            if t.cancelled:
+                raise RatingConflict("no longer needed")
             if t.result is not None:
-                return  # a duplicate submission (e.g. the countdown fired as the rater clicked)
+                raise RatingConflict("already answered")
+            holder = served_to or rater
+            if holder and t.rater and holder != t.rater:
+                raise RatingConflict("taken by another rater")
             now = time.time()
             elapsed = now - (t.opened_at or t.created_at)
-            t.result = {**result, "elapsed_s": elapsed, "rater": rater or t.rater,
-                        "over_budget": bool(t.budget_s and elapsed > t.budget_s + 2)}
+            auto = bool(result.get("auto"))  # submitted by the countdown: over budget by definition
+            t.result = {**result, "auto": auto, "elapsed_s": elapsed, "rater": rater or t.rater,
+                        "over_budget": auto or bool(t.budget_s and elapsed > t.budget_s + 2)}
             self._order.remove(task_id)
             self._done += 1
         if self.log_path is not None:
@@ -188,6 +218,15 @@ class RatingServer:
                 t.loop.call_soon_threadsafe(lambda: t.future.done() or t.future.set_result(t.result))
             except RuntimeError:  # the episode's event loop is gone (run aborted); the judgment stays logged
                 pass
+
+    def cancel(self, task_id: str) -> None:
+        """Withdraw an unanswered task whose decision nobody awaits any more (e.g. the run was interrupted),
+        so that raters are not served tasks of dead episodes; a late answer to it gets HTTP 409."""
+        with self._lock:
+            t = self._tasks.get(task_id)
+            if t is not None and t.result is None and not t.cancelled:
+                t.cancelled = True
+                self._order.remove(task_id)
 
     def status(self) -> dict[str, int]:
         with self._lock:
@@ -204,8 +243,12 @@ class HumanPolicy(Policy):
 
     Args:
         time_budget_s: evaluation budget shown as a countdown (the experimental variable).
-        enforce_budget: submit the current answer automatically when the budget runs out.
-        show_prompt: show the role's full prompt (system and user messages) rather than the user part only.
+        enforce_budget: submit what the rater has entered when the budget runs out. What they left
+            unanswered is an abstention (``parse_ok=False``, flagged ``auto`` and ``over_budget``), never a
+            default answer such as the first option, which would bias budget curves.
+        show_prompt: always unfold the role's instructions (its system messages). They are always shown - a
+            private brief, a side objective or the reward rule is part of the role's game - and by default
+            long ones are folded once the rater has seen them.
     """
 
     def __init__(self, server: RatingServer, *, time_budget_s: float | None = None, enforce_budget: bool = False,
@@ -217,7 +260,7 @@ class HumanPolicy(Policy):
         return {**super().describe(), "time_budget_s": self.time_budget_s, "enforce_budget": self.enforce_budget}
 
     async def act(self, request: ActionRequest, ctx: ActContext) -> Action:
-        msgs = [m for m in request.prompt if self.show_prompt or m.role != "system"] or list(request.prompt)
+        msgs = list(request.prompt)  # system messages included: a person must know what the role's model is told
         game = ctx.game
         title = f"{game.mechanism.name} · {ctx.role}" + (f" · {request.phase}" if request.phase else "") if game else ctx.role
         if request.kind == "text":
@@ -233,26 +276,67 @@ class HumanPolicy(Policy):
                           options=options, option_texts=texts,
                           score_range=request.score_range, score_meaning=request.score_meaning,
                           budget_s=self.time_budget_s, enforce_budget=self.enforce_budget, loop=loop,
-                          future=loop.create_future())
+                          future=loop.create_future(), expand_instructions=self.show_prompt,
+                          json_keys=list(request.json_keys or []) if request.kind == "json" else [])
         self.server.add(task)
-        res: dict[str, Any] = await task.future
-        usage = Usage(calls=1, effort_seconds=float(res.get("elapsed_s", 0.0)))
-        rationale = (res.get("rationale") or "").strip()
-        if request.kind == "probabilities":
-            action = coerce_action(request, {k: float(v) for k, v in (res.get("probs") or {}).items()})
-            action.text = rationale or action.text
-        elif request.kind == "choice":
-            action = Action(text=rationale or str(res.get("choice")), choice=res.get("choice"))
-        elif request.kind == "score":
-            action = Action(text=rationale or str(res.get("score")), score=float(res.get("score")))
-        elif request.kind == "json":
-            action = Action(text=rationale, data=res.get("data") or {})
-        else:
-            action = Action(text=str(res.get("text", "")))
-        action.usage = usage
+        try:
+            res: dict[str, Any] = await task.future
+        except BaseException:  # the run was interrupted: raters must not be served a task nobody waits for
+            self.server.cancel(task.id)
+            raise
+        action = human_action(request, res)
+        action.usage = Usage(calls=1, effort_seconds=float(res.get("elapsed_s", 0.0)))
+        auto = bool(res.get("auto"))
         action.metadata.update({"human": {"rater": res.get("rater"), "elapsed_s": res.get("elapsed_s"),
-                                          "budget_s": self.time_budget_s, "over_budget": res.get("over_budget")}})
+                                          "budget_s": self.time_budget_s, "auto": auto,
+                                          "over_budget": auto or bool(res.get("over_budget"))}})
         return action
+
+
+def human_action(request: ActionRequest, res: dict[str, Any]) -> Action:
+    """The action for a rater's answer ``res`` (as the page posts it) to ``request``.
+
+    What the rater left unanswered - the countdown submitted before they chose - is an abstention with
+    ``parse_ok=False`` (no choice or score, uniform probabilities, no data): mechanisms apply their own
+    fallback, and analyses can tell it from a real answer. JSON answers come one field per key, each read
+    as JSON when it parses (``true``, ``null``, ``3``) and as text otherwise; empty fields are omitted.
+    """
+    auto = bool(res.get("auto"))
+    note = str(res.get("rationale") or "").strip()
+    opts = request.options or []
+    if request.kind == "probabilities":
+        probs = res.get("probs")
+        action = coerce_action(request, probs) if isinstance(probs, dict) and probs else neutral_action(request)
+        action.text = note or (action.text if action.parse_ok else "")
+    elif request.kind == "choice":
+        c = res.get("choice")
+        ok = c is not None and (c in opts or not opts)
+        action = Action(text=note or str(c), choice=c) if ok else Action(text=note, parse_ok=False)
+    elif request.kind == "score":
+        try:
+            s = float(res["score"])
+        except (KeyError, TypeError, ValueError):
+            s = None
+        action = Action(text=note or f"{s:g}", score=s) if s is not None else Action(text=note, parse_ok=False)
+    elif request.kind == "json" and isinstance(res.get("data"), dict):
+        data = {str(k): _field_value(v) for k, v in res["data"].items() if not (isinstance(v, str) and not v.strip())}
+        action = Action(text=note or json.dumps(data), data=data) if data or not auto else neutral_action(request, note)
+    elif request.kind == "json":  # a JSON object typed as text (no keys given): read like a model's reply
+        action = finalize_from_text(request, str(res.get("text") or ""))
+        action.text = note or action.text
+    else:
+        text = str(res.get("text") or "")
+        action = Action(text=text, parse_ok=bool(text.strip()) or not auto)
+    return action
+
+
+def _field_value(v: Any) -> Any:
+    if not isinstance(v, str):
+        return v
+    try:
+        return json.loads(v)
+    except ValueError:
+        return v.strip()
 
 
 PAGE = r"""<!doctype html>
@@ -276,13 +360,18 @@ main{max-width:860px;margin:0 auto;padding:16px}
 pre{background:var(--chip);padding:8px;border-radius:6px;overflow:auto;white-space:pre-wrap;margin:6px 0}
 .answer{position:sticky;bottom:0;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:14px;box-shadow:0 -4px 12px rgba(0,0,0,.04)}
 .opt{display:grid;grid-template-columns:minmax(80px,1fr) 3fr 3.5em;gap:10px;align-items:center;margin:4px 0}
-.opt label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.opt output{text-align:right;font-variant-numeric:tabular-nums}
+.opt label,.kv label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.opt output{text-align:right;font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:minmax(80px,1fr) 3fr;gap:10px;align-items:center;margin:4px 0}
 input[type=range]{width:100%;accent-color:var(--accent)}
 .row{display:flex;gap:10px;align-items:center;margin-top:10px}.row .grow{flex:1}
-textarea{width:100%;font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px;background:transparent;color:var(--ink);min-height:4em}
+textarea,.kv input{width:100%;font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px;background:transparent;color:var(--ink)}
+textarea{min-height:4em}.kv input{padding:5px 8px}
 button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:8px 18px;background:var(--accent);color:#fff;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
-.choice label{display:block;padding:4px 0}.empty{text-align:center;color:var(--ink2);padding:60px 0}
+.choice label{display:block;padding:4px 0}.empty{text-align:center;color:var(--ink2);padding:60px 0}.empty button{margin-top:12px}
+details.msg:not([open]) .who{margin-bottom:0}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:6px 12px;
+border-radius:8px;font-size:13px;z-index:9;pointer-events:none}
 .h{font-weight:600;margin-top:.6em}
 .claim{border-radius:6px;padding:1px 6px;border:1px solid var(--line);white-space:normal}
 .claim code{font-size:13px}.claim.verified{border-color:#0ca30c}.claim.failed{border-color:var(--warn)}
@@ -292,21 +381,28 @@ button:disabled{opacity:.5;cursor:default}
 padding:6px 8px;border-radius:6px;font-size:12px;font-weight:400;z-index:5;white-space:normal}
 details summary{cursor:pointer;color:var(--ink2);font-size:13px}
 @media (max-width:600px){#title{display:none}.top{gap:8px}main{padding:10px}.answer{position:static}
-.opt{grid-template-columns:1fr 3.5em}.opt label{grid-column:1/-1;white-space:normal}}
+.opt{grid-template-columns:1fr 3.5em}.opt label{grid-column:1/-1;white-space:normal}.kv{grid-template-columns:1fr;gap:2px}}
 </style></head><body>
 <header><div class="bar" id="bar" style="width:0"></div>
 <div class="top"><span id="title">Waiting for judgments</span><span class="grow"></span>
 <span id="queue" data-tip="Judgments waiting / done" tabindex="0"></span>
 <span class="time" id="time"></span>
-<input id="rater" placeholder="your name" aria-label="Your name"></div></header>
+<input id="rater" placeholder="your name" aria-label="Your name" title="Recorded with your judgments; leave empty to stay anonymous"></div></header>
 <main id="main"><div class="empty">No judgment waiting. This page checks for new ones automatically.</div></main>
+<div class="toast" id="toast" role="status" hidden></div>
 <script>
 const token = new URLSearchParams(location.search).get("token") || "";
 const q = (p) => p + (p.includes("?") ? "&" : "?") + (token ? "token=" + encodeURIComponent(token) : "");
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const rater = $("rater"); rater.value = localStorage.getItem("rater") || ""; rater.onchange = () => localStorage.setItem("rater", rater.value);
-let task = null, timer = null, deadline = null, sent = false;
+// raters without a name still need distinct ids: the server gives each rater their own task
+const anon = localStorage.getItem("rater_id") || "anon-" + [...crypto.getRandomValues(new Uint8Array(4))].map(b => b.toString(16).padStart(2, "0")).join("");
+localStorage.setItem("rater_id", anon);
+const who = () => rater.value.trim() || anon;
+// served: who the shown task was handed to (the rater may type a name meanwhile); moved: sliders touched;
+// paused: after a timed-out judgment, so that an unattended tab does not time out the whole queue
+let task = null, timer = null, deadline = null, sent = false, served = "", moved = false, paused = false;
 const MARKS = {verified: ["\u2713 verified", "A trusted checker confirmed this claim"],
   failed: ["\u2717 failed", "A trusted checker found this claim false"],
   unverified: ["? unchecked", "This claim was not checked"]};
@@ -332,7 +428,10 @@ function answerForm(t){
   if (t.kind === "choice") return '<div class="choice">' + t.options.map(o => `<label><input type="radio" name="c" value="${esc(o)}"> ${esc(t.option_texts[o] || o)}</label>`).join("") + "</div>";
   if (t.kind === "score") { const [lo, hi] = t.score_range || [0, 10];
     return `<div class="opt"><label>${esc(t.score_meaning || "Score")}</label><input type="range" id="score" min="${lo}" max="${hi}" step="0.5" value="${(lo + hi) / 2}"><output id="scoreout"></output></div>`; }
-  return '<textarea id="text" placeholder="Your response"></textarea>';
+  if (t.kind === "json" && t.json_keys.length)
+    return `<div><span data-tip="Each field is read as JSON if it parses (true, false, null, numbers), otherwise as text. Empty fields are left out." tabindex="0">Your answer</span></div>` +
+      t.json_keys.map((k, i) => `<div class="kv"><label for="k${i}" title="${esc(k)}">${esc(k)}</label><input id="k${i}" data-key="${esc(k)}" autocomplete="off"></div>`).join("");
+  return `<textarea id="text" placeholder="${t.kind === "json" ? "A JSON object" : "Your response"}"></textarea>`;
 }
 function normalized(){
   const s = [...document.querySelectorAll("[data-opt]")]; const tot = s.reduce((a, x) => a + +x.value, 0);
@@ -342,17 +441,33 @@ function refreshOutputs(){
   const p = normalized(); document.querySelectorAll("[data-opt]").forEach(x => x.nextElementSibling.textContent = Math.round(100 * p[x.dataset.opt]) + "%");
   const sc = $("score"); if (sc) $("scoreout").textContent = sc.value;
 }
+function fresh(text){ // first time this browser shows these instructions?
+  const h = String([...text].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261) >>> 0);
+  const seen = JSON.parse(localStorage.getItem("seen") || "[]");
+  if (seen.includes(h)) return false;
+  localStorage.setItem("seen", JSON.stringify([...seen, h].slice(-200))); return true;
+}
 function show(t){
-  task = t; sent = false;
+  task = t; sent = false; moved = false;
   $("title").textContent = t.title;
-  const msgs = t.messages.map(m => `<div class="msg"><div class="who">${esc(m.role === "user" ? "task" : m.role)}</div><div class="body">${body(m.content)}</div></div>`).join("");
-  $("main").innerHTML = msgs + `<div class="answer">${answerForm(t)}
+  // the role's instructions (system messages) come first: unfolded when short or new, folded once familiar
+  const sys = t.messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
+  const open = sys && (t.expand_instructions || sys.length <= 400 || fresh(sys));
+  const inst = sys ? `<details class="msg"${open ? " open" : ""}><summary class="who" title="What this role is told">Instructions</summary><div class="body">${body(sys)}</div></details>` : "";
+  const msgs = t.messages.filter(m => m.role !== "system").map(m => `<div class="msg"><div class="who">${esc(m.role === "user" ? "task" : m.role)}</div><div class="body">${body(m.content)}</div></div>`).join("");
+  $("main").innerHTML = inst + msgs + `<div class="answer">${answerForm(t)}
     <details><summary>Add a note (optional)</summary><textarea id="why" placeholder="Why?"></textarea></details>
     <div class="row"><span class="grow"></span><button id="go">Submit</button></div></div>`;
-  document.querySelectorAll("input[type=range]").forEach(x => x.oninput = refreshOutputs); refreshOutputs();
+  document.querySelectorAll("input[type=range]").forEach(x => x.oninput = () => { moved = true; refreshOutputs(); }); refreshOutputs();
   $("go").onclick = () => submit(false);
   clearInterval(timer); deadline = t.budget_s ? (t.opened_at * 1000 + t.budget_s * 1000) : null; tick(); timer = setInterval(tick, 500);
   window.scrollTo(0, 0);
+}
+function toast(text){ const n = $("toast"); n.textContent = text; n.hidden = false; clearTimeout(n.t); n.t = setTimeout(() => n.hidden = true, 6000); }
+function pause(){
+  paused = true; $("title").textContent = "Paused"; $("time").textContent = ""; $("bar").style.width = "0";
+  $("main").innerHTML = '<div class="empty"><div>Time is up</div><button id="resume" title="Your answer was submitted as it stood. Continue when you are ready for the next judgment.">Continue</button></div>';
+  $("resume").onclick = () => { if (paused) { paused = false; poll(); } }; $("resume").focus();
 }
 function tick(){
   if (!task || !deadline) { $("time").textContent = ""; $("bar").style.width = "0"; return; }
@@ -363,22 +478,31 @@ function tick(){
 }
 async function submit(auto){
   if (!task || sent) return;
-  let result = {rationale: ($("why") || {}).value || "", auto};
-  if (task.kind === "probabilities") result.probs = normalized();
-  else if (task.kind === "choice") { const c = document.querySelector("input[name=c]:checked"); if (!c && !auto) return alert("Pick an answer"); result.choice = c ? c.value : task.options[0]; }
-  else if (task.kind === "score") result.score = +$("score").value;
-  else result.text = $("text").value;
+  // the countdown sends only what the rater entered: untouched sliders or no pick are an abstention, not an answer
+  const result = {rationale: ($("why") || {}).value || "", auto};
+  if (task.kind === "probabilities") { if (moved || !auto) result.probs = normalized(); }
+  else if (task.kind === "choice") { const c = document.querySelector("input[name=c]:checked"); if (!c && !auto) return alert("Pick an answer"); if (c) result.choice = c.value; }
+  else if (task.kind === "score") { if (moved || !auto) result.score = +$("score").value; }
+  else if ($("text")) result.text = $("text").value;
+  else { result.data = {}; document.querySelectorAll("[data-key]").forEach(x => result.data[x.dataset.key] = x.value); }
   sent = true; $("go").disabled = true;
-  await fetch(q("/api/submit"), {method: "POST", headers: {"Content-Type": "application/json", "X-Token": token},
-    body: JSON.stringify({task_id: task.id, rater: rater.value || "anonymous", result})});
-  task = null; clearInterval(timer); poll();
+  let r;
+  try {
+    r = await fetch(q("/api/submit"), {method: "POST", headers: {"Content-Type": "application/json", "X-Token": token},
+      body: JSON.stringify({task_id: task.id, rater: who(), served_to: served, result})});
+  } catch (e) { sent = false; $("go").disabled = false; return toast("Not sent: server unreachable"); }
+  const e = await r.json().catch(() => ({}));
+  if (e.done !== undefined) status(e);  // the paused view keeps an up-to-date queue count
+  if (!r.ok) toast("Not recorded: " + (e.error || r.status));
+  task = null; clearInterval(timer);
+  if (auto) pause(); else poll();
 }
 async function poll(){
-  if (task) return;
+  if (task || paused) return;
   try {
-    const r = await (await fetch(q("/api/next?rater=" + encodeURIComponent(rater.value || "anonymous")))).json();
+    const me = who(), r = await (await fetch(q("/api/next?rater=" + encodeURIComponent(me)))).json();
     status(r);
-    if (r.task) return show(r.task);
+    if (r.task) { served = me; return show(r.task); }
     $("title").textContent = "Waiting for judgments"; $("time").textContent = ""; $("bar").style.width = "0";
     $("main").innerHTML = '<div class="empty">No judgment waiting. This page checks for new ones automatically.</div>';
   } catch (e) {}

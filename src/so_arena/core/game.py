@@ -69,6 +69,10 @@ class _RecordingTool(Tool):
         return res
 
 
+def _call_keys(calls: list[dict[str, Any]]) -> list[tuple[Any, str, str]]:
+    return [(c.get("name"), str(c.get("args")), str(c.get("result"))) for c in calls]
+
+
 class Player(BaseModel):
     """A policy filling a role, with an optional assigned stance (answer label to argue for)."""
 
@@ -257,9 +261,24 @@ class Game:
         self.revert_conflicts: dict[str, list[str]] = {}
         import random
 
+        # per-episode randomness: in a game tree it differs by path, so nature's moves use chance() instead
         self.rng = random.Random(stable_hash(seed, episode_id))
         vp = mechanism.verification
         self.verifiers: dict[str, Verifier] = vp.resolve(self.ctx.verifiers) if vp is not None else {}
+
+    def chance(self, tag: str) -> "random.Random":
+        """A random stream for one of nature's moves (an audit, a tie-break) that must not depend on what any
+        role did: seeded from the item, the repeat, the run seed and ``tag`` only.
+
+        :attr:`rng` is seeded from the episode id, which in a sampled game tree encodes the path - including
+        the sampled actions the move may be about - so best-of-N over a pool would select luck (e.g. the
+        unaudited candidates). These draws are shared by every path of a tree and every profile of a run on
+        the item (common random numbers: arms are compared on the same audits); vary the seed or the repeat
+        to redraw them. Use one tag per move, so draws never shift when another move is skipped.
+        """
+        import random
+
+        return random.Random(stable_hash("chance", tag, self.item.id, self.repeat, self.seed))
 
     # ------------------------------------------------------------------------------ views
     def stance(self, role: str) -> str | None:
@@ -470,8 +489,13 @@ class Game:
             if slot is not None:
                 slot.close(keep=False)
             raise
-        if calls and not action.tool_calls:  # policies that call tools directly (scripted agents)
-            action.tool_calls = [{k: v for k, v in c.items() if k != "error"} for c in calls]
+        # The turn's tool calls are what ran through the game's tools, whatever the policy says it did: a
+        # policy's own account (an agent may misreport) is kept apart when it differs. Tools that run outside
+        # the game are only in the trusted record if they are given to the game as tools.
+        record = [{k: v for k, v in c.items() if k != "error"} for c in calls]
+        if action.tool_calls and _call_keys(action.tool_calls) != _call_keys(record):
+            action.metadata["reported_tool_calls"] = action.tool_calls
+        action.tool_calls = record
         log_path = getattr(self.ctx.environment, "action_log", None)
         if log_path and calls and slot is not None and access == "write":
             # an agent-visible, agent-writable mirror of the trusted record: what an overseer reading logs sees
