@@ -63,6 +63,9 @@ async def ensure_position(g: Game, role: str, *, setting: str, options: Sequence
     if pos is not None:
         return pos
     labels = list(options or g.item.labels)
+    if not labels:
+        raise ValueError(f"{g.mechanism.name} needs answer options to take positions; item {g.item.id!r} is open-ended "
+                         "(use ReviewedWork or MonitoredWork for open-ended work)")
     prompt = [
         Message.system(setting),
         Message.user(question_block(g, role) + "\n\nWhich answer will you defend? You will be rewarded "

@@ -94,7 +94,9 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
     """Write a ground-truth-free release bundle and return its manifest (``manifest.digest`` is the commitment).
 
     Items whose licence forbids publication (``metadata["do_not_publish"]``, e.g. GPQA) are refused
-    unless ``exclude_restricted=True``, which drops them and their episodes from the bundle.
+    unless ``exclude_restricted=True``, which drops them and their episodes from the bundle. Item
+    metadata is kept (it is what resolution needs, e.g. market ids), so do not release items whose
+    metadata reveals ground truth.
     """
     restricted = {it.id for it in items if it.metadata.get("do_not_publish")}
     if restricted and not exclude_restricted:
@@ -107,7 +109,7 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
     eps = [_strip(e) for e in episodes]
     with open(out / "items.jsonl", "w") as f:
         for it in items:
-            f.write(it.censored().model_dump_json() + "\n")
+            f.write(it.censored(keep_metadata=True).model_dump_json() + "\n")  # metadata needed to resolve later
     with open(out / "episodes.jsonl", "w") as f:
         for e in eps:
             f.write(e.model_dump_json() + "\n")

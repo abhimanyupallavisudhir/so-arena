@@ -156,22 +156,27 @@ class JudgeScore(RewardRule):
     difference between an agent's reward when arguing for the truth and for a falsehood is ASD.
     """
 
-    def __init__(self, transform: str = "log", roles: Sequence[str] | None = None, eps: float = 1e-4):
+    def __init__(self, transform: str = "log", roles: Sequence[str] | None = None, eps: float = 1e-4,
+                 targets: dict[str, str] | None = None):
+        """``targets`` fixes the label each role is scored on (e.g. worker -> "accept"); otherwise the
+        episode's ``outcome.data["reward_targets"]``, then each role's position, is used."""
         if transform not in TRANSFORMS:
             raise ValueError(f"unknown transform {transform!r}")
         self.transform = transform
         self.roles = list(roles) if roles is not None else None
         self.eps = eps
+        self.targets = dict(targets) if targets else None
         self.name = f"judge_{transform}"
 
     def compute(self, ep):
         probs = ep.outcome.probs
         out: Rewards = {}
+        targets = self.targets or ep.outcome.data.get("reward_targets") or {}
         roles = self.roles if self.roles is not None else [
-            r for r in ep.trainable_roles if ep.positions.get(r) is not None
+            r for r in ep.trainable_roles if (targets.get(r) or ep.positions.get(r)) is not None
         ]
         for r in roles:
-            pos = ep.positions.get(r)
+            pos = targets.get(r) or ep.positions.get(r)
             if pos is None or probs is None or pos not in probs:
                 out[r] = None
             else:

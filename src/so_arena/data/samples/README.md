@@ -45,3 +45,54 @@ local cache instead.
 
 Not bundled on purpose: MMLU, TruthfulQA and QuALITY are downloaded on demand; GPQA is gated and
 its authors ask that examples not be posted online, so it must never be added here.
+
+## `chess_puzzles_sample.jsonl` (Lichess puzzles, CC0)
+
+300 puzzles from the [Lichess puzzle database](https://database.lichess.org/#puzzles), which
+Lichess releases under the **Creative Commons CC0** licence (public domain); the engine analysis
+added to each puzzle is ours and released under the same terms. Used by
+`so_arena.domains.chess.ChessDomain` (the default `source="sample"`), so chess tests and demos need
+neither the network nor heavy engine work.
+
+* **Selection.** The first ~20k puzzles of `lichess_db_puzzle.csv.zst` (a 1 MB prefix), filtered to
+  well-established puzzles (rating deviation $\le 90$, at least 100 plays, popularity $\ge 50$), then
+  30 per 200-point rating bin from 800 to 2800, taken in a deterministic pseudo-random order among
+  those whose engine analysis succeeds.
+* **Fields.** The Lichess columns in snake_case (`puzzle_id`, `fen`, `moves`, `rating`,
+  `rating_deviation`, `popularity`, `nb_plays`, `themes`, `game_url`, `opening_tags`) plus
+  `analysis`. As in Lichess, `fen` is the position *before* the opponent's move `moves[0]`; the
+  solution starts at `moves[1]`, and agents are shown the position after `moves[0]`.
+* **Analysis** (Stockfish 15.1, `Threads=1`, `Hash=16`, hash cleared before every search;
+  centipawns from the perspective of the side to move, mate in $n$ stored as $\pm(10000 - n)$).
+  `best` is the solution's first move, confirmed best by a 1M-node search; `alternative` is a
+  plausible but clearly worse move (at least 150 centipawns worse, evaluations clipped to
+  $\pm 1000$), preferring the move a depth-2 search rates highest among those the 1M-node search
+  refutes; `move_evals` holds every legal move from one MultiPV search at depth 12 (used to score
+  proposed moves).
+
+Regenerate with `python scripts/build_chess_sample.py` (needs the network and Stockfish; about
+3 s per puzzle on one core).
+
+## `mbpp_sample.jsonl` (MBPP sanitized, CC BY 4.0)
+
+60 problems (task ids 11-292) of the test split of **MBPP "sanitized"**
+(`mbpp/sanitized-mbpp.json` from https://github.com/google-research/google-research; Austin et al.
+2021, *Program Synthesis with Large Language Models*), © Google LLC, licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Used by `so_arena.domains.code.CodeDomain`
+(the default `source="sample"`) so code tests and demos run offline; `source="mbpp"` downloads the
+full file on demand.
+
+* **Fields.** The original `task_id`, `prompt`, `code`, `test_imports`, `test_list` (unchanged), plus
+  fields derived by so-arena (same licence; changes indicated here): `entry_point`, `n_candidates`,
+  `n_survivors`, and `mutants` - up to 3 first-order AST mutants of the reference `code` (op, a short
+  description, the mutated code in `ast.unparse` style, and pass/fail per test of `test_list`).
+* **Selection.** The first 60 test-split problems (by task id) with at least one *surviving* mutant:
+  it passes the first test (visible by default) and fails at least one other (hidden) test. The
+  reference passes all of its tests. Hidden tests are MBPP's own remaining asserts (no generated
+  tests).
+* **Survival** (build run over all 257 test-split problems, up to 60 candidates each): 2733
+  candidate mutants, 30% pass the visible test, 11% survive (38% of those passing the visible
+  test); 92 problems have a survivor. Per operator: const 13%, branch 18%, boolop 18%, cmp 12%,
+  range 11%, arith 9%, not 9%, slice 8%, index 7%, return 7%, minmax 0%.
+
+Regenerate with `python scripts/build_code_sample.py` (needs the network; about 40 s on 2 cores).

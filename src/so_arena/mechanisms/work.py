@@ -88,9 +88,8 @@ class ReviewedWork(Mechanism):
         work = await g.act("worker", kind="text", phase="work", word_limit=self.work_word_limit,
                            prompt=[Message.system(system), Message.user(question_block(g, "worker") + "\n\nWrite your submission.")])
         answer = parse_choice(work.text, g.item.labels) if g.item.answers else None
-        g.set_position("worker", ACCEPT)
-        if "critic" in g.players:
-            g.set_position("critic", REJECT)
+        if answer is not None:
+            g.set_position("worker", answer)  # positions stay answers; rewards target accept/reject
         for r in range(self.critique_rounds):
             csys = agent_system(
                 g, "critic",
@@ -111,8 +110,10 @@ class ReviewedWork(Mechanism):
         a = await g.act("reviewer", kind="probabilities", options=[ACCEPT, REJECT], phase="review",
                         prompt=[Message.system(jsys), Message.user(body)])
         probs = a.probs or {ACCEPT: 0.5, REJECT: 0.5}
+        targets = {"worker": ACCEPT, **({"critic": REJECT} if "critic" in g.players else {})}
         return Outcome(decision=max(probs, key=probs.get), probs=probs, output=work.text,
-                       data={"answers": {"worker": answer} if answer else {}, "p_accept": probs[ACCEPT]})
+                       data={"answers": {"worker": answer} if answer else {}, "p_accept": probs[ACCEPT],
+                             "reward_targets": targets})
 
 
 class MonitoredWork(Mechanism):

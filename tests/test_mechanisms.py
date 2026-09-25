@@ -141,7 +141,8 @@ def test_reviewed_work_asd_and_critic_zero_sum():
     t = asd(df, roles=["worker"])
     assert t["asd"].iloc[0] > 0
     ep = eps[0]
-    assert ep.positions == {"worker": "accept", "critic": "reject", "reviewer": None}
+    assert ep.positions["worker"] in ("A", "B")  # positions are answers; rewards target accept/reject
+    assert ep.outcome.data["reward_targets"] == {"worker": "accept", "critic": "reject"}
     p = ep.outcome.probs
     assert ep.rewards["worker"] == pytest.approx(math.log(p["accept"]))
     assert ep.rewards["critic"] == pytest.approx(math.log(p["reject"]))

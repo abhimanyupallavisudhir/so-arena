@@ -129,13 +129,12 @@ async def score_episode(ep: Episode, item: TaskItem, scorers: Sequence[GroundTru
         return ep
     if not item.has_ground_truth and item.ground_truth is None:
         ep.gt_status = "unknown"
-    parts = []
-    for s in scorers:
+    for s in scorers:  # merged incrementally, so later scorers can read earlier results
         try:
-            parts.append(await s.score(ep, item, ctx))
+            part = await s.score(ep, item, ctx)
         except Exception as e:  # a failing scorer should not lose the episode
-            parts.append({f"error_{s.name}": repr(e)})
-    ep.ground_truth = merge_gt([ep.ground_truth] + parts)
+            part = {f"error_{s.name}": repr(e)}
+        ep.ground_truth = merge_gt([ep.ground_truth, part])
     if item.has_ground_truth:
         ep.gt_status = "known"  # also when re-scoring an episode that was pending
     elif ep.gt_status == "unscored":

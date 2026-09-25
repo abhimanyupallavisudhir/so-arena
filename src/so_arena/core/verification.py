@@ -229,10 +229,12 @@ class CallableVerifier(Verifier):
 
 
 def run_python(code: str, timeout: float = 5.0, stdin: str | None = None) -> tuple[int, str, str]:
-    """Run Python code in a subprocess with a timeout and memory limit.
+    """Run Python code in a subprocess with a timeout and memory limit (fixed hash seed, temp file removed).
 
     NOT a security sandbox: use Inspect/Docker sandboxes for untrusted code at scale.
     """
+    import os
+
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
         f.write(code)
         path = f.name
@@ -245,18 +247,25 @@ def run_python(code: str, timeout: float = 5.0, stdin: str | None = None) -> tup
         except Exception:
             pass
 
+    env = {"PATH": os.environ.get("PATH", ""), "PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1"}
     try:
         proc = subprocess.run(
-            [sys.executable, "-I", path],
+            [sys.executable, "-s", path],  # not -I: isolated mode would ignore PYTHONHASHSEED
             input=stdin,
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
             preexec_fn=_limits if sys.platform != "win32" else None,
         )
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
         return -1, "", "timeout"
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 class PythonExecVerifier(Verifier):

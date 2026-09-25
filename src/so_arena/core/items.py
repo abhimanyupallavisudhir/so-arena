@@ -115,11 +115,17 @@ class TaskItem(BaseModel):
         t = self.true_label
         return [lab for lab in self.labels if lab != t]
 
-    def censored(self) -> "TaskItem":
-        """Copy with ground truth removed; this is what mechanisms and agents receive."""
+    def censored(self, *, keep_metadata: bool = False) -> "TaskItem":
+        """Copy with ground truth (and experimenter-side metadata) removed: what mechanisms and agents receive.
+
+        Public structured information belongs in ``context``; ``metadata`` is for the experimenter
+        (e.g. which mutation produced a wrong answer, a market id used to fetch the resolution) and is
+        not shown to mechanisms. Releases keep metadata (``keep_metadata=True``) so they can be resolved.
+        """
         return self.model_copy(
             update={
                 "ground_truth": None,
+                "metadata": dict(self.metadata) if keep_metadata else {},
                 "answers": (
                     [a.model_copy(update={"value": None}) for a in self.answers]
                     if self.answers is not None

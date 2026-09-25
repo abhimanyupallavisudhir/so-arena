@@ -122,6 +122,8 @@ class JudgeCorrectness(GroundTruthScorer):
         if t is None or t not in probs:
             if set(probs) >= {"accept", "reject"} and self.subject in ep.players:
                 v = role_value(ep, item, self.subject)
+                if v is None:  # e.g. open-ended work graded by an earlier domain scorer (hidden tests, SQL execution)
+                    v = (ep.ground_truth.get("role_values") or {}).get(self.subject)
                 if v is None:
                     return {}
                 t = "accept" if v > 0 else "reject"

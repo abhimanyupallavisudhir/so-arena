@@ -39,12 +39,13 @@ def split_reasoning(text: str, tags: Sequence[str] = ("thinking", "reasoning", "
 
 
 def truncate_words(text: str, limit: int | None) -> str:
+    """Keep the first ``limit`` words, preserving the original whitespace (so code survives)."""
     if not limit:
         return text
-    words = text.split()
-    if len(words) <= limit:
+    matches = list(re.finditer(r"\S+", text))
+    if len(matches) <= limit:
         return text
-    return " ".join(words[:limit]) + " [...]"
+    return text[: matches[limit - 1].end()] + " [...]"
 
 
 def parse_json_object(text: str) -> dict | None:
