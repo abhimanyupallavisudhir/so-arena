@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oversight-arena"
+version = "0.1.0"
+description = "Experiments on incentives and training robustness in scalable oversight"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "OversightArena contributors"}]
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.optional-dependencies]
+inspect = ["inspect-ai>=0.3.268,<0.4"]
+controlarena = ["control-arena>=19,<20"]
+plots = ["matplotlib>=3.8,<4"]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "build>=1,<2"]
+
+[project.scripts]
+oversight-arena = "oversight_arena.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/oversight_arena/reporting.py" = ["E501"]
+"tests/test_adapters.py" = ["E402"]

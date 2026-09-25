@@ -1,0 +1,33 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - run: python -m pip install -e '.[dev]'
+      - run: ruff check src tests examples
+      - run: ruff format --check src tests examples
+      - run: pytest -q
+      - run: python -m build
+      - run: oversight-arena demo --output runs/demo
+  optional:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev,plots,controlarena]'
+      - run: pytest -q
+      - run: oversight-arena demo --output runs/demo --plots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offline-demo
+          path: runs/demo/
