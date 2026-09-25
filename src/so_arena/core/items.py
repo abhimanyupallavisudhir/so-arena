@@ -136,7 +136,9 @@ class TaskItem(BaseModel):
         )
 
     def fingerprint(self) -> str:
-        payload = self.model_dump(mode="json", exclude={"ground_truth", "metadata"})
+        """Hash of what mechanisms receive (the censored item): content changes change it, while
+        resolving the item (ground truth, answer values) or editing its metadata does not."""
+        payload = self.censored().model_dump(mode="json", exclude={"ground_truth", "metadata"})
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
     def render_question(self, *, with_options: bool = True) -> str:

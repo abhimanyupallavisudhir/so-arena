@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import random
 import re
@@ -23,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from so_arena.core.game import Player, RunContext
 from so_arena.core.ground_truth import GroundTruthScorer, default_scorers, merge_gt
 from so_arena.core.items import TaskItem
-from so_arena.core.mechanism import Episode, Mechanism
+from so_arena.core.mechanism import Episode, Mechanism, describe_config
 from so_arena.core.policy import Policy, stable_hash
 from so_arena.core.store import RunStore
 
@@ -116,11 +117,38 @@ def build_players(profile: Profile, item: TaskItem, seed: int = 0) -> dict[str, 
     return players
 
 
-def episode_id(run_id: str, mechanism: Mechanism, item: TaskItem, profile: str, repeat: int) -> str:
-    # the item fingerprint makes resumed runs re-run items whose content changed under the same id
-    raw = f"{run_id}|{mechanism.name}|{mechanism.config_hash()}|{item.id}|{item.fingerprint()}|{profile}|{repeat}"
+def profile_description(profile: Profile) -> dict[str, Any]:
+    """What an episode id covers of a profile: per role, the policy's ``describe()`` (or the model name
+    it is built from), the stance spec and the label (plain data only)."""
+    out: dict[str, Any] = {}
+    for role, spec in profile.specs().items():
+        pol = spec.policy.describe() if isinstance(spec.policy, Policy) else spec.policy
+        out[role] = [describe_config(pol), spec.stance, spec.label]
+    return out
+
+
+def _episode_id(run_id: str, mechanism: Mechanism, config_hash: str, item: TaskItem, profile: str,
+                players: dict[str, Any] | None, repeat: int, seed: int) -> str:
+    raw = json.dumps([run_id, mechanism.name, config_hash, item.id, item.fingerprint(), profile, players, repeat, seed],
+                     sort_keys=True)
     slug = re.sub(r"[^A-Za-z0-9_.:-]", "_", f"{mechanism.name}:{item.id}:{profile}:{repeat}")
     return f"{slug}#{hashlib.sha256(raw.encode()).hexdigest()[:8]}"
+
+
+def episode_id(run_id: str, mechanism: Mechanism, item: TaskItem, profile: str | Profile, repeat: int, *,
+               seed: int = 0) -> str:
+    """The id under which a run stores (and, resuming, looks up) an episode.
+
+    It covers everything that decides how the episode is played: the mechanism's full configuration
+    (:meth:`~so_arena.core.mechanism.Mechanism.config_hash`), the item's content (censored: resolving
+    an item keeps its ids; changing it under the same id re-runs it), the profile's players (see
+    :func:`profile_description`; a bare profile name identifies it by name only), the repeat and the
+    run's seed. Only plain data is hashed, so ids agree across processes.
+    """
+    if isinstance(profile, Profile):
+        return _episode_id(run_id, mechanism, mechanism.config_hash(), item, profile.name,
+                           profile_description(profile), repeat, seed)
+    return _episode_id(run_id, mechanism, mechanism.config_hash(), item, profile, None, repeat, seed)
 
 
 async def score_episode(ep: Episode, item: TaskItem, scorers: Sequence[GroundTruthScorer], ctx: RunContext | None = None) -> Episode:
@@ -175,7 +203,9 @@ async def run_episodes(
 
     Items whose stances cannot be resolved (e.g. ``"true"`` on an unresolved question) are skipped.
     With a ``store``, episodes are appended as they finish and, if ``resume``, episodes already in the
-    store are loaded instead of re-run.
+    store are loaded instead of re-run - those with the same :func:`episode_id`, i.e. the same
+    mechanism configuration, item content, players and seed. Reused episodes whose ground truth was
+    pending are scored again if their item has been resolved since.
     """
     from so_arena.config import settings
 
@@ -194,12 +224,22 @@ async def run_episodes(
             for rep in range(repeats):
                 jobs.append((item, prof, rep))
     progress = Progress(len(jobs), label=mechanism.name)
+    # described once, before anything runs: ids must not depend on state the run itself changes
+    config_hash = mechanism.config_hash()
+    described = {id(p): profile_description(p) for p in profiles}
 
     async def one(item: TaskItem, prof: Profile, rep: int) -> Episode | None:
-        eid = episode_id(ctx.run_id, mechanism, item, prof.name, rep)
+        eid = _episode_id(ctx.run_id, mechanism, config_hash, item, prof.name, described[id(prof)], rep, seed)
         if eid in existing:
+            ep = existing[eid]
+            if ep.gt_status == "pending" and item.has_ground_truth:
+                # resolved since it was played: keep the play (re-running would answer after the
+                # resolution) and score it against the ground truth now available
+                ep = await score_episode(ep.model_copy(deep=True), item, scorers, ctx)
+                if store is not None:
+                    store.append(ep)
             progress.tick()
-            return existing[eid]
+            return ep
         try:
             players = build_players(prof, item, seed=seed + rep)
         except LookupError as e:

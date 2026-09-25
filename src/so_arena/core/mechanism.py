@@ -15,23 +15,87 @@ from __future__ import annotations
 
 import abc
 import datetime as _dt
+import enum
+import functools
 import hashlib
 import json
+import os
 import traceback
+import types
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
 from so_arena.core.game import BranchController, Game, Player, RunContext, Turn
 from so_arena.core.items import TaskItem
+from so_arena.core.policy import Policy
 from so_arena.core.state import STATE_ACCESS, StateAccess
 from so_arena.core.types import Usage
-from so_arena.core.verification import VerificationPolicy
+from so_arena.core.verification import VerificationPolicy, Verifier
 
 if TYPE_CHECKING:
     from so_arena.core.rewards import RewardRule
 
 RoleKind = Literal["agent", "judge", "monitor", "auditor", "grader", "market", "reporter"]
+
+
+def _qualname(x: Any) -> str:
+    return f"{getattr(x, '__module__', None) or ''}.{getattr(x, '__qualname__', None) or getattr(x, '__name__', '?')}"
+
+
+def describe_config(obj: Any, _depth: int = 8, _seen: frozenset[int] = frozenset()) -> Any:
+    """A plain, process-independent description of a configuration value (for config hashes and logs).
+
+    Scalars stay as they are and containers are described element-wise; pydantic models by their
+    fields; functions by qualified name (a function is identified by its name, not its code); reward
+    rules and verifiers - the parts of a mechanism - by class and public attributes; policies by their
+    ``describe()``; any other object only by class and ``name`` (its attributes may hold clients,
+    caches or other run state). Never contains memory addresses, so hashes agree across processes.
+    """
+    from so_arena.core.rewards import RewardRule
+
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, enum.Enum):
+        return f"{_qualname(type(obj))}.{obj.name}"
+    if isinstance(obj, (bytes, bytearray)):
+        return "sha256:" + hashlib.sha256(bytes(obj)).hexdigest()[:16]
+    if isinstance(obj, os.PathLike):
+        return os.fspath(obj)
+    if id(obj) in _seen or _depth <= 0:
+        return {"class": _qualname(type(obj))}
+    seen = _seen | {id(obj)}
+
+    def sub(x: Any) -> Any:
+        return describe_config(x, _depth, seen)
+
+    def deeper(x: Any) -> Any:
+        return describe_config(x, _depth - 1, seen)
+
+    if isinstance(obj, Mapping):
+        return {k if isinstance(k, str) else json.dumps(sub(k), sort_keys=True): sub(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sub(x) for x in obj]
+    if isinstance(obj, (set, frozenset)):
+        return sorted((sub(x) for x in obj), key=lambda d: json.dumps(d, sort_keys=True))
+    if isinstance(obj, functools.partial):
+        return {"partial": sub(obj.func), "args": sub(obj.args), "keywords": sub(obj.keywords)}
+    if isinstance(obj, types.MethodType):
+        return {"method": _qualname(obj.__func__), "of": deeper(obj.__self__)}
+    if isinstance(obj, (types.FunctionType, types.BuiltinFunctionType, type)):
+        return _qualname(obj)
+    if isinstance(obj, BaseModel):
+        return {"class": _qualname(type(obj)), **{f: deeper(getattr(obj, f)) for f in type(obj).model_fields}}
+    if isinstance(obj, Policy):
+        return deeper(obj.describe())
+    if isinstance(obj, (RewardRule, Verifier)):
+        attrs = {k: v for k, v in getattr(obj, "__dict__", {}).items() if not k.startswith("_")}
+        return {"class": _qualname(type(obj)), **{k: deeper(attrs[k]) for k in sorted(attrs)}}
+    out: dict[str, Any] = {"class": _qualname(type(obj))}
+    if isinstance(getattr(obj, "name", None), str):
+        out["name"] = obj.name
+    return out
 
 
 class RoleSpec(BaseModel):
@@ -86,6 +150,9 @@ class Episode(BaseModel):
     # Filled by ground-truth scorers (experimenter side). Keys: role_values, outcome_value, ...
     ground_truth: dict[str, Any] = Field(default_factory=dict)
     gt_status: Literal["known", "pending", "unknown", "unscored"] = "unscored"
+    # model usage of the play; in a sampled game tree each (shared) candidate pool is charged to one
+    # canonical play, so the tree's leaf episodes sum to its total without double counting
+    # (see Game.episode_usage)
     usage: dict[str, Usage] = Field(default_factory=dict)
     tags: dict[str, Any] = Field(default_factory=dict)
     trainable_roles: list[str] = Field(default_factory=list)
@@ -151,8 +218,11 @@ class Mechanism(abc.ABC):
             reward: reward rule (defaults to :meth:`default_reward`).
             verification: which claims are verified and how results are shown.
             affordances / tools / sees_reasoning: per-role overrides of the role specs. Keys are role
-                names, ``"agents"`` (every agent-kind role) or ``"all"``; values are lists of private
-                item keys / tool names / roles whose chain of thought the role sees.
+                names, ``"agents"`` (every agent-kind role) or ``"all"`` (any other key is an error,
+                raised when the role specs are first built); values are lists of private item keys /
+                tool names / roles whose chain of thought the role sees. These overrides only *add* to
+                the role's defaults (set union): removing a default needs a different mechanism
+                argument or a subclass.
             trainable: per-role override of whether a role receives reward (e.g. train the judge).
             state_access: per-role override of access to a stateful task's state (``"none"``,
                 ``"read"``, ``"write"``), e.g. ``{"reviewer": "read"}`` to let a reviewer run the tests.
@@ -177,8 +247,18 @@ class Mechanism(abc.ABC):
             self.name = name  # type: ignore[misc]
 
     def role_specs(self) -> dict[str, RoleSpec]:
-        """:meth:`roles` with the per-role overrides applied (this is what the runtime uses)."""
+        """:meth:`roles` with the per-role overrides applied (this is what the runtime uses).
+
+        Raises ValueError for an override key that is neither a role nor ``"agents"``/``"all"``: a
+        mistyped role would otherwise silently leave the experiment unchanged.
+        """
         specs = {r: s.model_copy(deep=True) for r, s in self.roles().items()}
+        for field, overrides in self.role_overrides.items():
+            unknown = sorted(k for k in overrides if k not in specs and k not in ("agents", "all"))
+            if unknown:
+                arg = "sees_reasoning" if field == "sees_reasoning_of" else field
+                raise ValueError(f"{self.name}: {arg} override for unknown role(s) {unknown}; roles are {sorted(specs)} "
+                                 "(or use 'agents' / 'all')")
         for field in ("affordances", "tools", "sees_reasoning_of"):
             for key, vals in self.role_overrides[field].items():
                 for r, spec in specs.items():
@@ -226,21 +306,26 @@ class Mechanism(abc.ABC):
             names = [v if isinstance(v, str) else v.name for v in self.verification.verifiers]
             lines.append(f"Verifiable claim kinds: {', '.join(names)}")
         if self.config:
-            lines.append(f"Config: {json.dumps(self.config, default=str)}")
+            lines.append(f"Config: {json.dumps(describe_config(self.config))}")
         if role:
             lines.append(f"You are optimizing the behaviour of role '{role}'.")
         return "\n".join(lines)
 
     def config_dict(self) -> dict[str, Any]:
+        """The full configuration (logged with every episode, hashed into episode ids): constructor
+        arguments, the reward rule's structure (every parameter, also those its description omits)
+        and the whole verification policy (verifiers, display, budget, roles, ...)."""
         return {
             "name": self.name,
             "class": type(self).__name__,
-            "config": json.loads(json.dumps(self.config, default=str)),
+            "config": describe_config(self.config),
             "reward": self.reward_rule.describe(),
             "verification": (
                 [v if isinstance(v, str) else v.name for v in self.verification.verifiers]
                 if self.verification else None
             ),
+            "reward_rule": describe_config(self.reward_rule),
+            "verification_policy": describe_config(self.verification) if self.verification is not None else None,
         }
 
     def config_hash(self) -> str:
@@ -260,10 +345,13 @@ class Mechanism(abc.ABC):
         repeat: int = 0,
         seed: int = 0,
     ) -> Episode:
-        """Run the protocol on (a censored copy of) ``item`` and compute rewards."""
+        """Run the protocol on (a censored copy of) ``item`` and compute rewards.
+
+        The item is always censored - also without ground truth (e.g. read back from a release), whose
+        experimenter-side ``metadata`` must not reach the policies either.
+        """
         ctx = ctx or RunContext()
-        censored = item.censored() if item.ground_truth is not None or any(
-            a.value is not None for a in item.answers or []) else item
+        censored = item.censored()
         eid = episode_id or f"{item.id}:{self.name}:{profile}:{repeat}"
         base, head = initial_states(item, ctx)
         g = Game(self, censored, players, ctx=ctx, episode_id=eid, branch=branch, seed=seed, repeat=repeat,
@@ -290,7 +378,7 @@ class Mechanism(abc.ABC):
             positions=dict(g.positions),
             turns=list(g.turns),
             outcome=outcome,
-            usage=dict(g.usage) if branch is None else {},
+            usage=g.episode_usage(),  # in branch mode: each shared pool charged to one canonical play
             tags=dict(tags or {}),
             trainable_roles=self.trainable_roles(),
             role_kinds={r: spec.kind for r, spec in g.roles.items()},

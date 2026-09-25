@@ -13,12 +13,16 @@ Layout::
 from __future__ import annotations
 
 import json
+import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any
 
 from so_arena.core.items import TaskItem
 from so_arena.core.mechanism import Episode
+
+log = logging.getLogger("so_arena")
 
 
 class RunStore:
@@ -44,21 +48,39 @@ class RunStore:
         return self.load_json("run.json") or {}
 
     def append(self, ep: Episode) -> None:
-        line = ep.model_dump_json()
-        with self._lock, open(self.episodes_path, "a") as f:
-            f.write(line + "\n")
+        """Append one episode line. If a crash left a partial last line, it is terminated first, so the
+        new record stays readable (the partial one is skipped by :meth:`episodes`)."""
+        line = (ep.model_dump_json() + "\n").encode("utf-8")
+        with self._lock, open(self.episodes_path, "ab+") as f:
+            if f.seek(0, os.SEEK_END) > 0:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    line = b"\n" + line
+            f.write(line)  # append mode: always at the end
             f.flush()
 
     def episodes(self) -> list[Episode]:
+        """All stored episodes (a later line with the same id overrides an earlier one). Lines that do
+        not parse - e.g. one half-written when a run was killed - are skipped with a warning, so the
+        run can still be resumed (the lost episodes simply run again)."""
         if not self.episodes_path.exists():
             return []
         eps: dict[str, Episode] = {}
-        with open(self.episodes_path) as f:
-            for line in f:
+        bad = []
+        with open(self.episodes_path, encoding="utf-8", errors="replace") as f:
+            for n, line in enumerate(f, 1):
                 line = line.strip()
-                if line:
+                if not line:
+                    continue
+                try:
                     ep = Episode.model_validate_json(line)
-                    eps[ep.id] = ep  # later lines (e.g. re-scored) override earlier ones
+                except ValueError:  # pydantic's ValidationError (also for malformed JSON) is a ValueError
+                    bad.append(n)
+                    continue
+                eps[ep.id] = ep  # later lines (e.g. re-scored) override earlier ones
+        if bad:
+            log.warning("%s: skipped %d unreadable line(s) (e.g. line %d), probably cut off by a crash",
+                        self.episodes_path, len(bad), bad[0])
         return list(eps.values())
 
     def ids(self) -> set[str]:
@@ -72,14 +94,18 @@ class RunStore:
         tmp.replace(self.episodes_path)
 
     def save_items(self, items: list[TaskItem]) -> Path:
-        """Store the (uncensored) items; merges with items already stored."""
+        """Store the (uncensored) items; merges with items already stored. Written to a temporary file
+        and moved into place, so a crash never leaves a truncated item file behind."""
         path = self.path / "items.jsonl"
         existing = {it.id: it for it in self.items()}
         for it in items:
             existing[it.id] = it
-        with self._lock, open(path, "w") as f:
-            for it in existing.values():
-                f.write(it.model_dump_json() + "\n")
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        with self._lock:
+            with open(tmp, "w") as f:
+                for it in existing.values():
+                    f.write(it.model_dump_json() + "\n")
+            tmp.replace(path)
         return path
 
     def items(self) -> list[TaskItem]:

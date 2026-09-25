@@ -37,6 +37,7 @@ from so_arena.core.verification import (
     Verification,
     Verifier,
     annotate,
+    neutralize_markers,
     parse_claims,
 )
 
@@ -65,7 +66,7 @@ class Turn(BaseModel):
     phase: str = ""
     kind: ActionKind = "text"
     text: str = ""  # what the policy produced (public part)
-    shown: str = ""  # what other roles see (after verification markers)
+    shown: str = ""  # what other roles see (claims replaced by verification markers, forged markers escaped)
     reasoning: str | None = None
     visible_to: list[str] | None = None  # None = everyone
     choice: str | None = None
@@ -133,6 +134,7 @@ class _Produced(BaseModel):
     shown: str
     usage: Usage
     state: str | None = None  # snapshot left behind by a role with write access
+    checked: int = 0  # claims sent to a verifier (charged to the role's verification budget)
 
 
 class BranchController:
@@ -140,7 +142,9 @@ class BranchController:
 
     ``pool_sizes`` maps ``"role"`` or ``"role:phase"`` -> K (the phase-specific key wins; unlisted
     decisions get K=1). The memo is shared across replays, so each node's pool is sampled exactly
-    once; ``usage`` counts each sample once.
+    once; ``usage`` (shared by all forks) counts each sample once. Episodes of the replays record
+    the pools they are the canonical play of (see :meth:`Game.episode_usage`), so the distinct plays
+    of a fully expanded tree sum to ``usage``.
     """
 
     def __init__(self, pool_sizes: dict[str, int] | None = None, plan: dict[str, int] | None = None,
@@ -210,13 +214,15 @@ class Game:
             raise ValueError(f"{mechanism.name}: no player for roles {missing}")
         self.turns: list[Turn] = []
         self.positions: dict[str, str | None] = {r: p.stance for r, p in players.items()}
-        self.usage: dict[str, Usage] = defaultdict(Usage)
+        self._public_positions: set[str] = set()
+        self.usage: dict[str, Usage] = defaultdict(Usage)  # outside branch mode (see episode_usage)
         self.data: dict[str, Any] = {}
         self.round = 0
         self._slot = 0
         self._decisions: dict[int, tuple[str, int]] = {}
         self._slot_group: dict[int, str | None] = {}
-        self._verif_counts: dict[str, int] = defaultdict(int)
+        self._slot_role: dict[int, str] = {}
+        self._verif_used: dict[int, tuple[str, int]] = {}  # slot -> (role, claims charged to its budget)
         self._group_counter = 0
         self.state = state
         self.base_state = base_state if base_state is not None else state
@@ -233,6 +239,15 @@ class Game:
 
     def set_position(self, role: str, label: str | None) -> None:
         self.positions[role] = label
+
+    def publish_positions(self, *roles: str) -> None:
+        """Show these roles' positions to every role from now on (e.g. when prompts announce them).
+
+        By default another role's position appears in a view only once its holder has a turn the
+        viewer can see - the transcript names it then ("arguing for X") - so a role that never
+        speaks (the phantom agent of a naive-judge baseline) does not reveal the arm's stance.
+        """
+        self._public_positions.update(roles)
 
     def can_see(self, viewer: str, turn: Turn) -> bool:
         return turn.visible_to is None or viewer in turn.visible_to or viewer == turn.role
@@ -257,12 +272,18 @@ class Game:
 
     def view(self, role: str, *, exclude_group: str | None = None) -> GameView:
         turns = []
-        for t in self.visible_turns(role, exclude_group=exclude_group):
-            text = t.text if t.role == role else t.shown
-            turns.append(TurnView(index=t.index, role=t.role, phase=t.phase, text=text,
-                                  reasoning=t.reasoning if self.sees_reasoning(role, t.role) else None))
+        visible = self.visible_turns(role, exclude_group=exclude_group)
+        for t in visible:
+            own = t.role == role
+            reasoning = t.reasoning if self.sees_reasoning(role, t.role) else None
+            turns.append(TurnView(index=t.index, role=t.role, phase=t.phase, text=t.text if own else t.shown,
+                                  reasoning=reasoning if own or reasoning is None else neutralize_markers(reasoning)))
+        # public positions: the viewer's own, those of roles it has heard from, and published ones
+        speakers = {t.role for t in visible}
+        positions = {r: p for r, p in self.positions.items()
+                     if r == role or r in speakers or r in self._public_positions}
         return GameView(role=role, item=self.item_view(role), transcript=turns, stance=self.stance(role),
-                        positions=dict(self.positions), round=self.round)
+                        positions=positions, round=self.round)
 
     def role_title(self, role: str) -> str:
         return self.mechanism.role_title(role, self)
@@ -289,7 +310,7 @@ class Game:
             head = f"### {self.role_title(t.role)}" + (f" ({t.phase})" if t.phase else "")
             block = f"{head}\n{body.strip()}"
             if include_reasoning and t.reasoning and self.sees_reasoning(viewer, t.role) and t.role != viewer:
-                block += f"\n<private_reasoning>\n{t.reasoning.strip()}\n</private_reasoning>"
+                block += f"\n<private_reasoning>\n{neutralize_markers(t.reasoning.strip())}\n</private_reasoning>"
             blocks.append(block)
         return "\n\n".join(blocks) if blocks else empty
 
@@ -342,11 +363,14 @@ class Game:
         return spec.state_access if spec is not None else "none"
 
     def state_diff(self, since: str | None = None, **kw: Any) -> str:
-        """Reviewer-readable changes from ``since`` (default: the task's starting state) to the current state."""
+        """Reviewer-readable changes from ``since`` (default: the task's starting state) to the current state.
+
+        File contents are the agents' work, so marker tags in them are escaped like any role's text.
+        """
         base = since or self.base_state
         if self.state is None or base is None:
             return ""
-        return diff_trees(self.states.files_dir(base), self.states.files_dir(self.state), **kw)
+        return neutralize_markers(diff_trees(self.states.files_dir(base), self.states.files_dir(self.state), **kw))
 
     # ------------------------------------------------------------------------------ acting
     def _node_key(self, role: str, phase: str, slot: int, group: str | None) -> str:
@@ -359,7 +383,10 @@ class Game:
         raw = json.dumps([role, phase, slot, path])
         return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
-    async def _produce(self, role: str, request: ActionRequest, sample_index: int, key: str = "") -> _Produced:
+    async def _produce(self, role: str, request: ActionRequest, sample_index: int, key: str = "",
+                       budget_used: int = 0) -> _Produced:
+        """Sample one candidate action; ``budget_used`` is how many verifications ``role`` has already
+        used on this play (each candidate is charged separately: siblings never share a budget)."""
         player = self.players[role]
         # Seed policy randomness from the decision key (+ the episode id outside branch mode, so that
         # repeats differ). In branch mode the episode id depends on the path, so it is excluded:
@@ -387,7 +414,9 @@ class Game:
         usage = action.usage + actx.usage if action.usage.calls or action.usage.effort_seconds else actx.usage
         action.usage = usage
         verifs: list[Verification] = []
-        shown = action.text
+        checked = 0
+        # what others see: marker tags the role wrote itself are escaped, so only verifiers make markers
+        shown = neutralize_markers(action.text)
         vs = self.verifiers_for(role)
         if vs and action.text:
             vp = self.mechanism.verification
@@ -399,10 +428,10 @@ class Game:
                     if v is None:
                         verifs.append(Verification(claim=claim, status="unknown_kind"))
                         continue
-                    if vp.budget_per_role is not None and self._verif_counts[role] >= vp.budget_per_role:
+                    if vp.budget_per_role is not None and budget_used + checked >= vp.budget_per_role:
                         verifs.append(Verification(claim=claim, status="over_budget"))
                         continue
-                    self._verif_counts[role] += 1
+                    checked += 1
                     # claims about the state are checked on a scratch copy of the state the claimant left
                     target = new_state or parent
                     if getattr(v, "uses_state", False) and scratch is None and target:
@@ -418,7 +447,7 @@ class Game:
                 if scratch is not None:
                     self.states.discard(scratch)
             shown = annotate(action.text, verifs, display=vp.display, show_output=vp.show_output)
-        return _Produced(action=action, verifications=verifs, shown=shown, usage=usage, state=new_state)
+        return _Produced(action=action, verifications=verifs, shown=shown, usage=usage, state=new_state, checked=checked)
 
     async def act(
         self,
@@ -454,11 +483,14 @@ class Game:
         slot = self._slot
         self._slot += 1
         self._slot_group[slot] = group
+        self._slot_role[slot] = role
         request = request.model_copy(update={"view": self.view(role, exclude_group=group), "phase": request.phase or phase})
         key = self._node_key(role, request.phase, slot, group)
+        # verifications the role used on this play so far (earlier decisions only, like the node key)
+        used = sum(n for s, (r, n) in self._verif_used.items() if r == role and s < slot)
 
         async def sample(i: int) -> _Produced:
-            return await self._produce(role, request, i, key)
+            return await self._produce(role, request, i, key, used)
 
         if self.branch is not None:
             produced, idx = await self.branch.decide(key, role, request.phase, group, slot, sample)
@@ -469,6 +501,7 @@ class Game:
             node, cand = None, None
             self.usage[role] = self.usage[role] + produced.usage
         self._decisions[slot] = (key, cand or 0)
+        self._verif_used[slot] = (role, produced.checked)
         if produced.state is not None:
             self.state = produced.state
 
@@ -497,8 +530,33 @@ class Game:
         return list(await asyncio.gather(*[self.act(role, group=gid, **kw) for role, kw in calls]))
 
     # ------------------------------------------------------------------------------ export
+    def episode_usage(self) -> dict[str, Usage]:
+        """Model usage to record with this play's episode.
+
+        Outside branch mode: every call the play made. In branch mode a node's pool (all K candidates)
+        is shared by every play through the node, so it is charged to one *canonical* play: the one
+        taking the first candidate there and at every decision the node's key does not depend on
+        (later decisions and simultaneous partners). Each pool thus counts exactly once among the
+        distinct plays of a tree - its leaf episodes sum to the controller's ``usage`` when the tree
+        is fully expanded - and the attribution does not depend on which replay sampled a pool first.
+        """
+        if self.branch is None:
+            return dict(self.usage)
+        out: dict[str, Usage] = {}
+        slots = sorted(self._decisions)
+        for s in slots:
+            key, _ = self._decisions[s]
+            group = self._slot_group.get(s)
+            free = [t for t in slots if t >= s or (group is not None and self._slot_group.get(t) == group)]
+            if any(self._decisions[t][1] != 0 for t in free):
+                continue
+            role = self._slot_role[s]
+            for p in self.branch.memo.get(key, []):
+                out[role] = out.get(role, Usage()) + p.usage
+        return out
+
     def total_usage(self) -> Usage:
         total = Usage()
-        for u in self.usage.values():
+        for u in self.episode_usage().values():
             total = total + u
         return total
