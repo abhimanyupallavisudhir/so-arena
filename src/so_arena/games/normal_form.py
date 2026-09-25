@@ -55,6 +55,34 @@ class NormalFormGame:
     def uniform(self) -> Mixed:
         return [np.full(s, 1.0 / s) for s in self.shape]
 
+    def n_missing(self) -> int:
+        """Number of missing (NaN) payoff entries - e.g. profiles whose episodes all errored."""
+        return int(sum(np.isnan(v).sum() for v in self.payoffs.values()))
+
+    def imputed(self, *, warn: bool = True) -> "NormalFormGame":
+        """A copy whose missing payoffs are filled conservatively: each with that player's lowest observed payoff.
+
+        Solvers need every entry, but a fill must not favour the unobserved: 0, for instance, is the
+        best possible log-score reward and would make a never-observed profile the equilibrium. With
+        the minimum, no player prefers a profile for its missing entries. Logs a warning when anything
+        was filled; raises ``ValueError`` if a player has no observed payoff at all.
+        """
+        missing = self.n_missing()
+        if not missing:
+            return self
+        payoffs = {}
+        for p, v in self.payoffs.items():
+            if np.isnan(v).all():
+                raise ValueError(f"{self.name}: no observed payoff for player {p!r} (every profile errored?)")
+            payoffs[p] = np.where(np.isnan(v), np.nanmin(v), v)
+        if warn:
+            import logging
+
+            logging.getLogger("so_arena").warning(
+                "%s: %d missing payoff entries filled with each player's lowest observed payoff", self.name, missing)
+        return NormalFormGame(self.players, self.strategies, payoffs, stderr=self.stderr, counts=self.counts,
+                              outcomes=self.outcomes, name=self.name)
+
     def pure(self, prof: Profile) -> Mixed:
         out = []
         for s, i in zip(self.shape, prof):
@@ -229,9 +257,15 @@ class NormalFormGame:
 
     # ------------------------------------------------------------------ dynamics
     def replicator(self, x0: Mixed | None = None, *, steps: int = 5000, dt: float = 0.05,
-                   tol: float = 1e-10) -> tuple[Mixed, list[Mixed]]:
-        """Multi-population discrete replicator dynamics; returns (final, trajectory)."""
+                   tol: float = 1e-10, shared: Sequence[Sequence[str]] | None = None) -> tuple[Mixed, list[Mixed]]:
+        """Multi-population discrete replicator dynamics; returns (final, trajectory).
+
+        ``shared``: groups of exchangeable players that form one population (one mixed strategy).
+        Without it, rounding differences between symmetric players can grow along unstable directions
+        and carry the dynamics away from a symmetric rest point.
+        """
         x = [np.array(v, dtype=float) for v in (x0 or self.uniform())]
+        groups = [[self.players.index(p) for p in g] for g in (shared or [])]
         traj = [[v.copy() for v in x]]
         scale = max(1e-12, max(float(np.ptp(self.payoffs[p])) for p in self.players))
         for _ in range(steps):
@@ -242,6 +276,10 @@ class NormalFormGame:
                 v = x[a] * (1 + dt * (f - avg))
                 v = np.clip(v, 0, None)
                 new.append(v / v.sum())
+            for g in groups:
+                mean = np.mean([new[a] for a in g], axis=0)
+                for a in g:
+                    new[a] = mean.copy()
             delta = max(float(np.abs(u - v).max()) for u, v in zip(new, x))
             x = new
             traj.append([v.copy() for v in x])

@@ -15,7 +15,10 @@ tree* (see :mod:`so_arena.samplers.pools`): at each node the mover's selection p
 its expected payoff under everyone else's policies downstream. This generalizes the nested
 Bo(n)-proposer / Bo(m)-critic procedure of "debate with self-play best-of-N optimization"
 (Arcadia, 2026) to any protocol, any number of players and general-sum rewards. Simultaneous moves
-(nodes in the same information set) are solved as stage games by damped fixed-point iteration.
+(nodes in the same information set) are solved as stage games by fictitious play.
+
+Missing rewards (errored or pending leaves) are never counted as payoffs: selection treats such a
+candidate as the worst in its pool, and expectations average over the finite rewards only.
 
 The key identity connecting this to ASD is in :func:`first_order_gain`: the derivative at
 $\\beta=0$ of the tilted policy's expected ground-truth value equals $\\mathrm{Cov}(u,v)$.
@@ -131,11 +134,25 @@ def bon_kl_continuous(n: int) -> float:
 
 # ------------------------------------------------------------------------------ flat pools
 
+def _weighted_mean(p: np.ndarray, x: np.ndarray) -> float:
+    """Mean of the finite entries of ``x`` under weights ``p``, renormalized (NaN if none has weight)."""
+    m = np.isfinite(x)
+    den = float(p[m].sum())
+    return float((p[m] * x[m]).sum() / den) if den > 0 else math.nan
+
+
+def _nanmean(xs: Sequence[float]) -> float:
+    arr = np.asarray(xs, dtype=float)
+    return float(arr[np.isfinite(arr)].mean()) if np.isfinite(arr).any() else math.nan
+
+
 def pool_curve(pool: pd.DataFrame, *, selections: Sequence[Selection], reward_col: str = "reward",
                value_cols: Sequence[str] = ("value",), group_col: str = "item_id") -> pd.DataFrame:
     """Expected reward and values under each selection policy, averaged over groups (items).
 
-    ``pool`` has one row per sampled candidate; each group is a pool for one decision.
+    ``pool`` has one row per sampled candidate; each group is a pool for one decision. A candidate
+    whose reward is missing is the worst for selection, and - like a missing value - is left out of
+    the expectations (renormalized over the rest) rather than counted as a reward of 0.
     """
     rows = []
     for sel in selections:
@@ -143,19 +160,17 @@ def pool_curve(pool: pd.DataFrame, *, selections: Sequence[Selection], reward_co
         for _, g in pool.groupby(group_col):
             w = g[reward_col].to_numpy(dtype=float)
             p = sel.probs(w)
-            er.append(float(np.nansum(p * np.nan_to_num(w))))
+            er.append(_weighted_mean(p, w))
             kls.append(sel.kl(w))
             for c in value_cols:
-                vals = g[c].to_numpy(dtype=float)
-                m = np.isfinite(vals)
-                ev[c].append(float((p[m] * vals[m]).sum() / p[m].sum()) if m.any() else math.nan)
-        row = {"selection": repr(sel), "reward": float(np.mean(er)), "kl": float(np.mean(kls)), "n_groups": len(er)}
+                ev[c].append(_weighted_mean(p, g[c].to_numpy(dtype=float)))
+        row = {"selection": repr(sel), "reward": _nanmean(er), "kl": float(np.mean(kls)), "n_groups": len(er)}
         if isinstance(sel, BestOfN):
             row["n"] = sel.n
         if isinstance(sel, Tilted):
             row["beta"] = sel.beta
         for c in value_cols:
-            row[c] = float(np.nanmean(ev[c]))
+            row[c] = _nanmean(ev[c])
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -237,7 +252,8 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
                   fp_iters: int = 200) -> TreeValue:
     """Backward induction: expected rewards (per role) and values when each role uses its selection policy.
 
-    Roles without a policy act as their base (uniform over their pool).
+    Roles without a policy act as their base (uniform over their pool). Simultaneous stages are
+    solved by ``fp_iters`` rounds of fictitious play (see :func:`_solve_stage`).
     """
     policies = policies or {}
 
@@ -264,32 +280,48 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
 
 
 def _group_chain(tree: GameTree, node: TreeNode) -> list[TreeNode]:
-    """Roles moving simultaneously with ``node``: successive levels in the same group."""
+    """Roles moving simultaneously with ``node``: successive levels in the same group.
+
+    Any node of a level stands for it (they share one key): in a truncated tree some are leaves.
+    """
     chain = [node]
-    cur = node
-    while cur.children:
-        nxt = tree.nodes.get(cur.children[0])
-        if nxt is None or nxt.group != node.group or nxt.role in [c.role for c in chain]:
+    level = [node]
+    while True:
+        kids = [tree.nodes[c] for n in level for c in n.children if c in tree.nodes]
+        if not kids or kids[0].group != node.group or kids[0].role in [c.role for c in chain]:
             break
-        chain.append(nxt)
-        cur = nxt
+        chain.append(kids[0])
+        level = [k for k in kids if k.key == kids[0].key]
     return chain
 
 
 def _marginal(T: np.ndarray, pis: list[np.ndarray], a: int) -> np.ndarray:
-    """Expected payoff of each of player ``a``'s candidates, contracting all other axes with ``pis``."""
-    out = T
+    """Expected payoff of each of player ``a``'s candidates, contracting all other axes with ``pis``.
+
+    Only finite cells count (renormalized over their probability), so one missing reward does not
+    decide its whole row; a candidate with no finite cell gets NaN - the worst, for selection.
+    """
+    mask = np.isfinite(T)
+    num, den = np.where(mask, T, 0.0), mask.astype(float)
     for b in reversed(range(len(pis))):  # descending order keeps lower axis indices valid
         if b != a:
-            out = np.tensordot(out, pis[b], axes=([b], [0]))
-    return out
+            num = np.tensordot(num, pis[b], axes=([b], [0]))
+            den = np.tensordot(den, pis[b], axes=([b], [0]))
+    return np.where(den > 0, num / np.where(den > 0, den, 1.0), math.nan)
 
 
 def _solve_stage(tree: GameTree, members: list[TreeNode], sel, ev, fp_iters: int) -> TreeValue:
-    """Solve a simultaneous-move stage by damped fixed-point iteration of the selection policies.
+    """Solve a simultaneous-move stage by fictitious play of the selection policies.
 
-    Each member selects from its (shared) pool using its expected payoff against the others' current
-    selection distributions; iterates are averaged (fictitious-play style) to damp cycling.
+    Each member selects from its (shared) pool using its expected payoff against the average of the
+    others' selections so far. The average starts at the first selections (made against uniform
+    beliefs) rather than at the uniform base policy, whose weight would otherwise only decay as
+    $1/T$: a candidate that is best against everything is then selected exactly.
+
+    Missing rewards are not payoffs: expected payoffs average over the finite cells only (as a
+    sequential node renormalizes over its finite children). A cell is missing when its leaf errored
+    or when the tree was truncated (``max_leaves``) inside the stage - a truncated play is a leaf
+    that stands for candidate 0 of every member it did not branch on.
     """
     sizes = [len(m.children) for m in members]
     outcomes: dict[tuple[int, ...], TreeValue] = {}
@@ -298,27 +330,30 @@ def _solve_stage(tree: GameTree, members: list[TreeNode], sel, ev, fp_iters: int
         if depth == len(members):
             outcomes[idx] = ev(nid)
             return
-        for i, c in enumerate(tree.nodes[nid].children):
+        node = tree.nodes.get(nid)
+        if node is None or node.key != members[depth].key:  # truncated: unplanned decisions took candidate 0
+            outcomes[idx + (0,) * (len(members) - depth)] = ev(nid)
+            return
+        for i, c in enumerate(node.children):
             walk(c, depth + 1, idx + (i,))
 
     walk(members[0].id, 0, ())
     roles = [m.role for m in members]
-    R = {r: np.full(tuple(sizes), -1e9) for r in roles}
+    R = {r: np.full(tuple(sizes), math.nan) for r in roles}
     for idx, tv in outcomes.items():
         for r in roles:
             x = tv.rewards.get(r, math.nan)
             if x is not None and np.isfinite(x):
                 R[r][idx] = x
-    pis = [np.full(s, 1.0 / s) for s in sizes]
-    for t in range(1, fp_iters + 1):
-        new = [sel(r, m.phase).probs(_marginal(R[r], pis, a)) for a, (r, m) in enumerate(zip(roles, members))]
-        step = 1.0 / (t + 1)
-        pis = [(1 - step) * p + step * q for p, q in zip(pis, new)]
-    weights, parts = [], []
-    for idx in itertools.product(*[range(s) for s in sizes]):
-        weights.append(float(np.prod([pis[a][i] for a, i in enumerate(idx)])))
-        parts.append(outcomes[idx])
-    return _combine(parts, np.array(weights))
+
+    def respond(beliefs: list[np.ndarray]) -> list[np.ndarray]:
+        return [sel(r, m.phase).probs(_marginal(R[r], beliefs, a)) for a, (r, m) in enumerate(zip(roles, members))]
+
+    pis = respond([np.full(s, 1.0 / s) for s in sizes])
+    for t in range(2, fp_iters + 1):
+        pis = [(1 - 1.0 / t) * p + q / t for p, q in zip(pis, respond(pis))]
+    weights = [float(np.prod([pis[a][i] for a, i in enumerate(idx)])) for idx in outcomes]
+    return _combine(list(outcomes.values()), np.array(weights))
 
 
 def optimization_grid(trees: Sequence[GameTree], grid: dict[str, Sequence[int | float]], *,

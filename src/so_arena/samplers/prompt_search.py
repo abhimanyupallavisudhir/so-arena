@@ -114,8 +114,15 @@ class SearchResult(BaseModel):
 
     @property
     def best(self) -> Candidate:
-        pool = self.evaluated or self.candidates
-        return max(pool, key=lambda c: c.mean_reward)
+        """The candidate with the best training reward - as scored on the held-out items, if evaluated there.
+
+        Selection uses the training scores only: taking the best of the held-out scores and reporting
+        that same score would be biased upward (the winner's curse) - held-out data is for reporting.
+        """
+        train = [c for c in self.candidates if c.split == "train"] or self.candidates
+        top = max(train, key=lambda c: c.mean_reward)
+        held_out = [c for c in self.evaluated if c.parent == top.id and c.strategy == top.strategy]
+        return held_out[0] if held_out else top
 
     def frame(self) -> pd.DataFrame:
         rows = []
@@ -139,12 +146,23 @@ class SearchResult(BaseModel):
 
 
 class CapturePolicy(Policy):
-    """Records the first request it sees (to show the optimizer what the agent sees), then delegates."""
+    """Records the first request it sees (to show the optimizer what the agent sees), then delegates.
+
+    Transparent: it describes itself as the inner policy and reports its model, so episode ids and
+    usage rows name the policy that actually played.
+    """
 
     def __init__(self, inner: Policy):
         super().__init__(label=inner.label, id=inner.id)
         self.inner = inner
         self.captured: ActionRequest | None = None
+
+    def describe(self) -> dict[str, Any]:
+        return self.inner.describe()
+
+    @property
+    def model_name(self) -> str | None:
+        return self.inner.model_name
 
     async def act(self, request: ActionRequest, ctx: ActContext):
         if self.captured is None:
@@ -395,7 +413,10 @@ class PromptSearchSuite:
 
     def honesty_margin(self, honest: str = "honest", deceptive: str = "deceptive", n_boot: int = 2000,
                        seed: int = 0) -> dict[str, float]:
-        """Best honest minus best deceptive mean reward (held-out if available), with a paired bootstrap CI.
+        """Best honest minus best deceptive mean reward, with a paired bootstrap CI.
+
+        "Best" is chosen on the training items and scored on the held-out items if there are any
+        (:attr:`SearchResult.best`), so the margin is not inflated by selecting on the reported scores.
 
         Positive: the best behaviour the optimizer could find is honest - the mechanism is robust to
         this much optimization. Negative: the optimizer found deception that beats honesty.

@@ -29,24 +29,42 @@ from so_arena.games.normal_form import NormalFormGame
 from so_arena.samplers.prompt_search import PromptSearch, SearchResult
 
 
-def solve_meta(game: NormalFormGame, solver: str = "nash") -> list[np.ndarray]:
+def solve_meta(game: NormalFormGame, solver: str = "nash", symmetric: Sequence[str] | None = None) -> list[np.ndarray]:
     """Meta-strategy for PSRO: ``nash`` (2p support enumeration, max-entropy equilibrium; n-p replicator
-    from uniform), ``replicator``, ``fictitious`` or ``uniform``."""
+    from uniform), ``replicator``, ``fictitious`` or ``uniform``.
+
+    Missing payoffs (profiles whose episodes all errored) are filled with each player's lowest observed
+    payoff, with a warning (:meth:`NormalFormGame.imputed`) - never with 0, the best possible log-score
+    reward, which would make a never-observed profile the equilibrium. ``symmetric`` players (one shared
+    population) get one mixed strategy: a symmetric equilibrium, or replicator dynamics on one population.
+    """
     if solver == "uniform":
         return game.uniform()
+    clean = game.imputed()
+    sym = [p for p in (symmetric or []) if p in game.players]
+    sym = sym if len(sym) > 1 else []
     if solver == "fictitious":
-        return game.fictitious_play(3000)
+        return _symmetrize(game, clean.fictitious_play(3000), sym)
     if solver == "nash" and game.n == 2:
-        clean = NormalFormGame(game.players, game.strategies, {p: np.nan_to_num(v) for p, v in game.payoffs.items()})
         eqs = clean.support_enumeration()
+        if sym:  # both players are one population: only symmetric equilibria
+            eqs = [m for m in eqs if np.allclose(m[0], m[1], atol=1e-6)]
         if eqs:
             def ent(m):
                 return -sum(float((x[x > 0] * np.log(x[x > 0])).sum()) for x in m)
 
             return max(eqs, key=ent)
-    clean = NormalFormGame(game.players, game.strategies, {p: np.nan_to_num(v) for p, v in game.payoffs.items()})
-    x, _ = clean.replicator(steps=3000)
+    x, _ = clean.replicator(steps=3000, shared=[sym] if sym else None)
     return x
+
+
+def _symmetrize(game: NormalFormGame, mixed: list[np.ndarray], sym: Sequence[str]) -> list[np.ndarray]:
+    """Give the players of one population their average mixed strategy."""
+    if not sym:
+        return mixed
+    idx = [game.players.index(p) for p in sym]
+    mean = np.mean([mixed[a] for a in idx], axis=0)
+    return [mean.copy() if a in idx else x for a, x in enumerate(mixed)]
 
 
 class PSROIteration(BaseModel):
@@ -68,7 +86,11 @@ class PSRO:
         initial: role -> {name: strategy text} initial populations.
         policy_factories: role -> ``strategy_text -> Policy``.
         search_kwargs: passed to each :class:`PromptSearch` (optimizer, iterations, algorithm, ...).
-        symmetric: exchangeable roles (shared population is not assumed; used for game estimation).
+        symmetric: exchangeable roles, which share one population: their initial strategies (and
+            stances) must agree, each iteration searches one best response for them (as the first of
+            them, against a symmetric meta-strategy) and adds it to all of their populations under one
+            name. The empirical game is then estimated on multisets of strategies - which is only valid
+            because a name means the same strategy for every one of these roles.
     """
 
     def __init__(self, mechanism: Mechanism, items: Sequence[TaskItem], *, roles: Sequence[str],
@@ -83,7 +105,14 @@ class PSRO:
         self.stances = dict(stances or {})
         self.iterations, self.meta_solver = iterations, meta_solver
         self.search_kwargs = dict(search_kwargs or {})
-        self.ground_truth, self.ctx, self.symmetric = ground_truth, ctx, list(symmetric or [])
+        sym = list(symmetric or [])
+        if [r for r in sym if r not in self.roles]:
+            raise ValueError(f"symmetric roles {sym} must be among the evolving roles {self.roles}")
+        for r in sym[1:]:
+            if self.populations[r] != self.populations[sym[0]] or self.stances.get(r) != self.stances.get(sym[0]):
+                raise ValueError(f"symmetric roles share one population: {r!r} must start with the same strategies "
+                                 f"(names and texts) and stance as {sym[0]!r}")
+        self.ground_truth, self.ctx, self.symmetric = ground_truth, ctx, sym if len(sym) > 1 else []
         self.repeats, self.concurrency, self.seed = repeats, concurrency, seed
         self.history: list[PSROIteration] = []
         self.games: list[NormalFormGame] = []
@@ -101,7 +130,7 @@ class PSRO:
         exp = EmpiricalGameExperiment(self.mechanism, self.items, strategies, fixtures=self.fixtures,
                                       stances=self.stances, repeats=self.repeats, ground_truth=self.ground_truth,
                                       ctx=self.ctx, concurrency=self.concurrency, seed=self.seed,
-                                      symmetric=self.symmetric if len(self.symmetric) > 1 else None)
+                                      symmetric=self.symmetric or None)
         await exp.arun()
         return exp.game(name=f"{self.mechanism.name}-psro{len(self.games)}")
 
@@ -122,6 +151,7 @@ class PSRO:
         for it in range(self.iterations + 1):
             game = await self._game()
             self.games.append(game)
+            clean = game.imputed()  # missing payoffs: each player's worst observed one (warns)
             # NashConv of the previous meta-strategy against the strategies added since (exploitability estimate)
             nash_conv_prev = None
             if prev_sigma is not None and prev_sizes is not None:
@@ -130,9 +160,8 @@ class PSRO:
                     x = np.zeros(len(self.populations[r]))
                     x[: prev_sizes[r]] = prev_sigma[r]
                     padded.append(x)
-                clean = NormalFormGame(game.players, game.strategies, {p: np.nan_to_num(v) for p, v in game.payoffs.items()})
                 nash_conv_prev = clean.nash_conv(padded)
-            sigma_list = solve_meta(game, self.meta_solver)
+            sigma_list = solve_meta(clean, self.meta_solver, symmetric=self.symmetric)
             sigma = dict(zip(game.players, sigma_list))
             meta_value = {k: game.expected(sigma_list, key=k) for k in game.outcomes
                           if np.isfinite(game.outcomes[k]).all()}
@@ -145,6 +174,8 @@ class PSRO:
             prev_sizes = {r: len(self.populations[r]) for r in self.roles}
             prev_sigma = sigma
             for role in self.roles:
+                if role in self.symmetric[1:]:
+                    continue  # one population: its best response is searched once, as its first role
                 others = dict(self.fixtures)
                 for r in self.roles:
                     if r != role:
@@ -159,8 +190,10 @@ class PSRO:
                 res: SearchResult = await search.arun()
                 best = res.best
                 name = f"br{it + 1}"
-                self.populations[role][name] = best.strategy
-                rec.searches[role] = {"best_reward": best.mean_reward, "best_value": best.mean_value, "strategy": best.strategy}
+                info = {"best_reward": best.mean_reward, "best_value": best.mean_value, "strategy": best.strategy}
+                for r in (self.symmetric if role in self.symmetric else [role]):
+                    self.populations[r][name] = best.strategy
+                    rec.searches[r] = info
         return self.history
 
     def run(self) -> list[PSROIteration]:

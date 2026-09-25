@@ -26,6 +26,17 @@ def softmax(z: np.ndarray) -> np.ndarray:
     return e / e.sum()
 
 
+def _observed_expectation(T: np.ndarray, pis: Mixed) -> float:
+    """Expectation of an outcome tensor under independent mixed strategies, over its finite cells
+    (renormalized); NaN if no observed profile has positive probability."""
+    joint = pis[0]
+    for x in pis[1:]:
+        joint = np.multiply.outer(joint, x)
+    mask = np.isfinite(T)
+    den = float(joint[mask].sum())
+    return float((joint[mask] * T[mask]).sum() / den) if den > 0 else float("nan")
+
+
 def policy_gradient(game: NormalFormGame, *, init: Mixed | None = None, lr: float = 0.5, steps: int = 500,
                     kl: float = 0.0, reference: Mixed | None = None, shared: list[list[str]] | None = None,
                     record_every: int = 1, outcome_keys: list[str] | None = None) -> pd.DataFrame:
@@ -39,16 +50,19 @@ def policy_gradient(game: NormalFormGame, *, init: Mixed | None = None, lr: floa
 
     Returns a frame with one row per recorded step: ``p_<player>_<strategy>``, ``reward_<player>``
     and each outcome's expectation.
+
+    Missing payoffs are filled with the player's lowest observed payoff (with a warning; see
+    :meth:`NormalFormGame.imputed`) - filling them with 0, the best log-score reward, would make
+    training converge to a profile nobody observed. Outcome expectations average over the observed
+    profiles only.
     """
     players = game.players
     x0 = [np.asarray(v, float) for v in (init or game.uniform())]
     ref = [np.asarray(v, float) for v in (reference or x0)]
     logits = [np.log(np.clip(v, 1e-12, None)) for v in x0]
     groups = shared or []
-    group_of = {p: gi for gi, g in enumerate(groups) for p in g}
     keys = outcome_keys if outcome_keys is not None else list(game.outcomes)
-    clean = NormalFormGame(players, game.strategies, {p: np.nan_to_num(v) for p, v in game.payoffs.items()},
-                           outcomes={k: np.nan_to_num(v) for k, v in game.outcomes.items()})
+    clean = game.imputed()
     rows = []
     for t in range(steps + 1):
         pis = [softmax(z) for z in logits]
@@ -59,7 +73,7 @@ def policy_gradient(game: NormalFormGame, *, init: Mixed | None = None, lr: floa
                     row[f"p_{p}_{s}"] = float(prob)
                 row[f"reward_{p}"] = clean.expected(pis, player=p)
             for k in keys:
-                row[k] = clean.expected(pis, key=k)
+                row[k] = _observed_expectation(game.outcomes[k], pis)
             rows.append(row)
         if t == steps:
             break

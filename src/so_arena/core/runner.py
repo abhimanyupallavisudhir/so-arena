@@ -72,7 +72,10 @@ def resolve_stance(spec: str | None, item: TaskItem, rng: random.Random) -> str 
     ``None``/``"none"`` -> no stance (open protocol: the agent chooses); ``"true"`` -> the correct
     label; ``"false"`` -> a false label (random if several, or ``"false:i"`` for the i-th);
     ``"random"`` -> uniformly random label; anything else is a literal label.
-    Raises ``LookupError`` if the spec needs ground truth the item does not have.
+    Raises ``LookupError`` if the spec needs ground truth the item does not have, or names a false
+    label it does not have (``"false:i"`` with ``i`` beyond its false labels): the runner then skips
+    that profile on that item. Wrapping around instead would argue some false labels more often
+    than others.
     """
     if spec is None or spec == "none":
         return None
@@ -90,7 +93,9 @@ def resolve_stance(spec: str | None, item: TaskItem, rng: random.Random) -> str 
             raise LookupError(f"item {item.id} has no false labels for stance {spec!r}")
         if ":" in spec:
             idx = int(spec.split(":", 1)[1])
-            return fl[idx % len(fl)]
+            if not 0 <= idx < len(fl):
+                raise LookupError(f"item {item.id} has {len(fl)} false labels; no stance {spec!r}")
+            return fl[idx]
         return rng.choice(fl)
     if spec.startswith("not:"):
         other = spec.split(":", 1)[1]
@@ -128,11 +133,19 @@ def profile_description(profile: Profile) -> dict[str, Any]:
 
 
 def _episode_id(run_id: str, mechanism: Mechanism, config_hash: str, item: TaskItem, profile: str,
-                players: dict[str, Any] | None, repeat: int, seed: int) -> str:
-    raw = json.dumps([run_id, mechanism.name, config_hash, item.id, item.fingerprint(), profile, players, repeat, seed],
-                     sort_keys=True)
+                players: dict[str, Any] | None, repeat: int, seed: int, simulate: bool = False) -> str:
+    parts = [run_id, mechanism.name, config_hash, item.id, item.fingerprint(), profile, players, repeat, seed]
+    raw = json.dumps(parts + ["simulate"] if simulate else parts, sort_keys=True)
     slug = re.sub(r"[^A-Za-z0-9_.:-]", "_", f"{mechanism.name}:{item.id}:{profile}:{repeat}")
     return f"{slug}#{hashlib.sha256(raw.encode()).hexdigest()[:8]}"
+
+
+def _simulating() -> bool:
+    """Whether provider models are simulated right now (:func:`so_arena.configure`; they read the
+    same setting at call time, see :class:`~so_arena.models.base.ProviderModel`)."""
+    from so_arena.config import settings
+
+    return bool(settings.simulate)
 
 
 def episode_id(run_id: str, mechanism: Mechanism, item: TaskItem, profile: str | Profile, repeat: int, *,
@@ -143,12 +156,15 @@ def episode_id(run_id: str, mechanism: Mechanism, item: TaskItem, profile: str |
     (:meth:`~so_arena.core.mechanism.Mechanism.config_hash`), the item's content (censored: resolving
     an item keeps its ids; changing it under the same id re-runs it), the profile's players (see
     :func:`profile_description`; a bare profile name identifies it by name only), the repeat and the
-    run's seed. Only plain data is hashed, so ids agree across processes.
+    run's seed. Only plain data is hashed, so ids agree across processes. In a dry run
+    (``configure(simulate=True)``) ids are different, so a later real run into the same store does
+    not resume simulated episodes; real runs' ids do not depend on the setting.
     """
+    sim = _simulating()
     if isinstance(profile, Profile):
         return _episode_id(run_id, mechanism, mechanism.config_hash(), item, profile.name,
-                           profile_description(profile), repeat, seed)
-    return _episode_id(run_id, mechanism, mechanism.config_hash(), item, profile, None, repeat, seed)
+                           profile_description(profile), repeat, seed, sim)
+    return _episode_id(run_id, mechanism, mechanism.config_hash(), item, profile, None, repeat, seed, sim)
 
 
 async def score_episode(ep: Episode, item: TaskItem, scorers: Sequence[GroundTruthScorer], ctx: RunContext | None = None) -> Episode:
@@ -204,8 +220,9 @@ async def run_episodes(
     Items whose stances cannot be resolved (e.g. ``"true"`` on an unresolved question) are skipped.
     With a ``store``, episodes are appended as they finish and, if ``resume``, episodes already in the
     store are loaded instead of re-run - those with the same :func:`episode_id`, i.e. the same
-    mechanism configuration, item content, players and seed. Reused episodes whose ground truth was
-    pending are scored again if their item has been resolved since.
+    mechanism configuration, item content, players and seed, and both real or both simulated (dry
+    runs). Reused episodes whose ground truth was pending are scored again if their item has been
+    resolved since.
     """
     from so_arena.config import settings
 
@@ -227,9 +244,10 @@ async def run_episodes(
     # described once, before anything runs: ids must not depend on state the run itself changes
     config_hash = mechanism.config_hash()
     described = {id(p): profile_description(p) for p in profiles}
+    simulate = _simulating()  # a dry run's episodes must never be resumed as real ones
 
     async def one(item: TaskItem, prof: Profile, rep: int) -> Episode | None:
-        eid = _episode_id(ctx.run_id, mechanism, config_hash, item, prof.name, described[id(prof)], rep, seed)
+        eid = _episode_id(ctx.run_id, mechanism, config_hash, item, prof.name, described[id(prof)], rep, seed, simulate)
         if eid in existing:
             ep = existing[eid]
             if ep.gt_status == "pending" and item.has_ground_truth:

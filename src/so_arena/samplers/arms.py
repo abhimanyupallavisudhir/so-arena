@@ -28,7 +28,8 @@ from so_arena.core.store import RunStore
 
 
 def arm_profiles(mechanism: Mechanism, *, agent: Any, fixtures: dict[str, Any], arms: Sequence[str] = ("true", "false"),
-                 agents: dict[str, Any] | None = None, all_false: bool = False) -> list[Profile]:
+                 agents: dict[str, Any] | None = None, all_false: bool = False,
+                 items: Sequence[TaskItem] | None = None) -> list[Profile]:
     """Profiles that put every agent role on each arm.
 
     Args:
@@ -37,7 +38,10 @@ def arm_profiles(mechanism: Mechanism, *, agent: Any, fixtures: dict[str, Any], 
         arms: stance specs for the evaluated role(s).
         agents: per-role agent policies overriding ``agent``.
         all_false: with more than two answers, add one arm per false answer (``false:0``, ``false:1``, ...)
-            instead of a random false answer - needed for graded ASD over all answers.
+            instead of a random false answer - needed for graded ASD over all answers. There are as
+            many such arms as the most false answers of an item in ``items`` (8 without ``items``); on
+            an item with fewer, the extra arms are skipped, so each false answer is argued exactly once.
+        items: the items the profiles will run on (sizes the ``all_false`` arms).
     """
     from so_arena.mechanisms._common import NullPolicy
 
@@ -63,7 +67,9 @@ def arm_profiles(mechanism: Mechanism, *, agent: Any, fixtures: dict[str, Any], 
 
     arm_list = list(arms)
     if all_false and "false" in arm_list:
-        arm_list = [a for a in arm_list if a != "false"] + [f"false:{i}" for i in range(8)]
+        n_false = 8 if items is None else max(
+            (len(it.false_labels) for it in items if it.true_label is not None), default=0)
+        arm_list = [a for a in arm_list if a != "false"] + [f"false:{i}" for i in range(n_false)]
 
     profiles = []
     if len(agent_roles) <= 1:
@@ -113,7 +119,7 @@ class ASDExperiment:
         eps: list[Episode] = []
         for mech in self.mechanisms:
             profiles = arm_profiles(mech, agent=self.agent, fixtures=self.fixtures, arms=self.arms,
-                                    agents=self.agents, all_false=self.all_false)
+                                    agents=self.agents, all_false=self.all_false, items=self.items)
             eps += await run_episodes(mech, self.items, profiles, ctx=self.ctx, ground_truth=self.ground_truth,
                                       repeats=self.repeats, store=self.store, concurrency=self.concurrency,
                                       seed=self.seed)

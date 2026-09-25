@@ -127,6 +127,9 @@ class OptimizationExperiment:
                                      pool_sizes={"worker": 8, "critic": 4})
         trees = exp.run()
         surface = exp.grid({"worker": [1, 2, 4, 8], "critic": [1, 2, 4]})
+
+    With a ``store``, the trees go to its ``trees.jsonl``, replacing only this mechanism's earlier
+    trees, so experiments on several mechanisms can share a store (:func:`load_trees` reads them back).
     """
 
     def __init__(self, mechanism: Mechanism, items: Sequence[TaskItem], profile: Profile, *,
@@ -152,9 +155,7 @@ class OptimizationExperiment:
         trees = await asyncio.gather(*[one(it) for it in self.items])
         self.trees = [t for t in trees if t is not None]
         if self.store is not None:
-            with open(self.store.path / "trees.jsonl", "w") as f:
-                for t in self.trees:
-                    f.write(t.model_dump_json() + "\n")
+            save_trees(self.store.path, self.trees, mechanism=self.mechanism.name)
         return self.trees
 
     def run(self) -> list[GameTree]:
@@ -166,10 +167,31 @@ class OptimizationExperiment:
         return optimization_grid(self.trees, grid, kind=kind, mode=mode)
 
 
-def load_trees(path: Any) -> list[GameTree]:
+def save_trees(path: Any, trees: Sequence[GameTree], *, mechanism: str | None = None) -> None:
+    """Write trees to ``trees.jsonl`` in a run directory (or to a file path).
+
+    With ``mechanism``, only that mechanism's earlier trees are replaced and other mechanisms' are
+    kept, so experiments on several mechanisms can share a store; without it the file is rewritten.
+    """
     from pathlib import Path
 
     p = Path(path)
     if p.is_dir():
         p = p / "trees.jsonl"
-    return [GameTree.model_validate_json(line) for line in p.read_text().splitlines() if line.strip()]
+    kept = [t for t in load_trees(p) if t.mechanism != mechanism] if mechanism is not None and p.exists() else []
+    tmp = p.with_name(p.name + ".tmp")
+    with open(tmp, "w") as f:
+        for t in [*kept, *trees]:
+            f.write(t.model_dump_json() + "\n")
+    tmp.replace(p)
+
+
+def load_trees(path: Any, mechanism: str | None = None) -> list[GameTree]:
+    """Trees from ``trees.jsonl`` in a run directory (or a file path); ``mechanism`` selects one mechanism's."""
+    from pathlib import Path
+
+    p = Path(path)
+    if p.is_dir():
+        p = p / "trees.jsonl"
+    trees = [GameTree.model_validate_json(line) for line in p.read_text().splitlines() if line.strip()]
+    return [t for t in trees if mechanism is None or t.mechanism == mechanism]

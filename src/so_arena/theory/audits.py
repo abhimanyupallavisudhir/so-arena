@@ -33,10 +33,20 @@ def audit_corrected(u, v, audited, p: float, lam: float | None = None) -> np.nda
     return out
 
 
+def efficiency_from_corr(rho: float | None) -> float:
+    """Audit multiplier $1/(1-\\rho^2)$ of a correlation $\\rho$ between reward and ground truth.
+
+    An undefined $\\rho$ (a reward or value without variation: no signal) gives 1 - one audit is worth
+    one audit - and $|\\rho| = 1$ gives infinity.
+    """
+    if rho is None or not np.isfinite(rho):
+        return 1.0
+    return float("inf") if abs(rho) >= 1 else 1.0 / (1.0 - rho ** 2)
+
+
 def label_efficiency(u, v) -> float:
     """Effective audit multiplier 1/(1 - rho^2) of mechanism reward u for ground truth v."""
     u, v = np.asarray(u, float), np.asarray(v, float)
     if np.std(u) == 0 or np.std(v) == 0:
         return 1.0
-    rho = float(np.corrcoef(u, v)[0, 1])
-    return float("inf") if abs(rho) >= 1 else 1.0 / (1.0 - rho ** 2)
+    return efficiency_from_corr(float(np.corrcoef(u, v)[0, 1]))

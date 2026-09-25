@@ -51,16 +51,29 @@ def bootstrap_mean_ci(values: np.ndarray, *, n_boot: int = 2000, ci: float = 0.9
 
 
 def cluster_bootstrap(clusters: Sequence[pd.DataFrame], stat: Callable[[pd.DataFrame], float], *,
-                      n_boot: int = 1000, ci: float = 0.95, seed: int = 0) -> tuple[float, float]:
-    """Percentile CI of ``stat`` over resamples of whole clusters (e.g. items)."""
+                      n_boot: int = 1000, ci: float = 0.95, seed: int = 0,
+                      cluster_col: str | None = "item_id") -> tuple[float, float]:
+    """Percentile CI of ``stat`` over resamples of whole clusters (e.g. items).
+
+    Each draw gets its own ``cluster_col`` label, so a cluster drawn twice counts as two clusters:
+    a statistic that groups by that column (e.g. within-item pairs) would otherwise merge the copies,
+    count pairs across them and weight a cluster drawn $m$ times by $m^2$, widening the interval.
+    """
     if not clusters:
         return (math.nan, math.nan)
     rng = np.random.default_rng(seed)
     vals = []
     n = len(clusters)
+    sizes = np.array([len(c) for c in clusters])
+    starts = np.concatenate([[0], np.cumsum(sizes)[:-1]])
+    full = pd.concat(list(clusters), ignore_index=True)
+    relabel = cluster_col is not None and cluster_col in full.columns
     for _ in range(n_boot):
         idx = rng.integers(0, n, size=n)
-        sample = pd.concat([clusters[i] for i in idx], ignore_index=True)
+        rows = np.concatenate([np.arange(starts[i], starts[i] + sizes[i]) for i in idx])
+        sample = full.iloc[rows].reset_index(drop=True)
+        if relabel:
+            sample[cluster_col] = np.repeat([f"draw{j}" for j in range(n)], sizes[idx])
         v = stat(sample)
         if v is not None and np.isfinite(v):
             vals.append(v)
@@ -137,26 +150,47 @@ def asd_by_transform(episodes: Sequence[Episode], transforms: Sequence[str] = ("
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def graded_asd(df: pd.DataFrame, *, roles: Sequence[str] | None = None, by: Sequence[str] = ("mechanism",),
-               value_col: str = "value", reward_col: str = "reward", normalize: bool = False,
-               n_boot: int = 2000, ci: float = 0.95, seed: int = 0) -> pd.DataFrame:
-    """Graded ASD: per item, $\\sum_c (v_c - \\bar v) u_c$ over behaviour cases c (mean reward per case).
+def _behaviour_cases(d: pd.DataFrame, case_col: str | None, value_col: str) -> pd.Series:
+    """The behaviour case of each row: ``case_col`` if given, else the assigned stance (the answer
+    argued for), else the behaviour label (an arm, a strategy), else - with neither - the value."""
+    if case_col is not None:
+        return d[case_col].astype(object)
+    out = pd.Series([None] * len(d), index=d.index, dtype=object)
+    for col in ("stance", "label", value_col):
+        if col in d.columns:
+            fill = out.isna() & d[col].notna()
+            out[fill] = [f"{col}={x}" for x in d.loc[fill, col]]
+    return out
 
+
+def graded_asd(df: pd.DataFrame, *, roles: Sequence[str] | None = None, by: Sequence[str] = ("mechanism",),
+               value_col: str = "value", reward_col: str = "reward", case_col: str | None = None,
+               normalize: bool = False, n_boot: int = 2000, ci: float = 0.95, seed: int = 0) -> pd.DataFrame:
+    """Graded ASD: per item, $\\sum_c (v_c - \\bar v) u_c$ over behaviour cases c (mean reward and value per case).
+
+    A case is a behaviour, not a value: by default the stance a row was assigned (so both debaters
+    arguing for one answer are one case), else its label (e.g. a behaviour arm), or ``case_col``
+    (e.g. ``"label"`` to compare strategies that share a stance). Answers that share a value stay
+    separate cases, so the sum is $|C|\\,\\mathrm{Cov}(u, v)$ under the uniform mixture of the $|C|$
+    cases (docs/theory.md); grouping by value would weight a group of equally valued answers as one.
     With ``normalize=True`` the per-item sum is divided by $\\sum_c (v_c-\\bar v)^2$, giving the
     regression slope of reward on value (scale-free in v).
     """
     d = _select(df, roles)
     d = d[d[value_col].notna()]
+    if not d.empty:
+        d = d.assign(_case=_behaviour_cases(d, case_col, value_col))
+        d = d[d["_case"].notna()]
     out = []
     for key, g in _groups(d, by):
         per_item = []
         for _, gi in g.groupby("item_id"):
-            cases = gi.groupby(value_col)[reward_col].mean()
-            if len(cases) < 2:
-                continue
-            v = cases.index.to_numpy(dtype=float)
-            u = cases.to_numpy(dtype=float)
+            cases = gi.groupby("_case").agg(u=(reward_col, "mean"), v=(value_col, "mean"))
+            v = cases["v"].to_numpy(dtype=float)
+            u = cases["u"].to_numpy(dtype=float)
             dv = v - v.mean()
+            if len(cases) < 2 or not (dv != 0).any():  # nothing to compare on this item
+                continue
             s = float((dv * u).sum())
             if normalize:
                 s /= float((dv ** 2).sum())
@@ -198,8 +232,11 @@ def incentive_alignment(df: pd.DataFrame, *, roles: Sequence[str] | None = None,
 
     Returns Pearson/Spearman correlations (overall and within-item, i.e. after removing item means),
     covariance, the regression slope of u on v, pairwise concordance with a cluster-bootstrap CI,
-    and the label-efficiency multiplier $1/(1-\\rho^2)$ of the within-item correlation.
+    and the label-efficiency multiplier $1/(1-\\rho^2)$ of the within-item correlation (1 when the
+    reward carries no within-item signal, as in :func:`so_arena.theory.audits.label_efficiency`).
     """
+    from so_arena.theory.audits import efficiency_from_corr
+
     d = _select(df, roles)
     d = d[d[value_col].notna()]
     out = []
@@ -212,7 +249,9 @@ def incentive_alignment(df: pd.DataFrame, *, roles: Sequence[str] | None = None,
         vw = v - g.groupby("item_id")[value_col].transform("mean").to_numpy(dtype=float)
         pear = float(np.corrcoef(u, v)[0, 1]) if np.std(u) > 0 else math.nan
         spear = float(sps.spearmanr(u, v).statistic) if np.std(u) > 0 else math.nan
-        within = float(np.corrcoef(uw, vw)[0, 1]) if np.std(uw) > 0 and np.std(vw) > 0 else math.nan
+        # residuals at the rounding level of the item means are no signal (their correlation is noise)
+        varies = [float(np.std(r)) > 1e-12 * (1.0 + float(np.abs(x).max())) for r, x in ((uw, u), (vw, v))]
+        within = float(np.corrcoef(uw, vw)[0, 1]) if all(varies) else math.nan
         conc, npairs = pairwise_concordance(g, value_col, reward_col)
         clusters = [gi for _, gi in g.groupby("item_id")]
         lo, hi = cluster_bootstrap(clusters, lambda s: pairwise_concordance(s, value_col, reward_col)[0],
@@ -223,7 +262,7 @@ def incentive_alignment(df: pd.DataFrame, *, roles: Sequence[str] | None = None,
         row.update({
             "pearson": pear, "spearman": spear, "within_item_corr": within, "cov": cov, "slope": slope,
             "concordance": conc, "concordance_ci_low": lo, "concordance_ci_high": hi, "n_pairs": npairs,
-            "label_efficiency": (1 / (1 - within ** 2)) if np.isfinite(within) and abs(within) < 1 else math.inf,
+            "label_efficiency": efficiency_from_corr(within),
             "n": len(g), "n_items": g["item_id"].nunique(),
         })
         out.append(row)

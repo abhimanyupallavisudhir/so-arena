@@ -29,6 +29,17 @@ def reward_welfare(ep: Episode) -> float | None:
     return float(np.mean(vals)) if vals else None
 
 
+def _strategy_config(policy: Any) -> Any:
+    """What a strategy is, for comparing it across roles: the policy's description without its label
+    and id (naming), or the model name it is built from."""
+    from so_arena.core.mechanism import describe_config
+    from so_arena.core.policy import Policy
+
+    if isinstance(policy, Policy):
+        return describe_config({k: v for k, v in policy.describe().items() if k not in ("id", "label")})
+    return describe_config(policy)
+
+
 DEFAULT_OUTCOMES: dict[str, Callable[[Episode], float | None]] = {
     "gt_welfare": gt_welfare,
     "reward_welfare": reward_welfare,
@@ -45,7 +56,9 @@ class EmpiricalGameExperiment:
         fixtures: policies for roles not being varied (judges, graders...).
         stances: optional fixed stance per role.
         symmetric: roles that are exchangeable (same strategy set, position-independent mechanism);
-            only multisets of strategies are simulated and payoffs are shared by strategy type.
+            only multisets of strategies are simulated and payoffs are shared by strategy type - so a
+            strategy name must mean the same policy for each of these roles (checked on the policies'
+            descriptions, labels aside), or unsimulated profiles would take another strategy's payoffs.
         outcomes: extra per-episode statistics to average per profile (defaults: ground-truth welfare,
             mean reward, outcome value, judge accuracy).
     """
@@ -66,6 +79,12 @@ class EmpiricalGameExperiment:
             names = {tuple(self.strategies[r]) for r in self.symmetric}
             if len(names) != 1:
                 raise ValueError("symmetric roles must share the same strategy set")
+            first = self.symmetric[0]
+            for r in self.symmetric[1:]:
+                for name, pol in self.strategies[r].items():
+                    if _strategy_config(pol) != _strategy_config(self.strategies[first][name]):
+                        raise ValueError(f"symmetric roles must share the same strategies: {name!r} is a different "
+                                         f"policy for {r!r} than for {first!r}")
         self.repeats, self.ground_truth, self.ctx, self.store = repeats, ground_truth, ctx, store
         self.concurrency, self.seed = concurrency, seed
         self.outcome_fns = {**DEFAULT_OUTCOMES, **(outcomes or {})}
