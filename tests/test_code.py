@@ -89,7 +89,9 @@ def test_mutation_operators_and_code_extraction():
         compile(m.code, "<m>", "exec")
     text = "Plan:\n```\nassert f(1)\n```\n```python\ndef f(x):\n    return x\n```\nand a truncated\n```python\ndef g(x):\n    return 2"
     assert code_blocks(text) == ["def f(x):\n    return x", "def g(x):\n    return 2"]
-    assert extract_code(text).startswith("def g") and extract_code("def h():\n    pass") == "def h():\n    pass"
+    # the submitted program is every defining block, in order (helpers in their own blocks count)
+    assert extract_code(text) == "def f(x):\n    return x\n\ndef g(x):\n    return 2"
+    assert extract_code("def h():\n    pass") == "def h():\n    pass"
     assert extract_code("no code here") is None
 
 

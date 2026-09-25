@@ -14,6 +14,12 @@ Option order is shuffled deterministically by ``(seed, item id)``, ids are stabl
 underlying question, e.g. ``gsm8k-test-0042``), and ``limit`` takes a seeded random subset (kept in
 dataset order), because dataset order is often not random (MMLU is grouped by subject).
 
+Questions with an option that refers to other options ("All of the above", "Both A and B", "None of
+these", ...) are dropped (:func:`refers_to_options`): once options are shuffled or reduced to a pair
+such an option means something else (a true option becomes "wrong" next to "All of the above"; "A and
+B only" can point at itself). That is 684 of the 14,042 MMLU test questions and 11 of the 2,086
+QuALITY dev questions (2 of 2,523 train); ``QADomain.dropped_option_references`` counts them per load.
+
 Data is downloaded on demand into :func:`so_arena.datasets.cache_dir`. GSM8K (MIT) ships a 50-item
 sample, used automatically when offline. GPQA is gated: it needs ``HF_TOKEN``, and its authors ask
 that examples not be published, so none are bundled and its items carry ``metadata["do_not_publish"]``.
@@ -61,6 +67,35 @@ class GatedDatasetError(DatasetUnavailable):
     """A gated dataset was requested without (valid) credentials."""
 
 
+_QUANTIFIER = r"(?:all|none|both|neither|either|any|each|one|two|three|some|more\s+than\s+one)"
+_VERDICT = r"(?:correct|true|right|false|incorrect|wrong)"
+_LETTER = r"\(?[a-e]\)?"
+OPTION_REFERENCE = re.compile("|".join([
+    _QUANTIFIER + r"\s+(?:\d+\s+)?of\s+(?:the\s+)?(?:above|below|foregoing)\b",  # "none of the above"
+    r"\bthe\s+(?:above|foregoing)\b(?!-)",  # "... all the above" (not "the above-mentioned")
+    _QUANTIFIER + r"\s+of\s+the\s+(?:options|choices|answers|alternatives)\b",
+    # "these"/"those" refer to the options at the start or end of an option ("All of these", "... either
+    # of these"), not in the middle ("each of these families")
+    r"^\W*" + _QUANTIFIER + r"\s+of\s+(?:these|those)\b",
+    r"\b" + _QUANTIFIER + r"\s+of\s+(?:these|those)\W*$",
+    r"^\W*(?:all|none|both|neither|either|any)\s+of\s+them\W*$",
+    r"^\W*(?:all|none|both|neither)\s+(?:the\s+)?(?:above|below|options?|choices?|answers?|alternatives?)\b",
+    r"^\W*(?:all|none|both|neither)\s+(?:are|is)\s+" + _VERDICT + r"\b",
+    r"\b(?:both|neither)\s+" + _LETTER + r"\s*(?:and|nor|&)\s*" + _LETTER
+    + r"(?:\s+(?:are|is)\s+" + _VERDICT + r")?(?=\s*(?:[.;:,)]|$))",  # "both A and B", "neither (a) nor (b)."
+    r"^\W*(?:both|neither)\W*$",
+    r"^\W*(?:(?:only|options?|choices?|answers?)\s+)?" + _LETTER + r"(?:(?:\s*[,&+]\s*|\s+(?:and|or)\s+)"
+    + _LETTER + r")+(?:\s+(?:only|are\s+" + _VERDICT + r"))?[\s.]*$",  # "A and C only", "(A) and (C)"
+]), re.I)
+
+
+def refers_to_options(text: str) -> bool:
+    """Whether an answer option refers to other options ("All of the above", "Both A and B", "None of
+    these", "Neither", "A and C only", ...). Such options are only meaningful with the full, original
+    option list in its original order."""
+    return bool(OPTION_REFERENCE.search(text.strip()))
+
+
 @dataclass
 class QARecord:
     """One question before it becomes a task item."""
@@ -100,6 +135,7 @@ class QADomain(Domain):
             raise ValueError(f"distractor must be 'best' or 'random', not {distractor!r}")
         self.binary, self.distractor, self.seed, self.offline = binary, distractor, seed, offline
         self.used_source: str | None = None  # "download" or "sample", set by load()
+        self.dropped_option_references: int | None = None  # questions dropped by the last load(), see below
 
     # ---------------------------------------------------------------------------- to implement
     def records(self, split: str) -> list[QARecord]:
@@ -123,10 +159,19 @@ class QADomain(Domain):
         return self.splits[split]
 
     def load(self, *, split: str | None = None, limit: int | None = None, seed: int | None = None) -> list[TaskItem]:
+        """Items of ``split``. Questions with an option that refers to other options are dropped (see
+        :func:`refers_to_options`; the count is in ``dropped_option_references``): shuffling or pairing
+        options changes what such an option means, so its value would be wrong."""
         seed = self.seed if seed is None else seed
         split = self.canonical_split(split)
         recs = self._fetch(split)
         recs = [r for r in recs if self.keep(r) and r.incorrect]
+        n = len(recs)
+        recs = [r for r in recs if not any(refers_to_options(o) for o in [r.correct, *r.incorrect])]
+        self.dropped_option_references = n - len(recs)
+        if n > len(recs):
+            log.info("%s: dropped %d of %d questions with options that refer to other options", self.name,
+                     n - len(recs), n)
         if limit is not None and limit < len(recs):
             rng = random.Random(stable_hash("qa-subset", self.name, split, seed))
             recs = [recs[i] for i in sorted(rng.sample(range(len(recs)), limit))]
@@ -448,7 +493,11 @@ MMLU_SUBJECTS = (
 
 @register_domain("mmlu")
 class MMLU(QADomain):
-    """MMLU (Hendrycks et al. 2021) from ``cais/mmlu``; ``subjects`` selects a subset of the 57 subjects."""
+    """MMLU (Hendrycks et al. 2021) from ``cais/mmlu``; ``subjects`` selects a subset of the 57 subjects.
+
+    Questions with options such as "All of the above" or "Both A and B" are dropped (684 of the 14,042
+    test questions), see :func:`refers_to_options`.
+    """
 
     name = "mmlu"
     description = "MMLU multiple-choice questions (57 subjects); binary by default (answer vs one distractor)."
@@ -490,12 +539,16 @@ class MMLU(QADomain):
 
 # ------------------------------------------------------------------------------------ TruthfulQA
 
-TRUTHFULQA_URL = "https://raw.githubusercontent.com/sylinrl/TruthfulQA/main/data/mc_task.json"
+# Pinned to the last commit that changed the file (2025-01-15: binary ``mc0_targets`` added, 817 -> 790
+# questions), so item ids - row indices - always name the same questions.
+TRUTHFULQA_COMMIT = "f6be04e52bbcb41d4d20daee6358231d4a5015d2"
+TRUTHFULQA_URL = f"https://raw.githubusercontent.com/sylinrl/TruthfulQA/{TRUTHFULQA_COMMIT}/data/mc_task.json"
 
 
 @register_domain("truthfulqa")
 class TruthfulQA(QADomain):
-    """TruthfulQA multiple choice (Lin et al. 2022), from the authors' current ``mc_task.json``.
+    """TruthfulQA multiple choice (Lin et al. 2022), from the authors' ``mc_task.json`` at a pinned
+    commit (:data:`TRUTHFULQA_COMMIT`, 790 questions); ids (``truthfulqa-0042``) are row indices there.
 
     Full multiple choice uses the MC1 targets (one true answer). Binary items use the authors'
     recommended binary format (``mc0_targets``: best answer vs best incorrect answer) unless
@@ -618,6 +671,8 @@ class QuALITY(QADomain):
     failed); ``min_untimed_accuracy`` (e.g. 1.0: every untimed annotator was right, so the answer is
     unambiguous) and ``max_speed_accuracy`` use the per-question annotations. The test split's labels
     are hidden, so ``dev`` (default; also used when ``"test"`` is requested) and ``train`` are available.
+    Questions with options such as "All of the options are correct" are dropped (11 of the 2,086 dev
+    questions, 2 of the 2,523 train questions), see :func:`refers_to_options`.
     """
 
     name = "quality"

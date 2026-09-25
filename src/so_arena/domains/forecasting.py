@@ -12,11 +12,13 @@ cutoff.
   (resolved to a probability) markets are skipped, or kept as ``"unknown"`` on request.
 * Leakage control. ``resolved_after`` keeps questions that were still open at a model's training
   cutoff (closed and resolved after it); ``created_after`` keeps questions asked after it. The
-  question text never contains the market's URL,
-  id or author (an agent that can browse could look the resolution up); description paragraphs that
-  announce a resolution ("Resolved YES because ...") are removed; resolved markets do not show
-  their close date (Manifold moves the close time to the resolution time when a market resolves
-  early, which would hint YES for "by <date>" questions). The market probability is withheld
+  question text never contains the market's URL, id or author (an agent that can browse could look
+  the resolution up). Descriptions are fetched after the fact, so paragraphs that announce a
+  resolution ("Resolved YES because ...", "resolving 'yes.'", 'Resolved to "NO"') are removed, and
+  for resolved markets also everything the author marked as an update or edit and all links
+  (:func:`clean_description`; criteria clarified in an update are lost with them). Resolved markets
+  do not show their close date (Manifold moves the close time to the resolution time when a market
+  resolves early, which would hint YES for "by <date>" questions). The market probability is withheld
   unless ``show_market_prob``; for resolved markets it is only ever a pre-resolution snapshot
   (``market_prob_at``), because the current price of a resolved market *is* its resolution.
 * Labels are always ``["yes", "no"]`` in that order (``PredictionMarket`` records each trader's
@@ -60,9 +62,29 @@ LABELS = ("yes", "no")
 NETWORK_ERRORS: tuple[type[BaseException], ...] = (OSError, http.client.HTTPException)
 _DAY_MS = 86_400_000
 
-# Past-tense resolution announcements added to descriptions after the fact ("Resolved YES: ...",
-# "resolving NO as ..."); future-tense criteria ("resolves YES if ...") are kept.
-_RESOLUTION_NOTE = re.compile(r"\b(resolved|resolving)\s+(as\s+|to\s+)?(yes|no|n/?a|mkt|prob)\b", re.I)
+# Resolution announcements added to descriptions after the fact: "Resolved YES because ...", "Update: It's
+# official, resolving 'yes.'", 'Resolved to "NO"', "RESOLUTION - NO, ...", "Resolving this market YES since
+# ...". Only a few connecting words may sit between the verb and the outcome. A match is criteria, not an
+# announcement, if its sentence has a condition after it ("Resolution: YES if ...") or a condition or
+# modal verb before it ("will be resolved YES when ..."); present-tense "resolves YES if" never matches.
+_RESOLUTION_NOTE = re.compile(
+    r"\b(?:resolved|resolving|resolution)\b"
+    r"(?:\W+(?:this|the|market|question|it|as|to|is|was|has|been|be|now|officially|early|finally)\b){0,4}"
+    r"\W*(?:yes|no|n/?a|mkt|prob|cancel(?:led)?|positively|negatively)\b"
+    r"(?!\s+(?:earlier|later|sooner|more|less|longer|fewer|than)\b)", re.I)
+_CRITERIA_BEFORE = re.compile(
+    r"\b(?:if|unless|when|whenever|once|until|provided|should|would|will|shall|may|might|could|must|can)\b", re.I)
+_CRITERIA_AFTER = re.compile(r"\b(?:if|unless|when|whenever|once|until|provided|otherwise|in case|in the event)\b",
+                             re.I)
+_SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|\n")
+# Resolved markets only: paragraphs (or the rest of a paragraph) that the author marked as a later update
+# ("Update:", "EDIT 2 -", "UPD (Sep 4):", Manifold's "Update 2026-09-04 (PST) (AI summary of creator
+# comment): ..."), and links (they often point at the resolution source; a link's text is kept).
+_UPDATE_START = re.compile(r"^\W*(?:updates?|updated|edits?|edited|upd|addendum)\b", re.I)
+_UPDATE_MARK = re.compile(r"\b(?:updates?|updated|edits?|edited|upd|addendum)\b[^:\n]{0,40}?(?::|\s[-\u2013\u2014]\s)",
+                          re.I)
+_MD_LINK = re.compile(r"\[([^\]]*)\]\((?:https?://|www\.)[^)\s]*\)")
+_URL = re.compile(r"(?:https?://|www\.)\S+", re.I)
 _RELATIVE_TIME = re.compile(r"^(created|close|resolution)\s*([+-])\s*(\d+(?:\.\d+)?)\s*([dh])$")
 
 
@@ -172,16 +194,49 @@ def _label(m: dict[str, Any] | None) -> str | None:
     return res.lower() if res in ("YES", "NO") else None
 
 
-def clean_description(text: str, max_chars: int = 1500) -> tuple[str, int]:
-    """Drop paragraphs announcing a resolution and truncate; returns (text, n_paragraphs_removed)."""
+def announces_resolution(text: str) -> bool:
+    """Whether ``text`` announces how its market resolved ("Resolved: YES", "resolving 'no.'"), as opposed
+    to stating resolution criteria ("Resolution: YES if ...", "will be resolved NO when ...")."""
+    for sentence in _SENTENCE_END.split(text):
+        for m in _RESOLUTION_NOTE.finditer(sentence):
+            if not (_CRITERIA_BEFORE.search(sentence, 0, m.start()) or _CRITERIA_AFTER.search(sentence, m.end())):
+                return True
+    return False
+
+
+def clean_description(text: str, max_chars: int = 1500, *, resolved: bool = False) -> tuple[str, int]:
+    """Redact a market description and truncate it; returns ``(text, n_paragraphs_redacted)``.
+
+    Paragraphs announcing a resolution are dropped. Descriptions are fetched after the fact, so for
+    ``resolved`` markets also what the author marked as an update or edit (a whole paragraph, or a
+    paragraph from the marker on: "Resolves YES if X. EDIT: X happened." keeps its first sentence) and
+    links (a link's text is kept) are dropped. The trade-off: criteria the author clarified in an
+    update are lost too, which beats letting the outcome through.
+    """
     paras = [p.strip() for p in re.split(r"\n\s*\n", text or "") if p.strip()]
-    kept = [p for p in paras if not _RESOLUTION_NOTE.search(p)]
+    kept: list[str] = []
+    redacted = 0
+    for p in paras:
+        trimmed = False
+        if resolved:
+            if _UPDATE_START.match(p):
+                redacted += 1
+                continue
+            mark = _UPDATE_MARK.search(p)
+            if mark:
+                p, trimmed = p[: mark.start()].rstrip(" \t([{-*_"), True
+            p = re.sub(r"[ \t]{2,}", " ", _URL.sub("", _MD_LINK.sub(r"\1", p))).strip()
+        if p and not announces_resolution(p):
+            kept.append(p)
+            redacted += trimmed
+        else:
+            redacted += 1
     out = "\n\n".join(kept)
     if len(out) > max_chars:
         cut = out[:max_chars]
         cut = cut[: cut.rfind(" ")] if " " in cut[max_chars // 2:] else cut
         out = cut.rstrip() + " [...]"
-    return out, len(paras) - len(kept)
+    return out, redacted
 
 
 def prob_from_history(history: Sequence[Sequence[float]], t_ms: int) -> float | None:
@@ -469,7 +524,8 @@ class ForecastingDomain(Domain):
         if not resolved and m.get("closeTime"):
             when += f" and closes on {_parse_time(m['closeTime']):%Y-%m-%d} (UTC)"
         parts.append(when + ".")
-        desc, n_redacted = clean_description(m.get("textDescription") or "", self.max_description_chars)
+        desc, n_redacted = clean_description(m.get("textDescription") or "", self.max_description_chars,
+                                             resolved=resolved)
         if desc:
             parts.append("Details and resolution criteria, as written by the question's author:\n" + desc)
         parts.append("The question resolves YES or NO according to these criteria (where they are silent, "

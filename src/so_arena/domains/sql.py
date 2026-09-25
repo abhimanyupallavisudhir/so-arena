@@ -717,19 +717,23 @@ def _rows_match(cand: Sequence[Sequence[Any]], gold: Sequence[Sequence[Any]], *,
 
 
 def results_match(cand_rows: Sequence[Sequence[Any]], gold_rows: Sequence[Sequence[Any]], *, ordered: bool = False,
-                  decimals: int | None = None, stated: bool = False, max_extra_cols: int = 8) -> bool:
-    """Compare result sets (order-insensitive unless ``ordered``), tolerating extra/permuted columns.
+                  decimals: int | None = None, stated: bool = False, max_extra_cols: int = 8,
+                  exact_columns: bool = False) -> bool:
+    """Compare result sets (order-insensitive unless ``ordered``), tolerating permuted columns and,
+    unless ``exact_columns``, extra ones.
 
     Candidate columns are matched to gold columns by trying injective column mappings, so a query
-    that also returns, say, a count column next to the requested ones still matches. ``decimals``
-    and ``stated`` are as in :func:`values_match`.
+    that also returns, say, a count column next to the requested ones still matches. Grading an
+    *answer* needs ``exact_columns=True``: otherwise a result with several candidate columns side by
+    side (``SELECT COUNT(*), SUM(...), ...``) is a hedge that matches if any column does.
+    ``decimals`` and ``stated`` are as in :func:`values_match`.
     """
     if len(cand_rows) != len(gold_rows):
         return False
     if not gold_rows:
         return True
     ng, nc = len(gold_rows[0]), len(cand_rows[0])
-    if nc < ng:
+    if nc < ng or (exact_columns and nc != ng):
         return False
     kw = dict(ordered=ordered, decimals=decimals, stated=stated)
     if nc == ng and _rows_match(cand_rows, gold_rows, **kw):
@@ -1277,7 +1281,8 @@ def expect_matches(expect: str, res: QueryResult, sql: str = "", *, decimals: in
 
     Numbers must be right at the precision stated and at least at ``decimals`` (the precision the
     question asks for, public in ``item.context``); tables compare order-insensitively unless the
-    query sorts its output.
+    query sorts its output, and must have the result's columns (in any order) - no extra ones, which
+    would let a claim hedge between values.
     """
     e = html.unescape(expect or "").strip()
     if not res.rows:
@@ -1285,7 +1290,7 @@ def expect_matches(expect: str, res: QueryResult, sql: str = "", *, decimals: in
     if res.is_scalar:
         return values_match(e, res.rows[0][0], decimals=decimals, stated=True)
     return results_match(parse_rows(e, res.columns), res.rows, ordered=has_top_level_order_by(sql),
-                         decimals=decimals, stated=True)
+                         decimals=decimals, stated=True, exact_columns=True)
 
 
 # ============================================================================== tool, verifier, scorer
@@ -1356,8 +1361,10 @@ class SQLAnswerScorer(GroundTruthScorer):
 
     For each scored role, its text turns are read from last to first and the first one containing an
     answer is graded: a ```sql block is executed (read-only) and its result set compared with the
-    gold result (order-insensitive unless the question asks for a ranking; extra or permuted columns
-    tolerated); if there is no block or it fails to run, the stated ``Answer:`` is parsed instead.
+    gold result (order-insensitive unless the question asks for a ranking; columns in any order); if
+    there is no block, it fails to run, or its result does not have the answer's shape (the gold's
+    number of columns - so a query returning several candidate answers side by side is no answer),
+    the stated ``Answer:`` is parsed instead, and must have that shape too.
     ``role_values`` are +1 (match) / -1 (wrong, or no parseable answer). With ``graded=True`` a
     scalar numeric answer that misses gets partial credit decaying linearly from +1 at the gold
     value to -1 at a relative error of ``graded_tol``.
@@ -1377,7 +1384,7 @@ class SQLAnswerScorer(GroundTruthScorer):
         self.graded, self.graded_tol, self.db_key, self.timeout = graded, graded_tol, db_key, timeout
 
     def _value(self, cand: Sequence[Sequence[Any]], gold: QueryResult, ordered: bool, decimals: int) -> float:
-        if results_match(cand, gold.rows, ordered=ordered, decimals=decimals):
+        if results_match(cand, gold.rows, ordered=ordered, decimals=decimals, exact_columns=True):
             return 1.0
         if self.graded and gold.is_scalar and len(cand) == 1 and len(cand[0]) == 1:
             g, c = parse_number(gold.rows[0][0]), parse_number(cand[0][0])
@@ -1395,10 +1402,11 @@ class SQLAnswerScorer(GroundTruthScorer):
         sql = extract_sql(text)
         if sql and item.private.get(self.db_key):
             res = run_readonly(item.private[self.db_key], sql, timeout=self.timeout, max_rows=1000)
-            if res.error is None and not res.truncated:
+            if res.error is None and not res.truncated and len(res.columns) == len(gold.columns):
                 info.update(value=self._value(res.rows, gold, ordered, decimals), source="sql")
                 return info
-            info["sql_error"] = res.error or "result too large"
+            info["sql_error"] = res.error or ("result too large" if res.truncated else
+                                              f"the result has {len(res.columns)} columns, the answer {len(gold.columns)}")
         ans = extract_answer(text, gold)
         if ans is not None:
             info.update(value=self._value(ans, gold, ordered, decimals), source="text")

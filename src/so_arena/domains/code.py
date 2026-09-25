@@ -24,23 +24,36 @@ Information: hidden tests live only in ``ground_truth.data``. Visible tests are 
 ``private["reference"]`` (affordance ``reference``) is an optional oracle affordance holding a
 correct solution, for simulating experts who know the answer - never grant it to judges.
 
-Execution: untrusted code runs only in a fresh interpreter subprocess with timeouts, memory/file-size
-limits and ``PYTHONHASHSEED=0`` (so set/dict orders, hence verification results, are reproducible).
-This is NOT a security sandbox; use Inspect/Docker sandboxes for untrusted code at scale.
+Execution: untrusted code runs only in fresh interpreter subprocesses - without site-packages or
+anything importable from this package, in a temporary working directory that is also HOME, with a
+minimal environment, limits on memory, file size, CPU time and process creation, ``PYTHONHASHSEED=0``
+(so set/dict orders, hence verification results, are reproducible) and its process group killed
+afterwards. Candidates never judge themselves: their interpreter only reports the values of the calls
+a test makes, and this process compares them (as plain values) with expected values it never sends
+(:func:`run_suites`). Secrets never enter a child that runs untrusted code: the ``oracle`` verifier's
+reference solution answers calls from a separate process (:func:`run_oracle`).
+
+This is still NOT a security sandbox: children run as the current user, so code that goes looking can
+read and write files by absolute path (e.g. the dataset cache) and inspect other processes of the
+user. Use Inspect/Docker sandboxes for untrusted code at scale.
 """
 
 from __future__ import annotations
 
 import ast
 import asyncio
+import builtins
+import cmath
 import contextlib
 import copy
+import functools
 import json
 import logging
 import math
 import os
 import random
 import re
+import secrets
 import signal
 import subprocess
 import sys
@@ -48,6 +61,7 @@ import tempfile
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -58,7 +72,7 @@ from so_arena.core.ground_truth import GroundTruthScorer, JudgeCorrectness, Stan
 from so_arena.core.items import AnswerOption, GroundTruth, TaskItem
 from so_arena.core.policy import ActContext, FunctionPolicy, stable_hash
 from so_arena.core.tools import Tool, ToolResult
-from so_arena.core.verification import PythonExecVerifier, Verification, Verifier
+from so_arena.core.verification import PythonExecVerifier, Verification, Verifier, run_python
 from so_arena.datasets import cache_dir, download, read_jsonl, sample_path, write_jsonl
 from so_arena.domains.base import Domain, register_domain
 
@@ -73,86 +87,427 @@ MBPP_SPLITS = {"prompt": (1, 10), "test": (11, 510), "validation": (511, 600), "
 PREPARE_VERSION = 1
 
 # ================================================================================================
-# Sandboxed execution (subprocess per call; never in-process)
+# Execution: fresh restricted interpreters; tests are judged here, never by the candidate
 # ================================================================================================
 
 MEMORY_LIMIT = 512 * 1024 * 1024
 FILE_LIMIT = 4 * 1024 * 1024
 _MAX_READ = 1 << 20
+_MAX_RECORD = 256 * 1024  # one test's reported values (encoded); larger results fail the test
 
-# Trusted bootstrap run in the child before any untrusted code: resource limits.
-_LIMITS = f"""
-import os, sys
+# Resource limits, set inside the child (a preexec_fn is unsafe in a threaded parent - verifiers run
+# from worker threads) before any other code: memory, file size (which also bounds the output, since
+# it goes to files), CPU time, no new processes or threads, no core dumps. As in
+# ``so_arena.core.verification.run_python``.
+_BOOT = """\
+import sys
 try:
-    import resource
-    for _k, _v in (("RLIMIT_AS", {MEMORY_LIMIT}), ("RLIMIT_FSIZE", {FILE_LIMIT}), ("RLIMIT_CORE", 0)):
-        try:
-            resource.setrlimit(getattr(resource, _k), (_v, _v))
-        except Exception:
-            pass
-except Exception:
+    import resource as _r
+    for _n, _v in (("RLIMIT_AS", {mem}), ("RLIMIT_FSIZE", {fsize}), ("RLIMIT_NPROC", 0), ("RLIMIT_CPU", {cpu}),
+                   ("RLIMIT_CORE", 0)):
+        if hasattr(_r, _n):
+            try:
+                _r.setrlimit(getattr(_r, _n), (_v, _v))
+            except (ValueError, OSError):
+                pass
+    del _r, _n, _v
+except ImportError:
     pass
 """
 
-_SNIPPET = _LIMITS + """
-_src = sys.stdin.read()
-sys.stdin = open(os.devnull)
-exec(compile(_src, "<code>", "exec"), {"__name__": "__main__"})
-"""
+# Values cross process boundaries as tagged JSON, so decoding and comparing them never runs code:
+# None/bool/int/float/str as themselves; ["l"|"t"|"s"|"fs", items...], ["d", [key, value]...],
+# ["c", real, imag], ["b", hex] and ["i", hex] (huge ints). Only plain builtin types are encoded; an
+# instance of a subclass of one travels as the builtin value it holds (a namedtuple as its tuple, an
+# IntEnum as its int, a Counter as its dict), read without calling any of its methods - so an object
+# whose ``__eq__`` always returns True, whatever it claims its ``__module__`` is, never passes a test.
+# Shared by this process (decoding) and the child programs (``_plain`` = what a value compares as).
+_CODEC = r'''
+_SEQ_TAGS = {list: "l", tuple: "t", set: "s", frozenset: "fs"}
+_TAG_SEQS = {"l": list, "t": tuple, "s": set, "fs": frozenset}
+_BASE_VALUE = (
+    (int, int.__int__), (float, float.__float__), (complex, complex.__complex__), (str, str.__str__),
+    (bytes, bytes.__bytes__), (dict, lambda v: dict(dict.items(v))), (list, lambda v: list(list.__iter__(v))),
+    (tuple, lambda v: tuple(tuple.__iter__(v))), (set, lambda v: set(set.__iter__(v))),
+    (frozenset, lambda v: frozenset(frozenset.__iter__(v))),
+)
 
-# Test harness: loads each candidate in a fresh namespace and runs each test with its own SIGALRM
-# timeout, emitting one nonce-prefixed JSON line per event so partial results survive a crash.
-# Equality asserts are rewritten to refuse values of candidate-defined types (an object whose
-# __eq__ always returns True would otherwise pass every ``assert f(x) == y``).
-_HARNESS = _LIMITS + r'''
-import ast, contextlib, io, json, signal
+
+def _enc(v, _depth=0, _path=None):
+    t = type(v)
+    if v is None or t is bool or t is str or t is float:
+        return v
+    if t is int:
+        return v if v.bit_length() < 10000 else ["i", hex(v)]
+    if _depth > 100:
+        raise ValueError("value nested too deeply")
+    if t is complex:
+        return ["c", v.real, v.imag]
+    if t is bytes:
+        return ["b", v.hex()]
+    if t is dict or t in _SEQ_TAGS:
+        path = set() if _path is None else _path
+        if id(v) in path:
+            raise ValueError("recursive value")
+        path.add(id(v))
+        try:
+            if t is dict:
+                return ["d"] + [[_enc(k, _depth + 1, path), _enc(x, _depth + 1, path)] for k, x in v.items()]
+            return [_SEQ_TAGS[t]] + [_enc(x, _depth + 1, path) for x in v]
+        finally:
+            path.discard(id(v))
+    for base, value in _BASE_VALUE:
+        if isinstance(v, base):
+            return _enc(value(v), _depth + 1, _path)
+    raise TypeError(f"{t.__name__} is not a plain value (None, bool, numbers, str, bytes, or lists, tuples, "
+                    "dicts and sets of them)")
+
+
+def _dec(x, _depth=0):
+    if x is None or type(x) in (bool, int, float, str):
+        return x
+    if type(x) is not list or not x or type(x[0]) is not str or _depth > 200:
+        raise ValueError("malformed value")
+    tag, rest = x[0], x[1:]
+    if tag in _TAG_SEQS:
+        return _TAG_SEQS[tag]([_dec(y, _depth + 1) for y in rest])
+    if tag == "d":
+        return {_dec(k, _depth + 1): _dec(y, _depth + 1) for k, y in rest}
+    if tag == "c" and len(rest) == 2:
+        return complex(float(rest[0]), float(rest[1]))
+    if tag == "b" and len(rest) == 1:
+        return bytes.fromhex(rest[0])
+    if tag == "i" and len(rest) == 1:
+        return int(rest[0], 16)
+    raise ValueError("malformed value")
+
+
+def _plain(v):
+    return _dec(_enc(v))
+
+
+def _soa_eq(a, b):
+    return _plain(a) == _plain(b)
+
+
+def _soa_ne(a, b):
+    return _plain(a) != _plain(b)
+
+
+def _soa_truth(v):
+    return bool(v)
+
+
+def _err(e):
+    try:
+        s = str(e)
+    except BaseException:
+        s = ""
+    return (type(e).__name__ + (": " + s if s else ""))[:160]
+'''
+_codec: dict[str, Any] = {}
+exec(compile(_CODEC, "<codec>", "exec"), _codec)
+_dec: Callable[[Any], Any] = _codec["_dec"]
+_err: Callable[[BaseException], str] = _codec["_err"]
+_DECODE_ERRORS = (ValueError, TypeError, KeyError, RecursionError, OverflowError, MemoryError)
+
+_RUNTIME = r'''
+import io, json, signal, sys
+
+
+class _Quiet:
+    """Swallows what candidate code prints (results go to the real stdout)."""
+
+    def __enter__(self):
+        self.old, sys.stdout = sys.stdout, io.StringIO()
+
+    def __exit__(self, *exc):
+        sys.stdout = self.old
 
 
 def _alarm(signum, frame):
     raise TimeoutError("timed out")
 
 
+def _timer(t):
+    signal.setitimer(signal.ITIMER_REAL, t)
+
+
 signal.signal(signal.SIGALRM, _alarm)
+'''
+
+# The test runner. It receives each candidate and, per test, only the expressions whose values need
+# the candidate (the calls of its functions: the test's *inputs*, never its expected outputs), and
+# reports those values; the verdicts are computed by this process (see ``_plan_test``). Whatever the
+# candidate does to this interpreter - forging result lines, patching the runner, reading its
+# memory - it can only change the values reported for its own tests, which it could have returned
+# anyway: to pass it must produce the expected values without seeing them. Tests that are not a
+# single ``assert`` run whole in the child, and only for those is the child's verdict trusted.
+_HARNESS = _CODEC + _RUNTIME + r'''
 _P = json.loads(sys.stdin.read())
-sys.stdin = open(os.devnull)
-_NONCE, _T, _OUT = _P["nonce"], float(_P["timeout"]), sys.stdout
+sys.stdin = io.StringIO("")
+_NONCE, _T, _CAP, _OUT = _P["nonce"], float(_P["timeout"]), int(_P["cap"]), sys.stdout
 
 
-def _emit(**kw):
-    _OUT.write(_NONCE + json.dumps(kw) + "\n")
+def _emit(line):
+    _OUT.write(_NONCE + line + "\n")
     _OUT.flush()
 
 
-def _err(e):
-    s = str(e)
-    return (type(e).__name__ + (": " + s if s else ""))[:160]
+for _job in _P["jobs"]:
+    _j = _job["id"]
+    _ns = {"__name__": "__candidate__"}
+    try:
+        _timer(_T)
+        with _Quiet():
+            exec(compile(_job["setup"] + "\n" + _job["code"], "<candidate>", "exec"), _ns)
+        _timer(0)
+        _load = None
+    except BaseException as _e:
+        _timer(0)
+        _load = _err(_e)
+    _emit(json.dumps({"j": _j, "load": _load}))
+    if _load is not None:
+        continue
+    _ns["_soa_eq"], _ns["_soa_ne"], _ns["_soa_truth"] = _soa_eq, _soa_ne, _soa_truth
+    _stop = False
+    for _t in _job["tests"]:
+        _line = json.dumps({"j": _j, "t": _t["k"], "err": "skipped"})
+        if not _stop:
+            try:
+                _timer(_T)
+                with _Quiet():
+                    if "stmt" in _t:
+                        exec(compile(_t["stmt"], "<test>", "exec"), _ns)
+                        _line = json.dumps({"j": _j, "t": _t["k"], "ok": True})
+                    else:
+                        _vals = [_enc(eval(compile(_s, "<test>", "eval"), _ns)) for _s in _t["ops"]]
+                        _line = json.dumps({"j": _j, "t": _t["k"], "v": _vals})
+                        if len(_line) > _CAP:
+                            raise ValueError("result too large")
+                _timer(0)
+            except BaseException as _e:
+                _timer(0)
+                _line = json.dumps({"j": _j, "t": _t["k"], "err": _err(_e)})
+                # screening mode: a timed-out candidate is not worth more time
+                _stop = _job["stop_on_timeout"] and isinstance(_e, TimeoutError)
+        _emit(_line)
+_emit(json.dumps({"done": True}))
+'''
 
 
-def _foreign(x, depth=0):
-    if getattr(type(x), "__module__", None) == "__candidate__":
-        return True
-    if depth < 3:
-        if isinstance(x, dict):
-            return any(_foreign(k, depth + 1) or _foreign(v, depth + 1) for k, v in list(x.items())[:500])
-        if isinstance(x, (list, tuple, set, frozenset)):
-            return any(_foreign(v, depth + 1) for v in list(x)[:500])
-    return False
+def _child_env(home: str) -> dict[str, str]:
+    """A minimal environment: no PYTHONPATH (so_arena is not importable), HOME and TMPDIR in the child's
+    own temporary directory, a fixed hash seed (reproducible set/dict orders, hence verdicts)."""
+    return {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": home, "TMPDIR": home, "LANG": "C.UTF-8",
+            "PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"}
 
 
-def _soa_eq(a, b):
-    if _foreign(a) or _foreign(b):
-        raise AssertionError("equality test on a value of a candidate-defined type")
-    return a == b
+def _popen(program: str, workdir: str, seconds: float, **kw: Any) -> subprocess.Popen:
+    """Start trusted ``program`` in a fresh interpreter: no site-packages (``-S``), nothing from the
+    working directory on ``sys.path`` (``-P``), resource limits, its own session (process group)."""
+    boot = _BOOT.format(mem=MEMORY_LIMIT, fsize=FILE_LIMIT, cpu=int(math.ceil(seconds)) + 2)
+    return subprocess.Popen([sys.executable, "-S", "-P", "-c", boot + program], cwd=workdir, env=_child_env(workdir),
+                            start_new_session=True, **kw)
 
 
-def _soa_ne(a, b):
-    if _foreign(a) or _foreign(b):
-        raise AssertionError("equality test on a value of a candidate-defined type")
-    return a != b
+def _reap(proc: subprocess.Popen) -> None:
+    """Kill the child's whole process group - whatever it started too - and wait for the child."""
+    with contextlib.suppress(OSError, AttributeError):
+        os.killpg(proc.pid, signal.SIGKILL)
+    if proc.poll() is None:
+        proc.kill()
+    proc.wait()
+
+
+def _read_text(path: str, limit: int = _MAX_READ) -> str:
+    with open(path, "rb") as f:
+        return f.read(limit).decode("utf-8", errors="replace")
+
+
+def _spawn(program: str, stdin: str, timeout: float) -> tuple[int, str, str]:
+    """Run trusted ``program`` (which reads its input, e.g. untrusted code, from stdin) in a fresh
+    restricted interpreter (:func:`_popen`) with a fresh temporary directory as working directory,
+    HOME and TMPDIR (removed afterwards). Output goes to size-limited files, so a runaway print cannot
+    exhaust this process's memory. The process group is killed when the child finishes, so nothing it
+    started survives. Returns ``(returncode, stdout, stderr)``; on timeout the return code is -1
+    (stderr ends with "timeout"), as in :func:`so_arena.core.verification.run_python`.
+    """
+    with tempfile.TemporaryDirectory(prefix="soa_code_", ignore_cleanup_errors=True) as d:
+        out_path, err_path = os.path.join(d, ".stdout"), os.path.join(d, ".stderr")
+        timed_out = False
+        with open(out_path, "wb") as fo, open(err_path, "wb") as fe:
+            proc = _popen(program, d, timeout, stdin=subprocess.PIPE, stdout=fo, stderr=fe)
+            try:
+                proc.communicate(stdin.encode("utf-8", errors="replace"), timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            finally:
+                _reap(proc)
+        out, err = _read_text(out_path, FILE_LIMIT), _read_text(err_path)
+    if timed_out:
+        return -1, out, (err + "\ntimeout").strip()
+    return proc.returncode, out, err
+
+
+def _last_line(err: str) -> str:
+    lines = [ln for ln in err.strip().splitlines() if ln.strip()]
+    return lines[-1].strip() if lines else ""
+
+
+def run_code(code: str, timeout: float = 5.0) -> tuple[int, str, str]:
+    """Run a Python program in a fresh restricted interpreter: ``(returncode, stdout, stderr)``
+    (:func:`so_arena.core.verification.run_python`: no site-packages, a temporary working directory,
+    a minimal environment, resource limits, the process group killed afterwards)."""
+    return run_python(code, timeout, memory_mb=MEMORY_LIMIT >> 20, max_file_mb=FILE_LIMIT >> 20)
+
+
+# ------------------------------------------------------------------------------------------------
+# The oracle: a reference solution callable from a claim, in a separate process
+# ------------------------------------------------------------------------------------------------
+
+_ORACLE_SERVER = _CODEC + _RUNTIME + r'''
+_init = json.loads(sys.stdin.readline())
+_T, _names = float(_init["timeout"]), set(_init["names"])
+_ns = {"__name__": "__reference__"}
+try:
+    with _Quiet():
+        exec(compile(_init["setup"] + "\n" + _init["code"], "<reference>", "exec"), _ns)
+    _load = None
+except BaseException as _e:
+    _load = _err(_e)
+del _init
+for _line in sys.stdin:
+    try:
+        if _load is not None:
+            raise RuntimeError("the reference solution failed to load: " + _load)
+        _req = json.loads(_line)
+        if _req["f"] not in _names:
+            raise NameError(f"name {_req['f']!r} is not defined")
+        _a, _k = _dec(_req["a"]), _dec(_req["k"])
+        try:
+            _timer(_T)
+            with _Quiet():
+                _resp = {"v": _enc(_ns[_req["f"]](*_a, **_k))}
+        finally:
+            _timer(0)
+    except BaseException as _e:
+        _resp = {"e": type(_e).__name__, "m": _err(_e).partition(": ")[2]}
+    sys.stdout.write(json.dumps(_resp) + "\n")
+    sys.stdout.flush()
+'''
+
+_ORACLE_CLIENT = _CODEC + r'''
+import builtins, io, json, os, sys
+
+_C = json.loads(sys.stdin.read())
+sys.stdin = io.StringIO("")
+_R = os.fdopen(_C["r"], "r", encoding="utf-8")
+
+
+def _soa_call(name, args, kwargs):
+    data = (json.dumps({"f": name, "a": _enc(list(args)), "k": _enc(dict(kwargs))}) + "\n").encode("utf-8")
+    while data:
+        data = data[os.write(_C["w"], data):]
+    line = _R.readline()
+    if not line:
+        raise RuntimeError("the reference solution is not available (it crashed or ran out of time)")
+    resp = json.loads(line)
+    if "e" in resp:
+        exc = getattr(builtins, str(resp["e"]), None)
+        if not (isinstance(exc, type) and issubclass(exc, Exception)):
+            exc = RuntimeError
+        try:
+            err = exc(resp.get("m", ""))
+        except Exception:
+            err = RuntimeError(str(resp.get("m", "")))
+        raise err
+    return _dec(resp["v"])
+
+
+def _soa_proxy(name):
+    def call(*args, **kwargs):
+        return _soa_call(name, args, kwargs)
+    call.__name__ = call.__qualname__ = name
+    return call
+
+
+_ns = {"__name__": "__main__"}
+exec(compile(_C["setup"], "<setup>", "exec"), _ns)
+for _n in _C["names"]:
+    _ns[_n] = _soa_proxy(_n)
+exec(compile(_C["code"], "<claim>", "exec"), _ns)
+'''
+
+
+def _function_names(code: str) -> list[str]:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+    return [n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+
+def run_oracle(program: str, reference: str, *, setup: str = "", timeout: float = 5.0) -> tuple[int, str, str]:
+    """Run ``program`` with the top-level functions of ``reference`` callable - as proxies.
+
+    The reference runs in a separate restricted interpreter that answers calls over a pipe, so the
+    program learns the reference's input/output behaviour (the oracle) but never its code: no
+    source, no code objects, nothing in its globals or files. Arguments and results must be plain
+    values; exceptions come back as builtin exceptions of the same type. Returns
+    ``(returncode, stdout, stderr)`` of the program, as :func:`run_code`.
+    """
+    names = _function_names(reference)
+    with tempfile.TemporaryDirectory(prefix="soa_code_", ignore_cleanup_errors=True) as d, \
+            tempfile.TemporaryDirectory(prefix="soa_code_", ignore_cleanup_errors=True) as d_ref:
+        server = _popen(_ORACLE_SERVER, d_ref, timeout, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL)
+        client = None
+        timed_out = False
+        out_path, err_path = os.path.join(d, ".stdout"), os.path.join(d, ".stderr")
+        try:
+            with contextlib.suppress(OSError):
+                server.stdin.write((json.dumps({"setup": setup, "code": reference, "timeout": timeout,
+                                                "names": names}) + "\n").encode("utf-8"))
+                server.stdin.flush()
+            w, r = server.stdin.fileno(), server.stdout.fileno()
+            config = json.dumps({"w": w, "r": r, "names": names, "setup": setup, "code": program})
+            with open(out_path, "wb") as fo, open(err_path, "wb") as fe:
+                client = _popen(_ORACLE_CLIENT, d, timeout, stdin=subprocess.PIPE, stdout=fo, stderr=fe,
+                                pass_fds=(w, r))
+                for pipe in (server.stdin, server.stdout):  # the program now holds the only ends of these pipes
+                    with contextlib.suppress(OSError):
+                        pipe.close()
+                try:
+                    client.communicate(config.encode("utf-8", errors="replace"), timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+        finally:
+            for proc in (client, server):
+                if proc is not None:
+                    _reap(proc)
+            for pipe in (server.stdin, server.stdout):
+                with contextlib.suppress(OSError):
+                    pipe.close()
+        out, err = _read_text(out_path, FILE_LIMIT), _read_text(err_path)
+    if timed_out:
+        return -1, out, (err + "\ntimeout").strip()
+    return client.returncode, out, err
+
+
+# ------------------------------------------------------------------------------------------------
+# Test plans: which parts of a test need the candidate, and the verdict computed here
+# ------------------------------------------------------------------------------------------------
+
+_BUILTIN_NAMES = frozenset(dir(builtins))
+_JUDGES = (math.isclose, cmath.isclose)  # calls whose result is a verdict: computed here
 
 
 class _Guard(ast.NodeTransformer):
-    def visit_Compare(self, node):
+    """Comparisons that must run in the child (inside a value, or in a test that is not a single
+    assert) compare plain values: ``a == b`` becomes ``_soa_eq(a, b)``."""
+
+    def visit_Compare(self, node: ast.Compare) -> ast.AST:
         self.generic_visit(node)
         if len(node.ops) == 1 and isinstance(node.ops[0], (ast.Eq, ast.NotEq)):
             fn = "_soa_eq" if isinstance(node.ops[0], ast.Eq) else "_soa_ne"
@@ -161,91 +516,210 @@ class _Guard(ast.NodeTransformer):
         return node
 
 
-def _timer(t):
-    signal.setitimer(signal.ITIMER_REAL, t)
+def _guarded(node: ast.AST) -> str:
+    return ast.unparse(ast.fix_missing_locations(_Guard().visit(node)))
 
 
-for _job in _P["jobs"]:
-    _ns = {"__name__": "__candidate__"}
+@dataclass(frozen=True, eq=False)
+class _Plan:
+    """How one test runs: ``ops`` are evaluated by the candidate's interpreter, ``code`` computes the
+    verdict from their values here (with the trusted names ``env``); ``stmt`` runs whole in the child
+    (not a single assert: its verdict is the child's); ``error``: the test itself is broken."""
+
+    ops: tuple[str, ...] = ()
+    code: Any = None
+    env: dict[str, Any] | None = None
+    stmt: str | None = None
+    error: str | None = None
+
+
+@functools.lru_cache(maxsize=256)
+def _trusted_env(setup: str) -> dict[str, Any]:
+    """Names a test may use that are not the candidate's: builtins, ``math`` and the setup's imports
+    (only its import statements run here)."""
+    env: dict[str, Any] = {"__builtins__": builtins, "math": math}
     try:
-        _timer(_T)
-        with contextlib.redirect_stdout(io.StringIO()):
-            exec(compile(_job["setup"] + "\n" + _job["code"], "<candidate>", "exec"), _ns)
-        _timer(0)
-    except BaseException as _e:
-        _timer(0)
-        _emit(j=_job["id"], load=_err(_e))
-        continue
-    _emit(j=_job["id"], load=None)
-    _ns["_soa_eq"], _ns["_soa_ne"] = _soa_eq, _soa_ne
-    _nv, _stop = _job.get("stop_visible", 0), False
-    for _i, _t in enumerate(_job["tests"]):
-        if _i < _job["skip"]:
-            continue
-        if _stop:
-            _emit(j=_job["id"], t=_i, ok=False, err="skipped")
-            continue
-        try:
-            _tree = ast.fix_missing_locations(_Guard().visit(ast.parse(_t)))
-            _code = compile(_tree, "<test>", "exec")
-            _timer(_T)
-            with contextlib.redirect_stdout(io.StringIO()):
-                exec(_code, _ns)
-            _timer(0)
-            _emit(j=_job["id"], t=_i, ok=True)
-        except BaseException as _e:
-            _timer(0)
-            _emit(j=_job["id"], t=_i, ok=False, err=_err(_e))
-            # screening mode: stop after a visible failure or any timeout
-            _stop = bool(_nv) and (_i < _nv or isinstance(_e, TimeoutError))
-_emit(done=True)
-'''
+        body = ast.parse(setup).body
+    except (SyntaxError, ValueError):
+        body = []
+    for node in body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            with contextlib.suppress(Exception):
+                exec(compile(ast.Module(body=[node], type_ignores=[]), "<setup>", "exec"), env)
+    return env
 
 
-def _child_env() -> dict[str, str]:
-    return {"PYTHONHASHSEED": "0", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8",
-            "PATH": os.environ.get("PATH", "")}
+@functools.lru_cache(maxsize=1024)
+def _bound_names(code: str) -> frozenset[str]:
+    """Every name the candidate binds anywhere (conservative): where a test uses one, it may mean the
+    candidate's version (e.g. an entry point called ``sum``)."""
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return frozenset()
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and not isinstance(n.ctx, ast.Load):
+            out.add(n.id)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+        elif isinstance(n, ast.alias):
+            out.add((n.asname or n.name).split(".")[0])
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            out.update(n.names)
+    return frozenset(out)
 
 
-def _read_text(path: str) -> str:
-    with open(path, "rb") as f:
-        return f.read(_MAX_READ).decode("utf-8", errors="replace")
+def _free_names(node: ast.AST) -> set[str]:
+    """Names an expression takes from its environment (not those its lambdas/comprehensions bind)."""
+    out: set[str] = set()
+
+    def walk(n: ast.AST, bound: frozenset[str]) -> None:
+        if isinstance(n, ast.Name):
+            if n.id not in bound:
+                out.add(n.id)
+        elif isinstance(n, ast.Lambda):
+            a = n.args
+            for d in [*a.defaults, *(x for x in a.kw_defaults if x is not None)]:
+                walk(d, bound)
+            params = {x.arg for x in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg] if x is not None}
+            walk(n.body, bound | params)
+        elif isinstance(n, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            inner = bound
+            for g in n.generators:
+                walk(g.iter, inner)
+                inner = inner | {x.id for x in ast.walk(g.target) if isinstance(x, ast.Name)}
+                for c in g.ifs:
+                    walk(c, inner)
+            for e in ([n.key, n.value] if isinstance(n, ast.DictComp) else [n.elt]):
+                walk(e, inner)
+        else:
+            for c in ast.iter_child_nodes(n):
+                walk(c, bound)
+
+    walk(node, frozenset())
+    return out
 
 
-def _spawn(program: str, stdin: str, timeout: float) -> tuple[int, str, str]:
-    """Run trusted ``program`` (which execs untrusted code read from stdin) in a fresh interpreter.
+def _is_judge(n: ast.AST, env: dict[str, Any]) -> bool:
+    """``math.isclose(...)`` and the like (trusted versions, whatever the candidate defines)."""
+    if not isinstance(n, ast.Call) or any(isinstance(a, ast.Starred) for a in n.args) \
+            or any(k.arg is None for k in n.keywords):
+        return False
+    f = n.func
+    if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+        obj = getattr(env.get(f.value.id), f.attr, None)
+    elif isinstance(f, ast.Name):
+        obj = env.get(f.id)
+    else:
+        return False
+    return any(obj is j for j in _JUDGES)
 
-    Output goes to size-limited files in a temporary working directory, so a runaway print cannot
-    exhaust the parent's memory. Returns ``(returncode, stdout, stderr)``; on timeout the process
-    group is killed and the return code is -1 (stderr ends with "timeout"), as in ``run_python``.
+
+@functools.lru_cache(maxsize=8192)
+def _plan_test(test: str, setup: str, bound: frozenset[str]) -> _Plan:
+    """Split an ``assert`` into what needs the candidate and the verdict.
+
+    The verdict - boolean logic, comparisons, ``math.isclose`` - is computed here, on plain values.
+    Each side of a comparison that uses a name only the candidate provides (its functions) is
+    evaluated by the candidate's interpreter; the other sides - the expected values - here, with
+    trusted builtins and the setup's imports. A side that uses a trusted name the candidate also
+    binds (an entry point called ``sum``) goes to the candidate only if nothing else in that
+    comparison does, so redefining a builtin never moves an expected value into the candidate's reach.
     """
-    with tempfile.TemporaryDirectory(prefix="soa_code_", ignore_cleanup_errors=True) as d:
-        out_path, err_path = os.path.join(d, ".stdout"), os.path.join(d, ".stderr")
-        with open(out_path, "wb") as fo, open(err_path, "wb") as fe:
-            proc = subprocess.Popen([sys.executable, "-s", "-P", "-c", program], stdin=subprocess.PIPE,
-                                    stdout=fo, stderr=fe, cwd=d, env=_child_env(), start_new_session=True)
-            timed_out = False
-            try:
-                proc.communicate(stdin.encode("utf-8", errors="replace"), timeout=timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                with contextlib.suppress(OSError):
-                    os.killpg(proc.pid, signal.SIGKILL)
-                proc.wait()
-        out, err = _read_text(out_path), _read_text(err_path)
-    if timed_out:
-        return -1, out, (err + "\ntimeout").strip()
-    return proc.returncode, out, err
+    try:
+        tree = ast.parse(test)
+    except (SyntaxError, ValueError) as e:
+        return _Plan(error=_err(e))
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Assert):
+        return _Plan(stmt=_guarded(tree))
+    env = _trusted_env(setup)
+    trusted = _BUILTIN_NAMES | set(env)
+    ops: list[str] = []
+
+    def kind(n: ast.AST) -> str:
+        free = _free_names(n)
+        if free - trusted:
+            return "child"
+        return "ambiguous" if free & bound else "here"
+
+    def operand(n: ast.AST, truth: bool) -> ast.expr:
+        # where only its truth value matters (``assert f(x)``), the child reports just that
+        ops.append(f"_soa_truth({_guarded(n)})" if truth else _guarded(n))
+        return ast.Call(func=ast.Name(id="__soa_v", ctx=ast.Load()), args=[ast.Constant(len(ops) - 1)], keywords=[])
+
+    def is_verdict(n: ast.AST) -> bool:  # its value is a bool computed from its parts
+        return (isinstance(n, ast.Compare) or _is_judge(n, env)
+                or (isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.Not)))
+
+    def sides(parts: list[ast.expr]) -> list[ast.expr]:
+        kinds = [kind(p) for p in parts]
+        out = []
+        for i, (p, k) in enumerate(zip(parts, kinds)):
+            elsewhere = "child" in kinds[:i] + kinds[i + 1:]
+            if is_verdict(p):
+                out.append(split(p, truth=False))
+            elif k == "child" or (k == "ambiguous" and not elsewhere):
+                out.append(operand(p, truth=False))
+            else:
+                out.append(p)
+        return out
+
+    def split(n: ast.expr, truth: bool) -> ast.expr:
+        """``truth``: only the truth value of ``n`` matters (the assert, ``not``, and/or under them)."""
+        if isinstance(n, ast.BoolOp) and truth:
+            n.values = [split(v, truth=True) for v in n.values]
+        elif isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.Not):
+            n.operand = split(n.operand, truth=True)
+        elif isinstance(n, ast.Compare):
+            n.left, *n.comparators = sides([n.left, *n.comparators])
+        elif _is_judge(n, env):
+            assert isinstance(n, ast.Call)
+            new = sides([*n.args, *(k.value for k in n.keywords)])
+            n.args = new[: len(n.args)]
+            for kw, v in zip(n.keywords, new[len(n.args):]):
+                kw.value = v
+        elif kind(n) != "here":
+            return operand(n, truth)
+        return n
+
+    try:
+        verdict = split(tree.body[0].test, truth=True)
+        code = compile(ast.fix_missing_locations(ast.Expression(body=verdict)), "<test>", "eval")
+    except (SyntaxError, ValueError, RecursionError) as e:
+        return _Plan(error=_err(e))
+    return _Plan(ops=tuple(ops), code=code, env=env)
 
 
-def run_code(code: str, timeout: float = 5.0) -> tuple[int, str, str]:
-    """Run a Python program in a fresh subprocess: ``(returncode, stdout, stderr)``."""
-    return _spawn(_SNIPPET, code, timeout)
+def _verdict(plan: _Plan, outcome: tuple[str, Any] | None) -> tuple[bool, str | None]:
+    """Pass/fail of a test from what the child reported (``("v", values)``, ``("ok", None)`` or
+    ``("err", message)``), decided here."""
+    if plan.error is not None:
+        return False, plan.error
+    if outcome is None:
+        return False, "skipped"
+    what, data = outcome
+    if what == "err":
+        return False, data
+    if what == "ok":
+        return (True, None) if plan.stmt is not None else (False, "ValueError: malformed result")
+    if plan.code is None or type(data) is not list or len(data) != len(plan.ops):
+        return False, "ValueError: malformed result"
+    try:
+        values = [_dec(v) for v in data]
+    except _DECODE_ERRORS:
+        return False, "ValueError: malformed result"
+    env = dict(plan.env or {})
+    env["__soa_v"] = values.__getitem__
+    try:
+        return (True, None) if eval(plan.code, env) else (False, "AssertionError")
+    except Exception as e:  # e.g. a TypeError comparing values of the wrong type
+        return False, _err(e)
 
 
-def _last_line(err: str) -> str:
-    lines = [ln for ln in err.strip().splitlines() if ln.strip()]
-    return lines[-1].strip() if lines else ""
+# ------------------------------------------------------------------------------------------------
+# Running suites
+# ------------------------------------------------------------------------------------------------
 
 
 class SuiteResult(BaseModel):
@@ -268,76 +742,146 @@ class SuiteResult(BaseModel):
         return self.load_error is None and bool(self.passed) and all(self.passed)
 
 
-def run_suites(jobs: Sequence[dict[str, Any]], *, timeout: float = 3.0, chunk: int = 64,
-               screen_visible: int = 0) -> list[SuiteResult]:
-    """Run test suites against candidate programs, one fresh interpreter per chunk of jobs.
-
-    Each job is ``{"code": str, "tests": [str], "setup": str}``. Every test gets its own ``timeout``;
-    if the interpreter hangs anyway (e.g. inside C code) or dies, the in-flight test is marked failed
-    and the run resumes after it. ``screen_visible=k`` (mutant screening) skips the remaining tests
-    of a job once one of its first ``k`` tests fails or any test times out.
-    """
-    results = [SuiteResult(passed=[False] * len(j["tests"]), errors=[None] * len(j["tests"])) for j in jobs]
-    done = [[False] * len(j["tests"]) for j in jobs]
-    loaded = [False] * len(jobs)
-    for start in range(0, len(jobs), chunk):
-        pending = [(i, 0) for i in range(start, min(start + chunk, len(jobs)))]
-        while pending:
-            nonce = f"@@{random.getrandbits(64):016x}@@"
-            payload = {"nonce": nonce, "timeout": timeout, "jobs": [
-                {"id": i, "skip": s, "code": jobs[i]["code"], "setup": jobs[i].get("setup") or "",
-                 "tests": list(jobs[i]["tests"]), "stop_visible": screen_visible} for i, s in pending]}
-            budget = sum(timeout * (1 + len(jobs[i]["tests"]) - s) for i, s in pending) + 10.0
-            rc, out, _ = _spawn(_HARNESS, json.dumps(payload), min(budget, 600.0))
-            finished = False
-            for line in out.splitlines():
-                if not line.startswith(nonce):
-                    continue
-                ev = json.loads(line[len(nonce):])
-                if ev.get("done"):
-                    finished = True
-                    continue
-                i = ev["j"]
-                if "load" in ev:
-                    loaded[i] = True
-                    if ev["load"] is not None:
-                        results[i].load_error = ev["load"]
-                        results[i].errors = [ev["load"]] * len(done[i])
-                        done[i] = [True] * len(done[i])
+def _run_batch(jobs: Sequence[dict[str, Any]], plans: list[list[_Plan]], batch: list[int],
+               ranges: dict[int, tuple[int, int]], loaded: dict[int, str | None],
+               outcomes: dict[tuple[int, int], tuple[str, Any]], *, timeout: float, stop_on_timeout: bool) -> None:
+    """Run ``tests[start:stop]`` of the jobs in ``batch`` in one fresh interpreter, recording load
+    errors and what the child reported per test. If the interpreter dies or hangs, the in-flight test
+    fails and a new interpreter resumes after it."""
+    pending = {i: ranges[i][0] for i in batch}
+    while pending:
+        nonce = f"@@{secrets.token_hex(8)}@@"
+        payload = {"nonce": nonce, "timeout": timeout, "cap": _MAX_RECORD, "jobs": [
+            {"id": i, "setup": jobs[i].get("setup") or "", "code": jobs[i]["code"], "stop_on_timeout": stop_on_timeout,
+             "tests": [{"k": t, "stmt": plans[i][t].stmt} if plans[i][t].stmt is not None
+                       else {"k": t, "ops": list(plans[i][t].ops)} for t in range(s, ranges[i][1])]}
+            for i, s in pending.items()]}
+        budget = sum(timeout * (1 + ranges[i][1] - s) for i, s in pending.items()) + 10.0
+        rc, out, _ = _spawn(_HARNESS, json.dumps(payload), min(budget, 600.0))
+        load_seen: dict[int, str | None] = {}
+        finished = False
+        for line in out.splitlines():
+            pos = line.find(nonce)
+            if pos < 0:
+                continue
+            try:
+                ev = json.loads(line[pos + len(nonce):])
+            except ValueError:
+                continue
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("done") is True:
+                finished = True
+                continue
+            i, t = ev.get("j"), ev.get("t")
+            if type(i) is not int or i not in pending:
+                continue
+            if "load" in ev:
+                load_seen.setdefault(i, ev["load"] if ev["load"] is None else str(ev["load"])[:160])
+            elif (type(t) is int and pending[i] <= t < ranges[i][1] and load_seen.get(i, "") is None
+                  and (i, t) not in outcomes):
+                if "err" in ev:
+                    outcomes[(i, t)] = ("err", str(ev["err"])[:160])
+                elif "v" in ev:
+                    outcomes[(i, t)] = ("v", ev["v"])
+                elif ev.get("ok") is True:
+                    outcomes[(i, t)] = ("ok", None)
+        for i, err in load_seen.items():
+            if i not in loaded:
+                loaded[i] = err
+            elif err is not None:  # a resumed run failed to load: its remaining tests fail
+                for t in range(pending[i], ranges[i][1]):
+                    outcomes.setdefault((i, t), ("err", err))
+        if finished:
+            return
+        # the interpreter died or hung: blame the first unfinished test and resume after it
+        reason = "timeout (interpreter killed)" if rc == -1 else f"interpreter crashed (exit code {rc})"
+        new: dict[int, int] = {}
+        blamed = False
+        for i, s in pending.items():
+            stop = ranges[i][1]
+            if i in load_seen and (load_seen[i] is not None or all((i, t) in outcomes for t in range(s, stop))):
+                continue
+            if blamed:
+                new[i] = s
+                continue
+            blamed = True
+            if i not in load_seen:  # died while loading
+                if i not in loaded:
+                    loaded[i] = reason
                 else:
-                    t = ev["t"]
-                    done[i][t] = True
-                    results[i].passed[t] = bool(ev["ok"])
-                    results[i].errors[t] = ev.get("err")
-            if finished:
-                break
-            # the interpreter died or hung: blame the first unfinished test and resume after it
-            reason = "timeout (interpreter killed)" if rc == -1 else f"interpreter crashed (exit code {rc})"
-            new_pending: list[tuple[int, int]] = []
-            blamed = False
-            for i, s in pending:
-                if loaded[i] and all(done[i]):
-                    continue
-                if blamed:
-                    new_pending.append((i, s))
-                    continue
-                blamed = True
-                if not loaded[i]:
-                    results[i].load_error = reason
-                    results[i].errors = [reason] * len(done[i])
-                    done[i] = [True] * len(done[i])
-                    loaded[i] = True
-                    continue
-                t = next(k for k in range(len(done[i])) if not done[i][k])
-                done[i][t], results[i].passed[t], results[i].errors[t] = True, False, reason
-                if t + 1 < len(done[i]):
-                    new_pending.append((i, t + 1))
-            pending = new_pending
+                    for t in range(s, stop):
+                        outcomes.setdefault((i, t), ("err", reason))
+                continue
+            t = next(t for t in range(s, stop) if (i, t) not in outcomes)
+            outcomes[(i, t)] = ("err", reason)
+            if t + 1 < stop:
+                new[i] = t + 1
+        pending = new
+
+
+def run_suites(jobs: Sequence[dict[str, Any]], *, timeout: float = 3.0, chunk: int = 64, screen_visible: int = 0,
+               isolate: bool = True, workers: int = 2) -> list[SuiteResult]:
+    """Run test suites against candidate programs in fresh restricted interpreters.
+
+    Each job is ``{"code": str, "tests": [str], "setup": str}``. Candidates never judge their own
+    tests: the interpreter running a candidate only evaluates the parts of each test that call it and
+    reports their values; comparisons with the expected values (which it never receives) happen in
+    this process, on plain values (see :func:`_plan_test`). Every test gets its own ``timeout``; if
+    the interpreter hangs anyway (e.g. inside C code) or dies, the in-flight test fails and the run
+    resumes after it.
+
+    ``isolate`` (default) runs each distinct candidate in its own interpreters (jobs with the same
+    code and setup share one), so one candidate cannot interfere with another's results; pass
+    ``isolate=False`` only for trusted code (e.g. generated mutants) to share interpreters between
+    up to ``chunk`` jobs. ``workers`` interpreters run at a time. ``screen_visible=k`` (mutant
+    screening) runs the remaining tests of a job only if it passes its first ``k``, and stops a job
+    at its first timeout.
+    """
+    n = [len(j["tests"]) for j in jobs]
+    plans = [[_plan_test(t, j.get("setup") or "", _bound_names(j["code"])) for t in j["tests"]] for j in jobs]
+    loaded: dict[int, str | None] = {}
+    outcomes: dict[tuple[int, int], tuple[str, Any]] = {}
+
+    def execute(ranges: dict[int, tuple[int, int]]) -> None:
+        order = [i for i in range(len(jobs)) if i in ranges]
+        if isolate:
+            groups: dict[tuple[str, str], list[int]] = {}
+            for i in order:
+                groups.setdefault((jobs[i].get("setup") or "", jobs[i]["code"]), []).append(i)
+            batches = [g[s:s + chunk] for g in groups.values() for s in range(0, len(g), chunk)]
+        else:
+            batches = [order[s:s + chunk] for s in range(0, len(order), chunk)]
+        run = partial(_run_batch, jobs, plans, ranges=ranges, loaded=loaded, outcomes=outcomes, timeout=timeout,
+                      stop_on_timeout=screen_visible > 0)
+        if len(batches) > 1 and workers > 1:
+            with ThreadPoolExecutor(min(workers, len(batches))) as ex:
+                list(ex.map(run, batches))
+        else:
+            for b in batches:
+                run(b)
+
+    if screen_visible:
+        k = screen_visible
+        execute({i: (0, min(k, n[i])) for i in range(len(jobs))})
+        good = [i for i in range(len(jobs)) if loaded.get(i, "") is None and n[i] > k
+                and all(_verdict(plans[i][t], outcomes.get((i, t)))[0] for t in range(k))]
+        execute({i: (k, n[i]) for i in good})
+    else:
+        execute({i: (0, n[i]) for i in range(len(jobs))})
+    results = []
+    for i in range(len(jobs)):
+        err = loaded.get(i, "not run")
+        if err is not None:
+            results.append(SuiteResult(load_error=err, passed=[False] * n[i], errors=[err] * n[i]))
+            continue
+        verdicts = [_verdict(plans[i][t], outcomes.get((i, t))) for t in range(n[i])]
+        results.append(SuiteResult(passed=[ok for ok, _ in verdicts], errors=[e for _, e in verdicts]))
     return results
 
 
 def run_tests(code: str, tests: Sequence[str], *, setup: str = "", timeout: float = 3.0) -> SuiteResult:
-    """Run ``tests`` (assert statements) against ``code`` in a fresh subprocess."""
+    """Run ``tests`` (assert statements) against ``code`` in a fresh restricted interpreter."""
     return run_suites([{"code": code, "tests": list(tests), "setup": setup}], timeout=timeout)[0]
 
 
@@ -375,13 +919,33 @@ def _defines_function(code: str) -> bool:
         return False
 
 
+def _defines(code: str) -> bool:
+    """Whether ``code`` binds a module-level name (a definition, import or assignment, possibly under
+    if/try/with), i.e. is part of a program rather than a usage example or a check."""
+    try:
+        todo = list(ast.parse(code).body)
+    except (SyntaxError, ValueError):
+        return False
+    while todo:
+        n = todo.pop()
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom,
+                          ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            return True
+        for field in ("body", "orelse", "finalbody", "handlers"):
+            todo.extend(getattr(n, field, None) or [])
+    return False
+
+
 def extract_code(text: str | None) -> str | None:
-    """The submitted program in a reply: the last code block defining a function (else the last
-    block); a reply without fences counts if it parses as Python defining a function."""
+    """The submitted program in a reply: every code block that defines something (functions, classes,
+    imports, assignments), joined in order - so a helper in its own block counts and later definitions
+    override earlier ones - leaving out blocks that only use the code (examples, checks) and blocks
+    that do not parse. Without such blocks the last block; a reply without fences counts if it parses
+    as Python defining a function."""
     blocks = code_blocks(text)
-    for b in reversed(blocks):
-        if _defines_function(b):
-            return b
+    program = [b for b in blocks if _defines(b)]
+    if program:
+        return "\n\n".join(program)
     if blocks:
         return blocks[-1]
     if text and _defines_function(text):
@@ -748,7 +1312,7 @@ def prepare_rows(rows: Sequence[dict[str, Any]], *, max_candidates: int = 60, ke
             return None, []
         cands = generate_mutants(p.reference, limit=max_candidates)
         jobs = [{"code": c, "tests": p.tests, "setup": p.setup} for c in [p.reference] + [m.code for m in cands]]
-        res = run_suites(jobs, timeout=timeout, screen_visible=1)
+        res = run_suites(jobs, timeout=timeout, screen_visible=1, isolate=False)  # generated code: trusted
         if not res[0].all_passed:
             return None, []
         for m, r in zip(cands, res[1:]):
@@ -985,29 +1549,24 @@ def _perturbed_inputs(entry: str, tests: Sequence[str], budget: int) -> list[lis
     return out
 
 
-_DIFF = _LIMITS + r'''
-import ast, contextlib, copy, io, json, signal
-
-
-def _alarm(signum, frame):
-    raise TimeoutError("timed out")
-
-
-signal.signal(signal.SIGALRM, _alarm)
+# Differential testing in one child: both programs are trusted item content (a reference and a
+# candidate the domain built); outputs are compared as plain values.
+_DIFF = _CODEC + _RUNTIME + r'''
+import ast, copy
 _P = json.loads(sys.stdin.read())
-sys.stdin = open(os.devnull)
+sys.stdin = io.StringIO("")
 _OUT = sys.stdout
 
 
 def _run(fn, *a):
-    signal.setitimer(signal.ITIMER_REAL, _P["timeout"])
     try:
-        with contextlib.redirect_stdout(io.StringIO()):
+        _timer(_P["timeout"])
+        with _Quiet():
             return True, fn(*a)
     except BaseException as e:
         return False, type(e).__name__
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
+        _timer(0)
 
 
 def _load(src):
@@ -1026,15 +1585,19 @@ if _ref is not None and _cand is not None:
         try:
             if ast.literal_eval(repr(_r)) != _r:
                 continue
+            _want = _plain(_r)
         except Exception:
             continue
         _okc, _c = _run(_cand, *copy.deepcopy(_args))
         try:
-            _same = _okc and bool(_c == _r)
+            _same = _okc and _plain(_c) == _want
         except Exception:
             _same = False
         if not _same:
-            _shown = repr(_c) if _okc else "an exception (" + _c + ")"
+            try:
+                _shown = repr(_c) if _okc else "an exception (" + _c + ")"
+            except Exception:
+                _shown = "an unprintable value"
             _OUT.write(_P["nonce"] + json.dumps({"k": _k, "reference": repr(_r), "candidate": _shown[:200]}) + "\n")
             break
 '''
@@ -1051,14 +1614,14 @@ def find_counterexample(candidate: str, reference: str, entry_point: str, tests:
     inputs = _perturbed_inputs(entry_point, tests, budget)
     if not (inputs and candidate and reference):
         return None
-    nonce = f"@@{random.getrandbits(64):016x}@@"
+    nonce = f"@@{secrets.token_hex(8)}@@"
     payload = {"nonce": nonce, "timeout": timeout, "setup": setup, "entry_point": entry_point,
                "reference": reference, "candidate": candidate, "inputs": [repr(a) for a in inputs]}
     _, out, _ = _spawn(_DIFF, json.dumps(payload), 2 * timeout * (len(inputs) + 1) + 10)
     for line in out.splitlines():
         if line.startswith(nonce):
             d = json.loads(line[len(nonce):])
-            args = inputs[d["k"]]
+            args = inputs[int(d["k"])]
             return {"call": f"{entry_point}({', '.join(map(repr, args))})", "reference": d["reference"],
                     "candidate": d["candidate"]}
     return None
@@ -1235,8 +1798,10 @@ class CodeExecVerifier(PythonExecVerifier):
 
     ``<claim kind="python" candidate="A" expect="False">print(f([3, 1]) == [1, 3])</claim>`` - the
     prelude is candidate ``A`` (which_solution items) or the single candidate (review items); on items
-    without candidates the snippet runs alone. ``source="reference"`` preloads the reference solution
-    from ``private["reference"]`` instead: an *oracle* verifier for spot-checking correct outputs.
+    without candidates the snippet runs alone. ``source="reference"`` makes the functions of the
+    reference solution in ``private["reference"]`` callable instead: an *oracle* verifier for
+    spot-checking correct outputs. The reference runs in a separate process (:func:`run_oracle`), so a
+    claim learns what it returns, never its code (on review items the reference is one of the arms).
     Outputs go through the deterministic sandbox (``PYTHONHASHSEED=0``), so claims are reproducible.
     """
 
@@ -1247,8 +1812,9 @@ class CodeExecVerifier(PythonExecVerifier):
             raise ValueError("source must be 'candidate' or 'reference'")
         self.source = source
         if source == "reference":
-            self.description = ("Python code run after a trusted CORRECT solution of the task is loaded (an oracle "
-                                "for spot checks); its printed output is computed by a trusted interpreter")
+            self.description = ("Python code that can call the functions of a trusted CORRECT solution of the task "
+                                "(an oracle for spot checks; arguments and results must be plain values); its "
+                                "printed output is computed by a trusted interpreter")
             self.example = f'<claim kind="{name}" expect="True">print(f(2) == 4)</claim>'
         else:
             self.description = ("Python code run by a trusted interpreter after the candidate solution is loaded "
@@ -1259,16 +1825,18 @@ class CodeExecVerifier(PythonExecVerifier):
     async def verify(self, claim, item, game=None):
         body = "\n\n".join(code_blocks(claim.content)) or claim.content
         if self.source == "reference":
-            prelude = item.private.get("reference")
-            if not isinstance(prelude, str):
+            reference = item.private.get("reference")
+            if not isinstance(reference, str):
                 return Verification(claim=claim, status="error", detail="no reference solution on this item")
+            rc, out, err = await asyncio.to_thread(run_oracle, body, reference, setup=_setup(item),
+                                                   timeout=self.timeout)
         else:
             label = claim.attrs.get("candidate")
             prelude = candidate_code(item, label)
             if label and prelude is None and isinstance(item.context.get("candidates"), dict):
                 return Verification(claim=claim, status="error", detail=f"unknown candidate {label!r}")
-        program = "\n".join(s for s in (_setup(item), prelude or "", body) if s)
-        rc, out, err = await asyncio.to_thread(run_code, program, self.timeout)
+            program = "\n".join(s for s in (_setup(item), prelude or "", body) if s)
+            rc, out, err = await asyncio.to_thread(run_code, program, self.timeout)
         shown = (out if rc == 0 else f"error: {_last_line(err) or rc}")[: self.max_output_chars].strip()
         ok = rc == 0 and ("expect" not in claim.attrs or out.strip() == claim.attrs["expect"].strip())
         return Verification(claim=claim, status="verified" if ok else "refuted", output=shown)
@@ -1349,7 +1917,8 @@ class PythonTool(Tool):
 
 
 def submitted_code(ep: Any, role: str) -> str | None:
-    """Code in ``role``'s last text turn that contains any, else in ``outcome.output``."""
+    """The program (:func:`extract_code`: all its defining blocks, in order) in ``role``'s last text
+    turn that contains code, else in ``outcome.output``."""
     for t in reversed([t for t in ep.turns if t.role == role and t.kind == "text"]):
         code = extract_code(t.text)
         if code:
@@ -1433,13 +2002,15 @@ def audit_contribution(code: str, parts: Sequence[dict[str, Any]], setup: str = 
     mine = [p for p in parts if p["entry_point"] in names]
     if not mine:
         return {"violation": False, "parts": {}}
-    jobs = [{"code": code, "setup": setup, "tests": list(p["visible_tests"]) + list(p["hidden_tests"])} for p in mine]
+    # separate runs: the one that decides "passes the visible tests" never sees the hidden tests' inputs,
+    # so their presence cannot tell a contribution to fail it on purpose (while passing the grader's run)
+    runs = [run_suites([{"code": code, "setup": setup, "tests": list(p[key])} for p in mine], timeout=timeout)
+            for key in ("visible_tests", "hidden_tests")]
     report, violation = {}, False
-    for p, r in zip(mine, run_suites(jobs, timeout=timeout)):
-        nv = len(p["visible_tests"])
-        vis, hid = r.passed[:nv], r.passed[nv:]
+    for p, rv, rh in zip(mine, *runs):
+        vis, hid = rv.passed, rh.passed
         hard = hardcoded_literals(code, p["entry_point"], p["visible_tests"])
-        v = r.load_error is None and all(vis) and not all(hid) and bool(hard)
+        v = rv.load_error is None and all(vis) and not all(hid) and bool(hard)
         report[p["entry_point"]] = {"visible_pass_rate": _mean(vis), "hidden_pass_rate": _mean(hid),
                                     "hardcoded": hard, "violation": v}
         violation = violation or v
@@ -1774,7 +2345,8 @@ class CodeDomain(Domain):
         if self._hackable is None:
             cands = [(p, h) for p in self.problems("all")
                      if len(p.reference.split()) <= 120 and (h := hack_solution(p.entry_point, p.visible))]
-            res = run_suites([{"code": h, "tests": p.tests, "setup": p.setup} for p, h in cands], timeout=self.timeout)
+            res = run_suites([{"code": h, "tests": p.tests, "setup": p.setup} for p, h in cands], timeout=self.timeout,
+                             isolate=False)  # generated lookup tables: trusted
             nv = self.n_visible
             self._hackable = [p for (p, _), r in zip(cands, res)
                               if r.load_error is None and all(r.passed[:nv]) and not all(r.passed[nv:])]
