@@ -105,11 +105,16 @@ def _style(ax, t) -> None:
     ax.title.set_color(t["ink"])
 
 
-def _title(ax, t, title: str, subtitle: str | None = None) -> None:
+def _title(ax, t, title: str, subtitle: str | None = None, width: int = 84) -> None:
+    import textwrap
+
+    lines = textwrap.wrap(subtitle, width) if subtitle else []
     if title:
-        ax.set_title(title, loc="left", fontsize=10.5, color=t["ink"], fontweight="bold", pad=18 if subtitle else 8)
-    if subtitle:
-        ax.text(0, 1.02, subtitle, transform=ax.transAxes, fontsize=8.5, color=t["ink2"], va="bottom", ha="left")
+        ax.set_title(title, loc="left", fontsize=10.5, color=t["ink"], fontweight="bold",
+                     pad=8 + 12 * len(lines))
+    if lines:
+        ax.text(0, 1.02, "\n".join(lines), transform=ax.transAxes, fontsize=8.5, color=t["ink2"], va="bottom",
+                ha="left", linespacing=1.3)
 
 
 def figure_svg(fig: plt.Figure, tooltips: dict[str, str]) -> str:
@@ -327,7 +332,8 @@ def threshold_curves(df: pd.DataFrame, *, x: str, y: str, series: str, title: st
             tips[gid] = f"{series}={name}: {ylabel or y} {_fmt(row[y])} at {xlabel or x} {row[x]:g}"
     if vline is not None:
         ax.axvline(vline, color=t["base"], linewidth=0.8)
-        ax.text(vline, 1.01, vline_label, transform=ax.get_xaxis_transform(), fontsize=7.5, color=t["ink2"], ha="center", va="bottom")
+        ax.text(vline, 0.98, vline_label + " ", transform=ax.get_xaxis_transform(), fontsize=7.5, color=t["ink2"],
+                ha="right", va="top")
     # region meanings go in the subtitle: in-plot annotations collide with the curves
     region = "; ".join(x for x in (below, above) if x)
     if region:

@@ -1,0 +1,18 @@
+# ASD across protocols in the synthetic persuasion world (runs offline, no API keys).
+name: asd-synthetic
+seed: 0
+domain: {name: synthetic, n_items: 40, hint_strength: 0.4}
+policies:
+  expert: {synthetic: arguer, honest_mean: 0.8, dishonest_mean: 0.3, sd: 0.7, claim_rate: 0.6, lie_claim_rate: 0.8}
+  judge: {synthetic: judge, skill: 1.0}
+mechanisms:
+  - {name: direct}
+  - {name: propaganda, affordances: {agents: [answer_key]}}
+  - {name: consultancy, rounds: 2, affordances: {agents: [answer_key]}}
+  - {name: debate, rounds: 2, affordances: {agents: [answer_key]}}
+  - {name: debate, rounds: 2, label: debate+verified, affordances: {agents: [answer_key]}, verification: {verifiers: [fact]}}
+experiment:
+  type: asd
+  agent: expert
+  fixtures: {judge: judge}
+  arms: [true, false]

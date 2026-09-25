@@ -322,6 +322,9 @@ class LLMPolicy(Policy):
         if self.elicitation == "logprobs" and self.model.supports_logprobs:
             m = _append_user(msgs, format_instructions(request, "logprobs"))
             out = await ctx.generate(self.model, m, self._options(temperature=0.0, max_tokens=3, logprobs=True, top_logprobs=20))
+            if out.metadata.get("simulated"):  # dry run: keep the real call pattern (one call, no vote fallback)
+                return Action(text=out.text, probs={o: 1 / len(opts) for o in opts}, parse_ok=False,
+                              metadata={"elicitation": "logprobs", "simulated": True})
             p = probs_from_logprobs(out.logprobs, opts)
             if p is not None:
                 return Action(text=out.text, probs=p, metadata={"elicitation": "logprobs"})

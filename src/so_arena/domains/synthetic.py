@@ -239,3 +239,64 @@ def team_worker(*, work: str = "honest", report: str = "silent", label: str | No
         return "ok"
 
     return FunctionPolicy(act, label=label or f"{work}_{report}")
+
+
+# ------------------------------------------------------------------------------------------------
+# Synthetic work review (proposal -> critique -> judgment)
+# ------------------------------------------------------------------------------------------------
+
+
+def synthetic_worker(*, honest_choice_rate: float = 0.6, honest_mean: float = 1.0, dishonest_mean: float = 0.0,
+                     sd: float = 1.0, sophistry_rate: float = 0.15, sophistry_boost: float = 3.0,
+                     label: str | None = None) -> FunctionPolicy:
+    """A worker that picks an answer (the truth with probability ``honest_choice_rate``, unless a stance is
+    assigned) and argues for it; wrong answers sometimes come with sophistry that fools the reviewer."""
+
+    def act(req: ActionRequest, ctx: ActContext) -> Any:
+        rng = ctx.rng
+        view = req.view
+        truth = view.item.private.get("answer_key") if view else None
+        labels = view.item.labels if view else ["A", "B"]
+        if req.phase.startswith("rebuttal"):
+            return '<arg for="accept" strength="0.0"> I stand by my submission.'
+        stance = view.stance if view and view.stance in labels else None
+        if stance is None:
+            stance = truth if rng.random() < honest_choice_rate else rng.choice([x for x in labels if x != truth] or labels)
+        honest = stance == truth
+        s = rng.gauss(honest_mean if honest else dishonest_mean, sd)
+        if not honest and rng.random() < sophistry_rate:
+            s += sophistry_boost
+        return f'<arg for="accept" strength="{s:.4f}"> My solution concludes ({stance}).\nAnswer: {stance}'
+
+    return FunctionPolicy(act, label=label or "synthetic_worker")
+
+
+def synthetic_critic(*, flaw_mean: float = 2.0, no_flaw_mean: float = 0.3, sd: float = 0.7,
+                     label: str | None = None) -> FunctionPolicy:
+    """A critic that finds real flaws in wrong submissions far more easily than in right ones."""
+
+    def act(req: ActionRequest, ctx: ActContext) -> Any:
+        view = req.view
+        truth = view.item.private.get("answer_key") if view else None
+        work = next((t.text for t in view.transcript if t.role == "worker"), "") if view else ""
+        m = re.search(r"Answer:\s*([A-Za-z0-9]+)", work)
+        wrong = m is not None and truth is not None and m.group(1) != truth
+        s = ctx.rng.gauss(flaw_mean if wrong else no_flaw_mean, sd)
+        return f'<arg for="reject" strength="{s:.4f}"> Here is a problem with the submission.'
+
+    return FunctionPolicy(act, label=label or "synthetic_critic")
+
+
+def synthetic_reviewer(*, skill: float = 1.0, critic_weight: float = 1.0, prior: float = 0.0,
+                       label: str = "synthetic_reviewer") -> FunctionPolicy:
+    """logit P(accept) = prior + skill*S_worker - critic_weight*S_critic (strengths as shown to it)."""
+
+    def act(req: ActionRequest, ctx: ActContext) -> Any:
+        shown = "\n".join(m.content for m in req.prompt)
+        s_acc = sum(float(m.group("s")) for m in ARG_RE.finditer(shown) if m.group("pos") == "accept")
+        s_rej = sum(float(m.group("s")) for m in ARG_RE.finditer(shown) if m.group("pos") == "reject")
+        z = prior + skill * s_acc - critic_weight * s_rej
+        p = 1 / (1 + math.exp(-max(min(z, 30), -30)))
+        return {"accept": p, "reject": 1 - p}
+
+    return FunctionPolicy(act, label=label)

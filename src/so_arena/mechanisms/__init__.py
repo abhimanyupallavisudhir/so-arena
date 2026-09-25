@@ -22,10 +22,11 @@ def register_mechanism(cls: type[Mechanism], name: str | None = None) -> type[Me
     return cls
 
 
-def get_mechanism(name: str, **config) -> Mechanism:
-    if name not in MECHANISMS:
-        raise KeyError(f"unknown mechanism {name!r}; available: {sorted(MECHANISMS)}")
-    return MECHANISMS[name](**config)
+def get_mechanism(mechanism: str, /, **config) -> Mechanism:
+    """Instantiate a registered mechanism; ``config`` may include ``name=`` to label this variant."""
+    if mechanism not in MECHANISMS:
+        raise KeyError(f"unknown mechanism {mechanism!r}; available: {sorted(MECHANISMS)}")
+    return MECHANISMS[mechanism](**config)
 
 
 __all__ = [
