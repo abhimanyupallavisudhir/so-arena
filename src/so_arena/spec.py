@@ -190,6 +190,9 @@ def _reference_errors(spec: Spec, kind: str) -> list[str]:
         elif "model" in beh:
             valid = (_params(LLMPolicy.__init__) or set()) | {"model", "arms"}
             errs.extend(_unknown("key in experiment.behaviours", k, valid) for k in beh if k not in valid)
+            arms = beh.get("arms")
+            if arms is not None and (not isinstance(arms, list) or not all(isinstance(a, str) for a in arms)):
+                errs.append(f"experiment.behaviours.arms takes a list of the domain's behaviour labels, got {arms!r}")
         else:
             for label, ref in beh.items():
                 player(ref, f"experiment.behaviours.{label}")
@@ -227,6 +230,20 @@ def _mechanism_errors(entries: list[dict[str, Any]]) -> list[str]:
 
 def _invalid(source: str, errs: list[str]) -> SpecError:
     return SpecError(f"{source}: invalid spec\n  - " + "\n  - ".join(errs))
+
+
+def _paired_arm_errors(dom: Any, beh: Mapping[str, Any]) -> list[str]:
+    """Labels a paired experiment's behaviours name that the domain lacks - its scripted arms, or the
+    behaviour prompts ``arms:`` selects - checked once the domain is built (a label is never dropped)."""
+    if "scripted" in beh:
+        what, where, labels, have = "scripted arm", "experiment.behaviours.scripted", beh["scripted"], dom.scripted_arms()
+    elif "model" in beh and beh.get("arms") is not None:
+        what, where, labels, have = "behaviour", "experiment.behaviours.arms", beh["arms"], dom.behaviours()
+    else:
+        return []
+    if not labels:
+        return [f"{where} lists no arms (the {dom.name} domain has: {', '.join(sorted(have)) or 'none'})"]
+    return [_unknown(f"{dom.name} {what} in {where}", a, have) for a in labels if not isinstance(a, str) or a not in have]
 
 
 def check_spec(spec: Spec, *, source: str = "spec") -> None:
@@ -441,6 +458,8 @@ def run_spec(spec: Spec, *, out: str | Path | None = None, limit: int | None = N
     store = RunStore(run_dir)
     dom_kw = dict(spec.domain)
     dom = get_domain(dom_kw.pop("name"), **dom_kw)
+    if spec.experiment.get("type") == "paired" and (errs := _paired_arm_errors(dom, spec.experiment["behaviours"])):
+        raise _invalid("spec", errs)  # before anything is written to the run directory
     load_kw = dict(spec.items)
     if limit is not None:
         load_kw["limit"] = limit
@@ -570,11 +589,8 @@ def run_spec(spec: Spec, *, out: str | Path | None = None, limit: int | None = N
 
         fixtures = _resolve_players(spec, exp.get("fixtures", {}))
         beh = exp["behaviours"]
-        if "scripted" in beh:
+        if "scripted" in beh:  # labels checked by _paired_arm_errors
             arms = dom.scripted_arms()
-            unknown = [m for m in beh["scripted"] if m not in arms]
-            if unknown:
-                raise SpecError(f"domain {dom.name!r} has no scripted arms {unknown}; available: {sorted(arms)}")
             behaviours = {m: arms[m]() for m in beh["scripted"]}
         elif "model" in beh:
             b = dict(beh)

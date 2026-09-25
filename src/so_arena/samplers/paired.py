@@ -230,8 +230,15 @@ def run_work(items: Sequence[TaskItem], **kwargs: Any) -> list[Episode]:
 
 
 def _report(ep: Episode, role: str) -> str:
-    """The role's last message as others saw it (marker tags neutralized, verified claims annotated)."""
-    return next((t.shown or t.text for t in reversed(ep.turns) if t.role == role and t.text), "")
+    """The role's report as others saw it: its work-phase message (else its last one) with marker tags
+    neutralized and claims annotated. A turn's shown text is empty when the display dropped all of it
+    (``strip_unverified``); only a turn that was never rendered (no shown text, no verifications) falls
+    back to its raw text - escaped, so a forged ``<verified>`` never reaches the reviewer."""
+    t = ep.last_turn(role, "work") or next((t for t in reversed(ep.turns) if t.role == role and t.phase.startswith("work")), None)
+    t = t or next((t for t in reversed(ep.turns) if t.role == role and t.text), None)
+    if t is None:
+        return ""
+    return t.shown if t.shown or t.verifications else neutralize_markers(t.text)
 
 
 def review_items(work_episodes: Sequence[Episode], items: Sequence[TaskItem], *, role: str = "worker",
