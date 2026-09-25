@@ -159,7 +159,11 @@ and return it from `Domain.environment()`; `domain.context(states=...)` wires it
   environment's tools (read-only ones, marked `readonly = True`, for read access).
 * **Claims about the work** use state verifiers (`uses_state = True`: `verify()` runs with a scratch copy
   of the claimant's result as the current workspace), e.g. `CommandClaimVerifier`,
-  `ProtectedCommandVerifier(command, protected=("tests",))`, `QueryClaimVerifier(db)`.
+  `ProtectedCommandVerifier(command, protected=("tests",))`, `QueryClaimVerifier(db)`. A protected
+  check's exit status is no evidence (the code under test can call `sys.exit(0)`), so its runner must
+  confirm success: take the per-run token first thing
+  (`token = os.environ.pop("SO_ARENA_CHECK_TOKEN", None)`, before importing code under test) and print
+  `so-arena-check-ok <token>` only once every check passed (see `domains/repo.py`'s runner).
 * **Ground truth** audits `ep.final_state` (`core.state.final_view(ep, ctx)` or
   `episode_store(ep, ctx).view(...)`), e.g. hidden tests run on a scratch copy
   (`store.scratch(ep.final_state)`), or the environment's hidden ledger.
