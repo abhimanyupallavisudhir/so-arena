@@ -93,12 +93,26 @@ def _cmd_release(a: argparse.Namespace) -> int:
     try:
         man = release_run(a.run_dir, a.out, title=a.title or Path(a.run_dir).name, notes=a.notes or "",
                           private_keys=a.keep_private or (), public_labels=a.public_labels,
-                          exclude_restricted=a.exclude_restricted)
+                          exclude_restricted=a.exclude_restricted, sealed=a.sealed, private_dir=a.private_dir)
     except ValueError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    print(f"released {man.n_episodes} episodes on {man.n_items} items -> {a.out}")
+    print(f"released {man.n_episodes} episodes on {man.n_items} items -> {a.out}"
+          + (f" (sealed: openings in {a.private_dir or a.out.rstrip('/') + '.private'} - keep them private until "
+             "`so-arena reveal`)" if a.sealed else ""))
     print(f"commitment digest: {man.digest}  (publish it: `so-arena verify {a.out} --digest <digest>` checks against it)")
+    return 0
+
+
+def _cmd_reveal(a: argparse.Namespace) -> int:
+    from so_arena.release import reveal
+
+    try:
+        out = reveal(a.release_dir, a.private_dir, items=a.item)
+    except (ValueError, OSError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    print(f"revealed {out['revealed']} leaves, {out['sealed']} still sealed" + (" (complete)" if out["complete"] else ""))
     return 0
 
 
@@ -194,12 +208,18 @@ def _cmd_list(a: argparse.Namespace) -> int:
 
 def _cmd_demo(a: argparse.Namespace) -> int:
     from so_arena import demos
+    from so_arena.domains.chess import find_stockfish
 
     fns = {"asd": demos.demo_asd, "optimization": demos.demo_optimization, "swarm": demos.demo_swarm,
            "work": demos.demo_work, "monitoring": demos.demo_monitoring, "hiddenbits": demos.demo_hiddenbits,
-           "bon_budget": demos.demo_bon_budget, "release": demos.demo_release}
+           "bon_budget": demos.demo_bon_budget, "release": demos.demo_release, "chess": demos.demo_chess}
     names = list(fns) if a.name == "all" else [a.name]
     for n in names:
+        if n == "chess" and find_stockfish() is None:
+            print("chess: skipped - needs Stockfish (install it or set SO_ARENA_STOCKFISH)", file=sys.stderr)
+            if a.name == "chess":
+                return 1
+            continue
         out = fns[n](Path(a.out) / n)
         print(f"{n}: {out / 'report.html'}")
     return 0
@@ -244,7 +264,16 @@ def main(argv: list[str] | None = None) -> int:
                     help="publish profile names, tags and behaviour labels (only if not defined relative to the truth)")
     rl.add_argument("--exclude-restricted", action="store_true",
                     help="leave out items whose licence forbids publication instead of refusing")
+    rl.add_argument("--sealed", action="store_true",
+                    help="publish only per-item commitments (commit now, reveal later with `so-arena reveal`)")
+    rl.add_argument("--private-dir", help="where a sealed release keeps its openings (default: <out>.private)")
     rl.set_defaults(fn=_cmd_release)
+
+    rv = sub.add_parser("reveal", help="open a sealed release: publish its openings, all or item by item")
+    rv.add_argument("release_dir")
+    rv.add_argument("--private-dir", help="the openings' directory (default: <release_dir>.private)")
+    rv.add_argument("--item", action="append", help="reveal only this item (repeatable; default: everything)")
+    rv.set_defaults(fn=_cmd_reveal)
 
     v = sub.add_parser("verify", help="check a release against its manifest and the published digest")
     v.add_argument("release_dir")
@@ -268,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
 
     d = sub.add_parser("demo", help="run offline demos (synthetic domains, no API keys)")
     d.add_argument("name", nargs="?", default="all", choices=["all", "asd", "optimization", "swarm", "work", "monitoring",
-                                                             "hiddenbits", "bon_budget", "release"])
+                                                             "hiddenbits", "bon_budget", "release", "chess"])
     d.add_argument("--out", default="runs/demos")
     d.set_defaults(fn=_cmd_demo)
 

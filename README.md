@@ -44,7 +44,7 @@ Python ≥ 3.11. Chess ground truth uses Stockfish (`apt install stockfish`).
 Offline demos (no API keys):
 
 ```bash
-so-arena demo            # writes runs/demos/{asd,optimization,swarm,work,monitoring,release}/report.html
+so-arena demo            # writes runs/demos/{asd,optimization,swarm,work,monitoring,release,...}/report.html (chess: needs Stockfish)
 so-arena run configs/asd_synthetic.yaml
 ```
 
@@ -83,7 +83,7 @@ simulated models that prices every call).
 | **Domains** | synthetic persuasion, team, monitoring & forecasting worlds, HiddenBits disclosure (exact Bayesian judges), chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY; stateful: repository work with hidden tests, a simulated software company |
 | **Stateful work** | forkable content-addressed state (files, SQLite, mail, ledgers, hidden environment state), a branch per decision and per best-of-N sample, reviewer dossiers of diffs, read/write access per role (and per decision), trusted tool-call records and agent-editable action logs, paired-branch experiments (work once, review many) |
 | **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, Lean statement structure, Lean typechecking, fact checkers, hidden bits) under per-mechanism claim or cost budgets, verification noise (forged-but-realistic errors), and rules for who sees verdicts and how |
-| **Deferred ground truth** | release mechanism results with a SHA-256 commitment; resolve and score when the truth arrives |
+| **Deferred ground truth** | release mechanism results with a SHA-256 commitment, or sealed (per-item commitments and Merkle proofs, revealed later); resolve and score when the truth arrives |
 | **Infrastructure** | Inspect backend (all providers), response cache, dry-run cost simulation, model registry, resumable run stores, YAML specs (any registered reward rule, verifier or scorer), CLI, self-contained HTML reports, a browser rating interface for human judges with time budgets, a filesystem sandbox that keeps agent code away from hidden state and hidden tests, Inspect task export, ControlArena bridge, GEPA backend for prompt search |
 
 ## Documentation
@@ -115,8 +115,10 @@ simulated models that prices every call).
 | verified claims: only a sceptical judge makes a lone advocate's disclosure unravel | best-of-N moves a liar's lies beyond the verification budget |
 | ![released](docs/figures/release_proxy.png) | ![resolved](docs/figures/release_resolved.png) |
 | released before resolution: a judge's rating rewards extreme forecasts | resolved: the proper log score penalizes them |
+| ![chess honest](docs/figures/chess_honest.png) | ![chess cherry-picked](docs/figures/chess_cherry_pick.png) |
+| chess: honest verified lines rescue trapped shallow judges | cherry-picked (still legal) lines mislead a consultant's judge; debate recovers part |
 
-Full demo reports (self-contained HTML): [ASD across protocols](docs/reports/asd.html) · [optimization pressure](docs/reports/optimization.html) · [swarms](docs/reports/swarm.html) · [stateful work](docs/reports/work.html) · [monitoring](docs/reports/monitoring.html) · [verified claims](docs/reports/hiddenbits.html) · [best-of-N vs. a verification budget](docs/reports/bon_budget.html) · [release now, resolve later](docs/reports/release.html). The demos use synthetic domains or scripted agents, so they illustrate the machinery, not findings about language models.
+Full demo reports (self-contained HTML): [ASD across protocols](docs/reports/asd.html) · [optimization pressure](docs/reports/optimization.html) · [swarms](docs/reports/swarm.html) · [stateful work](docs/reports/work.html) · [monitoring](docs/reports/monitoring.html) · [verified claims](docs/reports/hiddenbits.html) · [best-of-N vs. a verification budget](docs/reports/bon_budget.html) · [release now, resolve later](docs/reports/release.html) · [chess: engine experts vs. shallow judges](docs/reports/chess.html). The demos use synthetic domains or scripted agents, so they illustrate the machinery, not findings about language models.
 
 ## Tests
 

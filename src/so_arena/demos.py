@@ -21,6 +21,9 @@ same experiments for real (see ``configs/`` and ``docs/experiments.md``).
 * :func:`demo_release` - release now, resolve later: forecasts rewarded by a judge's immediate rating are
   released before the questions resolve, then resolved; the rating proxy is not a proper score
   (Proposition 5): extremizing forecasters top the released ranking and trail after resolution.
+* :func:`demo_chess` - a real capability gap (needs Stockfish): engine-backed advocates with honest or
+  cherry-picked verified lines, and minimax judges whose search depth is their strength, on puzzle
+  positions that trap the judge alone; plus the debaters' argument-style game.
 """
 
 from __future__ import annotations
@@ -905,8 +908,198 @@ def demo_release(out: str | Path = "runs/demo_release", n_items: int = 400, conf
     return out
 
 
-def run_all(out: str | Path = "runs/demos") -> list[Path]:
+CHESS_STYLES = {"honest": "honest lines", "cherry_pick": "cherry-picked lines"}
+CHESS_PROTOCOLS = {"direct": "judge alone", "consultancy": "consultancy", "debate": "debate"}
+
+
+def demo_chess(out: str | Path = "runs/demo_chess", judge_depths: tuple[int, ...] = (1, 2, 3), trap_depth: int = 2,
+               advocate_depth: int = 10, n_all: int | None = None, game_depth: int = 2) -> Path:
+    """A real capability gap: engine-backed advocates and shallow-search judges on Lichess puzzles (needs Stockfish).
+
+    Items are the bundled ``which_move`` puzzles; the *trapped* ones are those where an :func:`engine_judge` of
+    depth ``trap_depth``, alone, prefers the worse move (``ChessDomain(trap_depth=...)``). Advocates
+    (:func:`engine_advocate`, depth ``advocate_depth``) argue for their assigned move with ``chess_line`` claims,
+    which the legal-line rule checks (legality only - no evaluation): honest principal variations, or
+    cherry-picked lines in which one side plays a plausible but poor move. Judges of each depth in
+    ``judge_depths`` run minimax over the verified lines they were shown. Judge accuracy and ASD with 95%
+    bootstrap CIs over positions, on the trapped positions and on ``n_all`` (default: all) positions of the sample; and
+    the empirical game between a truthful and a lying debater choosing their argument style (judge depth
+    ``game_depth``). Raises :class:`~so_arena.domains.chess.EngineUnavailable` without Stockfish.
+    """
+    from so_arena.analysis.metrics import asd, judge_accuracy
+    from so_arena.domains.chess import ChessDomain, EngineUnavailable, engine_advocate, engine_judge, find_stockfish
+    from so_arena.games import NormalFormGame
+    from so_arena.games.egta import EmpiricalGameExperiment
+    from so_arena.mechanisms import Consultancy, Debate, DirectJudge
+    from so_arena.samplers.arms import ASDExperiment
+
+    if find_stockfish() is None:
+        raise EngineUnavailable("demo_chess needs Stockfish: install it or set SO_ARENA_STOCKFISH")
     out = Path(out)
-    return [demo_asd(out / "asd"), demo_optimization(out / "optimization"), demo_swarm(out / "swarm"),
+    figs = _figures(out)
+    dom = ChessDomain()
+    ctx, gt = dom.context(), dom.ground_truth_scorers()
+    sets = {"trapped": ChessDomain(trap_depth=trap_depth).load(), "all": dom.load(limit=n_all)}
+    advocates = {s: engine_advocate(style=s, depth=advocate_depth) for s in CHESS_STYLES}
+    ver = soa.VerificationPolicy(verifiers=["chess_line"])
+    rows, sample, n_eps = [], [], 0
+
+    def run(mechs, items, agent, judge):
+        nonlocal n_eps
+        exp = ASDExperiment(mechs, items, agent=agent, fixtures={"judge": judge}, ctx=ctx, ground_truth=gt)
+        eps = exp.run()
+        n_eps += len(eps)
+        if any(e.error for e in eps):
+            raise RuntimeError(next(e.error for e in eps if e.error))
+        acc = judge_accuracy(exp.frame()).set_index("mechanism")
+        a = asd(exp.frame()).set_index("mechanism")
+        return eps, [(m, acc.loc[m], a.loc[m]) for m in acc.index]
+
+    for set_name, items in sets.items():
+        for d in judge_depths:
+            judge = engine_judge(depth=d)
+            conds = [("alone", [DirectJudge()], advocates["honest"])]
+            conds += [(s, [Consultancy(rounds=2, verification=ver), Debate(rounds=2, verification=ver)], advocates[s])
+                      for s in CHESS_STYLES]
+            for style, mechs, agent in conds:
+                eps, res = run(mechs, items, agent, judge)
+                if set_name == "trapped" and d == trap_depth and style != "alone":
+                    sample += [e for e in eps if e.mechanism == "debate"][:4] + [e for e in eps if e.mechanism == "consultancy"][:2]
+                for m, acc, a in res:
+                    rows.append({"positions": set_name, "judge_depth": d, "protocol": CHESS_PROTOCOLS[m],
+                                 "lines": "none" if m == "direct" else CHESS_STYLES[style], "accuracy": acc["accuracy"],
+                                 "acc_ci_low": acc["acc_ci_low"], "acc_ci_high": acc["acc_ci_high"], "asd": a["asd"],
+                                 "asd_ci_low": a["ci_low"], "asd_ci_high": a["ci_high"], "n_positions": int(acc["n_items"])})
+    table = pd.DataFrame(rows)
+    table.to_csv(out / "chess_accuracy.csv", index=False)
+
+    def series(set_name: str, style: str) -> pd.DataFrame:
+        d = table[table.positions == set_name]
+        w = pd.DataFrame({"judge_depth": list(judge_depths)})
+        for prot in CHESS_PROTOCOLS.values():
+            dp = d[(d.protocol == prot) & (d.lines == ("none" if prot == "judge alone" else CHESS_STYLES[style]))]
+            dp = dp.set_index("judge_depth").loc[list(judge_depths)]
+            w[prot], w[f"{prot} lo"], w[f"{prot} hi"] = (dp["accuracy"].to_numpy(), dp["acc_ci_low"].to_numpy(),
+                                                         dp["acc_ci_high"].to_numpy())
+        return w
+
+    def acc_of(set_name: str, protocol: str, style: str | None, depth: int = trap_depth) -> float:
+        lines = "none" if style is None else CHESS_STYLES[style]
+        d = table[(table.positions == set_name) & (table.protocol == protocol) & (table.lines == lines)
+                  & (table.judge_depth == depth)]
+        return float(d["accuracy"].iloc[0]) if len(d) else math.nan
+
+    n_trapped = len(sets["trapped"])
+    charts = {}
+    for style, what in CHESS_STYLES.items():
+        kw = dict(x="judge_depth", ys=list(CHESS_PROTOCOLS.values()),
+                  bands={p: (f"{p} lo", f"{p} hi") for p in CHESS_PROTOCOLS.values()}, ylim=(-0.03, 1.03),
+                  xticks=list(judge_depths),
+                  xlabel="judge's search depth (plies)", ylabel="judge accuracy",
+                  title=f"Trapped judges with {what}",
+                  subtitle=f"{n_trapped} positions where a depth-{trap_depth} judge alone picks the worse move; "
+                           f"advocates: Stockfish depth {advocate_depth}; bands: 95% CI over positions"
+                           + ("; consultancy and debate show the same lines and coincide" if style == "honest" else ""))
+        plots.line_chart(series("trapped", style), **kw).save(figs / f"chess_{style}.png")
+        charts[style] = (series("trapped", style), kw)
+
+    # the argument-style game: a truthful and a lying debater each choose honest or cherry-picked lines
+    styles = list(CHESS_STYLES)
+    strategies = {s: advocates[s] for s in styles}
+    games = []
+    for truthful, liar in (("debater_a", "debater_b"), ("debater_b", "debater_a")):
+        exp = EmpiricalGameExperiment(Debate(rounds=2, verification=ver), sets["trapped"],
+                                      {"debater_a": strategies, "debater_b": strategies},
+                                      fixtures={"judge": engine_judge(depth=game_depth)},
+                                      stances={truthful: "true", liar: "false"}, ctx=ctx, ground_truth=gt)
+        eps = exp.run()
+        n_eps += len(eps)
+        if any(e.error for e in eps):
+            raise RuntimeError(next(e.error for e in eps if e.error))
+        g = exp.game()
+        order = (0, 1) if truthful == "debater_a" else (1, 0)  # axes as (truthful, liar)
+        games.append((np.transpose(g.payoffs[truthful], order), np.transpose(g.payoffs[liar], order),
+                      np.transpose(g.outcomes["judge_correct"], order)))
+    pay_t, pay_l, acc_g = (np.mean([gm[k] for gm in games], axis=0) for k in range(3))
+    game = NormalFormGame(["truthful debater", "lying debater"], {"truthful debater": styles, "lying debater": styles},
+                          {"truthful debater": pay_t, "lying debater": pay_l}, outcomes={"judge accuracy": acc_g},
+                          name="argument styles")
+    eq_rows = []
+    for mixed in game.support_enumeration():
+        eq_rows.append({"truthful debater": ", ".join(f"{s} {p:.2f}" for s, p in zip(styles, mixed[0]) if p > 1e-9),
+                        "lying debater": ", ".join(f"{s} {p:.2f}" for s, p in zip(styles, mixed[1]) if p > 1e-9),
+                        "truthful payoff": game.expected(mixed, player="truthful debater"),
+                        "liar payoff": game.expected(mixed, player="lying debater"),
+                        "judge accuracy": game.expected(mixed, key="judge accuracy")})
+    cells = pd.DataFrame([{"truthful": CHESS_STYLES[a], "liar": CHESS_STYLES[b], "accuracy": acc_g[i, j],
+                           "truthful payoff": pay_t[i, j], "liar payoff": pay_l[i, j]}
+                          for i, a in enumerate(styles) for j, b in enumerate(styles)])
+    tips = {(r["liar"], r["truthful"]): f"(truthful debater's reward {r['truthful payoff']:.2f}, liar's {r['liar payoff']:.2f})"
+            for r in cells.to_dict("records")}
+    kw_game = dict(x="liar", y="truthful", value="accuracy", vmin=0.0, vmax=1.0, tip_extra=tips, decimals=2,
+                   order_x=list(CHESS_STYLES.values()), order_y=list(CHESS_STYLES.values()),
+                   title="Argument styles in debate: judge accuracy",
+                   subtitle=f"{n_trapped} trapped positions, depth-{game_depth} judge, both side assignments",
+                   xlabel="lying debater's lines", ylabel="truthful debater's lines", value_label="judge accuracy")
+    plots.heatmap(cells, **kw_game).save(figs / "chess_style_game.png")
+    cells.to_csv(out / "style_game.csv", index=False)
+
+    rep = Report("Chess: engine experts vs. shallow judges",
+                 "Lichess puzzles, Stockfish-backed advocates, minimax judges of dialable depth (demo)")
+    rep.kpis({"episodes": n_eps, "trapped positions": n_trapped, "all positions": len(sets["all"]),
+              "judge depths": ", ".join(map(str, judge_depths)), "advocate depth": advocate_depth})
+    rep.section("Honest verified lines", charts=plots.dual_mode(plots.line_chart, charts["honest"][0], **charts["honest"][1]),
+                info=f"On positions chosen so that a depth-{trap_depth} judge alone picks the worse move, advocates "
+                     "show the engine's principal variations as chess_line claims. The legal-line rule only checks "
+                     "legality, so the judge still has to evaluate the ends of the lines with its own shallow search - "
+                     "but the lines take it past the horizon where the trap was. Whichever side an advocate argues, "
+                     "its honest lines show why the better move is better.")
+    rep.section("Cherry-picked verified lines", charts=plots.dual_mode(plots.line_chart, charts["cherry_pick"][0],
+                                                                       **charts["cherry_pick"][1]),
+                info="Every cherry-picked line is legal, so every claim is verified - yet in each one a side plays a "
+                     "plausible but poor move (the opponent's worst plausible reply after the advocate's move; the "
+                     f"mover's worst follow-up after the opposing move). With a depth-{trap_depth} judge, a lone "
+                     f"consultant's cherry-picks leave it {acc_of('trapped', 'consultancy', 'cherry_pick'):.2f} accurate "
+                     f"on the trapped positions, and on the whole sample they pull it from "
+                     f"{acc_of('all', 'judge alone', None):.2f} alone down to {acc_of('all', 'consultancy', 'cherry_pick'):.2f}: "
+                     "verified is not the same as representative. In debate the opponent's lines expose many "
+                     f"cherry-picks, since the judge takes the best reply it was shown ({acc_of('trapped', 'debate', 'cherry_pick'):.2f} "
+                     f"and {acc_of('all', 'debate', 'cherry_pick'):.2f}).")
+    rep.section("All settings", table=table.round(3),
+                note="Judge accuracy and ASD (log score) with 95% bootstrap CIs over positions. 'all' is "
+                     f"{len(sets['all'])} positions of the bundled sample (the judge alone is mostly right there, so "
+                     "the question is whether arguments make it worse); 'trapped' the positions where the "
+                     f"depth-{trap_depth} judge alone is wrong - by construction its accuracy there is 0. With honest "
+                     "lines consultancy and debate coincide: principal variations do not depend on who shows them, so "
+                     "the judge is shown the same two lines either way.")
+    rep.section("The argument-style game", charts=plots.dual_mode(plots.heatmap, cells, **kw_game),
+                table=pd.DataFrame(eq_rows).round(3),
+                info="Debate with a truthful and a lying debater, each choosing honest or cherry-picked lines; payoffs "
+                     "are the debaters' rewards (log score of the judge's probability on their answer), averaged over "
+                     "both side assignments. The table lists the Nash equilibria of this empirical game and the "
+                     "judge's accuracy under each.")
+    rep.episodes(sample, title=f"Sample episodes (trapped positions, depth-{trap_depth} judge)")
+    rep.raw("<p>No language model is involved: advocates are Stockfish searches with a fixed argument style and "
+            "judges are minimax over the lines they were shown with a shallow Stockfish search at the leaves (see "
+            "<code>domains.chess.engine_advocate</code> and <code>engine_judge</code>). Ground truth is the bundled "
+            "deep Stockfish analysis. The demo shows the machinery on a real capability gap; it is not a finding "
+            "about language models.</p>")
+    rep.write(out / "report.html")
+    return out
+
+
+def run_all(out: str | Path = "runs/demos") -> list[Path]:
+    import logging
+
+    from so_arena.domains.chess import find_stockfish
+
+    out = Path(out)
+    done = [demo_asd(out / "asd"), demo_optimization(out / "optimization"), demo_swarm(out / "swarm"),
             demo_work(out / "work"), demo_monitoring(out / "monitoring"), demo_hiddenbits(out / "hiddenbits"),
             demo_bon_budget(out / "bon_budget"), demo_release(out / "release")]
+    if find_stockfish() is None:
+        logging.getLogger("so_arena").warning("skipping demo_chess: Stockfish not found (install it or set "
+                                              "SO_ARENA_STOCKFISH)")
+    else:
+        done.append(demo_chess(out / "chess"))
+    return done

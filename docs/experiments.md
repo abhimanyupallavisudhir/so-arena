@@ -299,6 +299,28 @@ faithfulness; kinds `"faithful?"` and `"which_formalization"`; verifiers `lean_p
 and `lean` (typechecks when a Lean toolchain with Mathlib is installed); split results by
 `metadata["mutation"]`, and set the mutant mix - the difficulty dial - with `operator_weights=`).
 
+**Engine players: an exact capability gap without models** (*needs Stockfish*). `engine_advocate` argues for
+its move with `chess_line` claims - the engine's principal variations (`style="honest"`) or legal lines in
+which one side plays a plausible but poor move (`"cherry_pick"`); `engine_judge` runs minimax over the lines
+the verifier showed it, with its own search at the leaves: its `depth` is the judge's strength.
+`ChessDomain(trap_depth=d)` keeps the positions where the depth-$d$ judge alone picks the worse move:
+
+```python
+from so_arena.domains.chess import ChessDomain, engine_advocate, engine_judge
+
+trapped = ChessDomain(trap_depth=2).load()                       # the judge alone scores 0 here
+legal = soa.VerificationPolicy(verifiers=["chess_line"])         # legality only: the judge still evaluates
+ASDExperiment([DirectJudge(), Consultancy(rounds=2, verification=legal), Debate(rounds=2, verification=legal)],
+              trapped, agent=engine_advocate(style="cherry_pick", depth=10),
+              fixtures={"judge": engine_judge(depth=2)}, ctx=ChessDomain().context(),
+              ground_truth=ChessDomain().ground_truth_scorers()).run()
+```
+
+`engine_advocate(claim="chess_eval")` submits its lines to the budgeted engine verifier instead, and
+`engine_judge(use_evals=True)` takes the evaluations it reports at the ends of lines. `so-arena demo chess`
+compares judges of depth 1-3 alone, with honest and with cherry-picked lines (accuracy and ASD with CIs), and
+solves the debaters' argument-style game.
+
 **Disclosure theory as a testbed** (*offline demo*). `get_domain("hidden_bits")` hides $L$ bits behind a
 majority question, with a `bit` verifier, scripted advocates (`bit_advocate(claims=, lie_rate=, lie_first=,
 markup=, sample=)`) and exact Bayesian judges (`bayesian_bit_judge(trust=, sceptical=, disclosure_limit=)`)
@@ -469,6 +491,23 @@ resolve("releases/2026-09", fc.resolve, reward_rule=MarketScoringReward())   # s
 
 CLI: `so-arena release runs/x releases/x`, `so-arena verify releases/x --digest <published digest>`,
 `so-arena resolve releases/x --domain forecasting --market`.
+
+**Sealed releases** commit now and reveal later - for results that must not be seen before a date (they would
+move a market, or a judge could be tuned to them) but must provably be unedited. Only salted per-item
+commitments and their Merkle inclusion proofs are published; the digest is the Merkle root:
+
+```python
+from so_arena.release import inclusion_proof, reveal
+from so_arena.release.commit import verify_opening
+
+man = release(eps, items, "releases/x", sealed=True)   # openings go to releases/x.private - keep it private
+reveal("releases/x", items=["q17"])                     # item by item as questions resolve (or all: reveal(...))
+p = inclusion_proof("releases/x", "q17")               # anyone can check one item against the digest alone
+assert verify_opening(p["opening"], p["proof"], man.digest)
+```
+
+CLI: `so-arena release runs/x releases/x --sealed`, `so-arena reveal releases/x [--item ID]`; `verify` checks
+every revealed item against its commitment, and `resolve` scores what has been revealed.
 
 Immediate proxies can be released and then checked against resolution (`so-arena demo release`, Proposition 5):
 

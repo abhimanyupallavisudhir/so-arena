@@ -10,11 +10,14 @@ import tempfile
 from pathlib import Path
 
 from so_arena import demos
+from so_arena.domains.chess import find_stockfish
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 DEMOS = {"asd": demos.demo_asd, "optimization": demos.demo_optimization, "swarm": demos.demo_swarm,
          "work": demos.demo_work, "monitoring": demos.demo_monitoring, "hiddenbits": demos.demo_hiddenbits,
          "bon_budget": demos.demo_bon_budget, "release": demos.demo_release}
+if find_stockfish() is not None:  # the chess demo needs Stockfish
+    DEMOS["chess"] = demos.demo_chess
 
 if __name__ == "__main__":
     names = sys.argv[1:] or list(DEMOS)

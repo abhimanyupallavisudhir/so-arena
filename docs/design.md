@@ -42,7 +42,7 @@ attacking.
 
 A `Domain` supplies items plus the domain's **verifiers** (trusted claim checks), **tools** (private
 capabilities that create capability gaps) and **ground-truth scorers**. Built in: synthetic persuasion,
-team, monitoring and forecasting worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool),
+team, monitoring and forecasting worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool, engine-backed advocates and minimax judges of dialable depth),
 text-to-SQL over a private database, code with hidden tests (including a hackable team task), Lean
 statement faithfulness (miniF2F formalizations vs. single-edit mutants; a rules-only structure verifier),
 forecasting (Manifold; pending resolutions), QA sets (GSM8K, MMLU, TruthfulQA, GPQA, QuALITY with
@@ -115,9 +115,12 @@ workspace shells and test runs, candidate programs, executable claims, Lean chec
 view of the file system in which the temporary and home directories are empty except for its own
 working directory, everything else is read-only, the interpreter is visible, and no state store, work
 root, run directory, dataset, bundled sample, response cache or the experimenter's working directory is
-(`sandbox.hide(path)` adds more), with host processes invisible, no network and no capabilities. Backends are bubblewrap or unprivileged user namespaces (`unshare` + `setpriv`);
-where neither exists, agent code is refused unless the experimenter opts in
-(`SO_ARENA_ALLOW_UNSANDBOXED=1`). It is filesystem isolation for honest experiments, not a boundary
+(`sandbox.hide(path)` adds more), with host processes invisible, no network and no capabilities. Backends are bubblewrap or unprivileged user namespaces (`unshare` + `setpriv`),
+and - in containers without user namespaces - Landlock: a kernel-enforced allow-list (hidden directories inside
+visible ones are granted around) plus a seccomp filter for sockets, ptrace and namespaces. Where the kernel has
+Landlock it is also a second layer under the namespace backends. Where no backend exists, agent code is refused
+unless the experimenter opts in (`SO_ARENA_ALLOW_UNSANDBOXED=1`); a Landlock launcher that cannot confine its
+command refuses to run it rather than falling back. It is filesystem isolation for honest experiments, not a boundary
 against a determined attacker. The abstraction is backend-neutral: an environment backed by containers,
 git worktrees, Postgres/Neon or Dolt branches only has to implement forking and freezing.
 
@@ -245,7 +248,8 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
 * **Runs**: `RunStore` directories (items, append-only episodes, metrics, figures, report), resumable.
 * **Specs + CLI**: YAML experiment specs, whose reward rules, verifiers and scorers a registry builds from
   `{type: ...}` mappings (`so_arena.registry`); `so-arena run | estimate | report | release | verify | resolve | list | demo`.
-* **Releases**: ground-truth-free bundles with a SHA-256 commitment; later resolution and scoring.
+* **Releases**: ground-truth-free bundles with a SHA-256 commitment; later resolution and scoring. Sealed
+  releases publish only salted per-item commitments with Merkle inclusion proofs, and reveal items later.
 * **Integrations**: Inspect tasks (`integrations.inspect_task`), ControlArena (logs -> episodes,
   mechanisms as monitors, a sandbox-free toy setting), RL (step-wise `MechanismEnv`, TRL-style reward
   functions, rollout prompts, same-context preference pairs for DPO).
