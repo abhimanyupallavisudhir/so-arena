@@ -29,7 +29,7 @@ Robust parsing of structured answers out of free-form LLM text.
 - **`parse_choice`**`(text: 'str', options: 'list[str]', option_texts: 'dict[str, str] | None' = None, strict: 'bool' = False) -> 'str | None'` — The option an answer commits to. Explicit forms first (``ANSWER: B``, "the answer is (B)", "(B)"), then an exact option-text mention. Unless ``strict``, fall back to the last standalone option token (weak: prefer asking again, see :class:`LLMAgent`).
 - **`parse_distribution`**`(text: 'str', options: 'list[str]') -> 'dict[str, float] | None'` — Parse a probability distribution over options. Accepts JSON (``{"A": 0.7}``, nested under "probabilities", keys like "Option A", "(A)" or "A (Paris)"), and lines such as ``A: 70%``, ``**A**: 0.7``, ``- A (Paris): 0.8``, ``A) 70%``, ``A - 70%``, ``P(A) = 0.7``, ``"A": .65``. Percentages are detected per distribution. Returns None if nothing parses.
 - **`parse_json`**`(text: 'str') -> 'dict[str, Any] | None'`
-- **`parse_scalar`**`(text: 'str', lo: 'float', hi: 'float', name: 'str' = 'value') -> 'float | None'` — A number on the scale [lo, hi] from free text or JSON: a labelled value (``NAME: 7``, ``**NAME**: 3/10``, ``NAME = 70%``), else a JSON field, else the last number in range.
+- **`parse_scalar`**`(text: 'str', lo: 'float', hi: 'float', name: 'str' = 'value') -> 'float | None'` — A number on the scale [lo, hi] from free text or JSON: a labelled value (``NAME: 7``, ``**NAME**: 3/10``, ``NAME = 70%``, ``NAME: 8 out of 10``), else a JSON field, else the last number already in range. Out-of-range values that are not a recognisable percentage or fraction are ignored rather than rescaled.
 - **`split_thinking`**`(text: 'str') -> 'tuple[str, str | None]'` — Remove <thinking>...</thinking> (or scratchpad/think) blocks; return (public, private).
 
 ## `oversight_arena.agents.scripted`
@@ -116,9 +116,10 @@ Self-contained HTML report for a set of results (tables + figures + transcript b
 
 Statistics helpers: cluster (task-level) bootstrap and summaries.
 
-- **`bootstrap_ci`**`(values: 'Sequence[float] | np.ndarray', stat: 'Callable[[np.ndarray], float]' = <function mean at 0x7fa6645ddab0>, n_boot: 'int' = 2000, alpha: 'float' = 0....)` — Point estimate and percentile CI of ``stat`` over i.i.d. units (e.g. per-task values).
+- **`bootstrap_ci`**`(values: 'Sequence[float] | np.ndarray', stat: 'Callable[[np.ndarray], float]' = <function mean at 0x7fc05392a070>, n_boot: 'int' = 2000, alpha: 'float' = 0....)` — Point estimate and percentile CI of ``stat`` over i.i.d. units (e.g. per-task values).
 - **`cluster_bootstrap`**`(df: 'pd.DataFrame', cluster: 'str', fn: 'Callable[[pd.DataFrame], float]', n_boot: 'int' = 1000, alpha: 'float' = 0.05, seed: 'int' = 0) -> 'tuple[float, fl...)` — Bootstrap resampling whole clusters (tasks) — the right unit for per-task correlation.
 - **`fmt_ci`**`(est: 'float', lo: 'float', hi: 'float', digits: 'int' = 3) -> 'str'`
+- **`seed_ci`**`(values: 'Sequence[float] | np.ndarray', alpha: 'float' = 0.05) -> 'dict[str, float]'` — Mean of a quantity measured once per independent run (seed), with a Student-t CI and the observed range. NaN runs (quantity undefined, e.g. a threshold never reached) are dropped and counted in ``missing``; with a single run the CI is NaN.
 
 ## `oversight_arena.channels.evidence`
 
@@ -310,7 +311,7 @@ Code with hidden tests: an *execution* capability gap (HumanEval+ / MBPP+).
 - **`CodeProposal`** (class) — Open-ended code *generation* tasks (for proposer–critic / monitoring): the artifact is the proposer's code; GT = hidden tests (:class:`CodeArtifactGT`).
 - **`HiddenTestsCode`** (class) — HumanEval+ (default) or MBPP+ with generated subtle mutants.
 - **`RunVerifier`** (class) — ``<run>impl_A([1, 2])</run>`` → trusted execution output; ``<assert>expr</assert>`` checks.
-- **`check_expression`**`(expr: 'str') -> 'str | None'` — Why a ``<run>`` / ``<assert>`` expression is not allowed (None if it is). A verified claim must be *about* the task's implementations, so the expression may not rebind or patch them: no ``:=``, no private or dunder names and attributes, and calls only to ``impl_*``, lambdas, methods of values and plain builtins.
+- **`check_expression`**`(expr: 'str') -> 'str | None'` — Why a ``<run>`` / ``<assert>`` expression is not allowed (None if it is). A verified claim must be *about* the task's implementations, so the expression may not rebind or patch them: no private or dunder names and attributes, calls only to ``impl_*``, lambdas, methods of values and plain builtins, and no binding (lambda parameter, comprehension target, ``:=``) that shadows an ``impl_*`` name or a builtin the checker relies on — that would make the verdict be about a different value than the claim names.
 - **`doc_examples`**`(prompt: 'str') -> 'list[tuple[str, str]]'` — (call, expected) pairs from '>>>' doctest lines.
 - **`exec_tool`**`(resources: 'dict[str, Any]') -> 'Tool'`
 - **`mutants`**`(src: 'str', max_n: 'int' = 30, seed: 'int' = 0) -> 'list[tuple[str, str]]'` — Single-site mutants of ``src`` as (description, source).
@@ -336,7 +337,7 @@ Lean 4 / miniF2F: formal proofs checked by the kernel — and the question the k
 - **`LeanChecker`** (class)
 - **`LeanProofGT`** (class) — 1 iff the artifact proves *the given statement* (verbatim, no sorry/axioms) and the Lean kernel accepts it. Without the statement check a proof of ``True`` or of a weakened theorem would pass.
 - **`LeanVerifier`** (class)
-- **`LocalLean`** (class) — Run ``lake env lean`` on a temp file inside a Lean project that has Mathlib.
+- **`LocalLean`** (class) — Check code with ``lean`` from a local Lean project that has Mathlib.
 - **`MiniF2F`** (class)
 - **`kernel_check`**`(checker: 'LeanChecker', header: 'str', code: 'str', before: 'str' = '', after: 'str' = '') -> 'tuple[bool, str]'` — Static screen (:data:`FORBIDDEN`) of the untrusted ``code``, then the kernel on ``header + before + code + after`` (``before``/``after``: trusted checks), then an axiom audit: every theorem the code declares must depend only on the standard axioms (``#print axioms``).
 - **`nonstandard_axioms`**`(msg: 'str') -> 'set[str]'` — Axioms reported by ``#print axioms`` beyond Lean's standard three (e.g. ``sorryAx``).
@@ -346,6 +347,7 @@ Lean 4 / miniF2F: formal proofs checked by the kernel — and the question the k
 - **`split_statement`**`(stmt: 'str') -> 'tuple[str, str, str] | None'` — ``theorem NAME BINDERS : GOAL := sorry`` → (NAME, BINDERS, GOAL); None if unparseable.
 - **`statement_checks`**`(stmt: 'str', tag: 'str') -> 'tuple[str, str] | None'` — Trusted Lean text around a proof of ``stmt``: the statement elaborated as a definition *before* the proof (so notations or instances the proof declares cannot change its meaning), and an ``example`` after it that the declared theorem has exactly that type.
 - **`statement_head`**`(stmt: 'str') -> 'str'` — The statement without its placeholder proof (``:= sorry`` / ``:= by sorry``).
+- **`strip_lean_comments`**`(code: 'str') -> 'str'` — Blank out Lean comments (keeping line breaks) so that a ``theorem`` in a comment is not read as a declaration and a forbidden keyword in a comment is not a false positive.
 
 ## `oversight_arena.domains.math`
 
@@ -355,7 +357,9 @@ Math word problems with tool asymmetry (the ASD paper's GSM8K setting).
 - **`GSM8K`** (class) — GSM8K questions with one correct and one plausible incorrect answer (+ worked solutions).
 - **`calculator_tool`**`() -> 'Tool'`
 - **`fmt_number`**`(v: 'float') -> 'str'` — Numbers as a person would write them: integers without exponent, others to 10 significant digits.
-- **`safe_eval`**`(expr: 'str') -> 'float'` — Evaluate an arithmetic expression safely (numbers, + - * / // % **, a few functions).
+- **`normalize_arithmetic`**`(expr: 'str') -> 'str'` — Normalise how people write arithmetic into Python: ``^``→``**``, ``×``/``·``/``x``→``*``, thousands separators removed (``1,000``→``1000``, also inside calls like ``max(1,000, 5)``), currency symbols dropped, and a trailing ``%`` turned into ``/100`` (``50%``→``(50/100)``). A bare ``%`` with spaces around it stays modulo.
+- **`safe_eval`**`(expr: 'str') -> 'float'` — Evaluate an arithmetic expression safely (numbers, + - * / // % **, a few functions). Results are real numbers of bounded size: exponents above 100, integers beyond ~3000 digits (also through nested powers or products) and complex results raise ``ValueError``.
+- **`same_number`**`(a: 'Any', b: 'Any') -> 'bool'` — Equal up to rounding (relative 1e-6, absolute 1e-9); exact for integers beyond float range.
 
 ## `oversight_arena.domains.mcq`
 
@@ -458,9 +462,9 @@ Prompt (strategy) optimisation against a mechanism's rewards.
 - **`PromptOptimizer`** (class) — Search for strategies that maximise a role's mechanism reward.
 - **`ProposalContext`** (class) — ProposalContext(role: 'str', brief: 'str', domain: 'str', history: 'list[Candidate]', iteration: 'int', base: 'Strategy', steering: 'str | None' = None, examples: 'list[str]' = <factory>, evaluations: 'dict[str, Evaluation]' = <factory>, opponents: 'dict[str, list[tuple[str, float]]]' = <factory>)
 - **`Proposer`** (class)
-- **`is_score`**`(v: 'Any') -> 'bool'` — A usable score: not None and not NaN. Zero is a score (never test rewards by truthiness).
+- **`is_score`**`(v: 'Any') -> 'bool'` — A usable score: not None and not NaN. Zero is a score (never test rewards by truthiness). Catches NaN of any numeric type (Python float, numpy float32/64) via the ``v != v`` identity.
 - **`pareto_parent`**`(history: 'list[Candidate]', seed: 'int') -> 'Candidate'` — GEPA-style parent selection: sample among candidates that are best on some task, weighted by how many tasks they win.
-- **`ranked`**`(items: 'Sequence[Any]', key: 'Callable[[Any], Any]' = <function <lambda> at 0x7fa652d8ef20>) -> 'list[Any]'` — Items with a usable score, best first; items scored None/NaN are dropped.
+- **`ranked`**`(items: 'Sequence[Any]', key: 'Callable[[Any], Any]' = <function <lambda> at 0x7fc03febef20>) -> 'list[Any]'` — Items with a usable score, best first; items scored None/NaN are dropped.
 
 ## `oversight_arena.elicitation.rl`
 
@@ -469,7 +473,7 @@ Reinforcement learning under a mechanism.
 - **`MechanismEnv`** (class) — Turn-based text environment for training roles under a mechanism.
 - **`StrategyGradient`** (class) — Independent softmax-policy learners over strategy populations, trained on real episodes.
 - **`preference_pairs`**`(results: 'Any', role: 'str', gt: 'str' = 'correct', min_gap: 'float' = 0.0) -> 'pd.DataFrame'` — (prompt, chosen, rejected) pairs ranked by mechanism reward, with a column saying whether the ground truth agrees — the quality of the preference data this mechanism would feed to DPO/RLHF. Only episodes with the same context are paired (:func:`_pair_context`: mechanism configuration, task, the role's position, the other roles' strategies and samples), so a pair differs only in how ``role`` behaved. For a multi-turn role the texts are its whole turns.
-- **`reward_function`**`(domain: 'Domain', mechanism: 'Mechanism', role: 'str', fixtures: 'dict[str, Agent]', profile: 'Profile | None' = None) -> 'Any'` — A TRL-GRPO-compatible reward function for a *single-turn* trainable role.
+- **`reward_function`**`(domain: 'Domain', mechanism: 'Mechanism', role: 'str', fixtures: 'dict[str, Agent]', profile: 'Profile | None' = None, require_stance: 'bool' = True) -> 'Any'` — A TRL-GRPO-compatible reward function for a *single-turn* trainable role.
 
 ## `oversight_arena.elicitation.strategies`
 

@@ -474,7 +474,9 @@ def demo_monitoring(out: Path, n_tasks: int = 200, n_seeds: int = 6) -> list[Pat
                                 f"or covert (+{params.gain - params.hide_cost:g}, trace w.p. {params.d_covert:g}). Theory: overt→covert at "
                                 f"λ={th_row['overt_to_covert']:.2f}, deterred at λ={th_row['deterred']:.1f} for the log-reading monitor. "
                                 f"Simulated deterrence thresholds, mean over {n_seeds} seeds: {ci_note}."),
-                      figures=figs, tables={"Deterrence threshold across seeds": summary.round(3)})
+                      figures=figs, tables={"Deterrence threshold λ across seeds": summary.rename(columns={
+                          "mean": "mean", "ci_low": "95% CI low", "ci_high": "95% CI high",
+                          "missing": f"not deterred by λ = {lams[-1]:g}"}).round(3)})
     return [rep, *figs.values()]
 
 

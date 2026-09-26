@@ -40,7 +40,7 @@ CARDS = [
     ("monitoring", "Monitoring as a reward", "Penalising a real monitor's alarms buys obfuscation; a fixed-accuracy probe deters.",
      [("misbehaviour_vs_penalty.png", "monitoring_misbehaviour.png"), ("alarms_vs_penalty.png", "monitoring_alarms.png")],
      "Actor chooses honest / overt / covert misbehaviour; reward = measured success − λ·alarm; a log-reading monitor vs "
-     "simulated probes with fixed AUROC (docs/theory.md, Proposition 4)."),
+     "simulated probes with fixed AUROC (docs/theory.md, Proposition 4). Thresholds: means over 6 seeds with 95% CIs."),
     ("release", "Release now, resolve later", "A judge's released ranking rewarded overconfident forecasters; resolution favoured calibrated ones.",
      [("released_ranking.png", "release_ranking.png"), ("resolved_scores.png", "release_resolved.png")],
      "Judge-rated forecasts published (hash-committed) before questions resolve, then scored with the proper log score."),
