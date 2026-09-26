@@ -227,23 +227,43 @@ def _impls_prelude(task_resources: dict[str, Any]) -> str:
 
 _SAFE_CALLS = frozenset({
     "abs", "all", "any", "bool", "chr", "dict", "divmod", "enumerate", "filter", "float", "frozenset", "int",
-    "isinstance", "len", "list", "map", "max", "min", "ord", "pow", "range", "repr", "reversed", "round", "set",
-    "sorted", "str", "sum", "tuple", "zip",
+    "isinstance", "issubclass", "len", "list", "map", "max", "min", "ord", "pow", "range", "repr", "reversed",
+    "round", "set", "sorted", "str", "sum", "tuple", "type", "zip",
 })
+
+
+def _bound_names(node: ast.AST):
+    """Names a node introduces into scope (lambda parameters, comprehension / walrus targets)."""
+    if isinstance(node, ast.Lambda):
+        a = node.args
+        for arg in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg]:
+            if arg is not None:
+                yield arg.arg
+    elif isinstance(node, ast.comprehension):
+        for t in ast.walk(node.target):
+            if isinstance(t, ast.Name):
+                yield t.id
+    elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+        yield node.target.id
 
 
 def check_expression(expr: str) -> str | None:
     """Why a ``<run>`` / ``<assert>`` expression is not allowed (None if it is). A verified claim
     must be *about* the task's implementations, so the expression may not rebind or patch them:
-    no ``:=``, no private or dunder names and attributes, and calls only to ``impl_*``, lambdas,
-    methods of values and plain builtins."""
+    no private or dunder names and attributes, calls only to ``impl_*``, lambdas, methods of values
+    and plain builtins, and no binding (lambda parameter, comprehension target, ``:=``) that shadows
+    an ``impl_*`` name or a builtin the checker relies on — that would make the verdict be about a
+    different value than the claim names."""
     try:
         tree = ast.parse(expr, mode="eval")
     except SyntaxError as e:
         return f"not a Python expression ({e.msg})"
     for n in ast.walk(tree):
-        if isinstance(n, ast.NamedExpr):
-            return "assignment expressions (:=) are not allowed"
+        for name in _bound_names(n):
+            if name.startswith("impl_"):
+                return f"binding {name!r} would shadow an implementation"
+            if name in _SAFE_CALLS or name.startswith("_"):
+                return f"binding {name!r} would shadow a built-in name"
         if isinstance(n, ast.Attribute) and n.attr.startswith("_"):
             return f"attribute {n.attr!r} is not allowed"
         if isinstance(n, ast.Name) and n.id.startswith("_"):

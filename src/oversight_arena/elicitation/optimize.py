@@ -22,7 +22,6 @@ The optimiser only ever sees mechanism rewards and transcripts — never ground 
 from __future__ import annotations
 
 import json
-import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -58,8 +57,14 @@ class Candidate:
 
 
 def is_score(v: Any) -> bool:
-    """A usable score: not None and not NaN. Zero is a score (never test rewards by truthiness)."""
-    return v is not None and not (isinstance(v, float) and math.isnan(v))
+    """A usable score: not None and not NaN. Zero is a score (never test rewards by truthiness).
+    Catches NaN of any numeric type (Python float, numpy float32/64) via the ``v != v`` identity."""
+    if v is None:
+        return False
+    try:
+        return not v != v  # True for ordinary numbers; False for any NaN (float, numpy, Decimal('nan'))
+    except Exception:
+        return True
 
 
 def _nanmean(vs: Sequence[Any]) -> float:

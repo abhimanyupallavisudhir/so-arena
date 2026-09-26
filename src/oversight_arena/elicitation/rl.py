@@ -257,13 +257,24 @@ class MechanismEnv:
         return [{"role": m.role, "content": m.content} for m in render_observation(obs)]
 
 
+_STANCE_COLUMNS = ("strategy", "stance", "position")
+
+
+def _plain(v: Any) -> Any:
+    """A numpy scalar/str as a plain Python value (so a numpy dataset column is read correctly)."""
+    return v.item() if hasattr(v, "item") and not isinstance(v, (bytes, str)) else v
+
+
 def _row_assignment(i: int, kw: dict[str, Any]) -> Assignment | None:
     """The trainable role's assignment for completion ``i`` from per-row dataset columns:
-    ``strategy`` (a Strategy or its dict), ``stance`` (+ ``option`` for OPTION) or ``position``."""
+    ``strategy`` (a Strategy or its dict), ``stance`` (+ ``option`` for OPTION) or ``position``.
+    Columns may be any sequence (list, tuple, numpy array); values may be numpy scalars."""
 
     def col(k: str) -> Any:
         v = kw.get(k)
-        return v[i] if isinstance(v, (list, tuple)) and i < len(v) else None
+        if v is None or isinstance(v, (str, bytes)) or not hasattr(v, "__len__") or i >= len(v):
+            return None
+        return _plain(v[i])
 
     strat, stance, pos = col("strategy"), col("stance"), col("position")
     if strat is not None:
@@ -280,7 +291,7 @@ def _row_assignment(i: int, kw: dict[str, Any]) -> Assignment | None:
 
 
 def reward_function(domain: Domain, mechanism: Mechanism, role: str, fixtures: dict[str, Agent],
-                    profile: Profile | None = None) -> Any:
+                    profile: Profile | None = None, require_stance: bool = True) -> Any:
     """A TRL-GRPO-compatible reward function for a *single-turn* trainable role.
 
     Returns ``fn(prompts, completions, task_id=[...], **columns) -> list[float]``: each completion
@@ -289,12 +300,26 @@ def reward_function(domain: Domain, mechanism: Mechanism, role: str, fixtures: d
     scored at the position it argued: pass a ``stance`` column (``"correct"`` / ``"incorrect"``,
     or ``"option"`` with an ``option`` column), a ``position`` column (option id) or a
     ``strategy`` column. Build prompts with the same strategy (e.g. ``oa.argue(stance)``).
+
+    ``require_stance`` (default): raise if no such column is present and the profile does not bind
+    the role, rather than silently scoring every completion at the default position. Set it False
+    for a role with no assigned position (e.g. a forecaster, or a proposer scored on its output).
     """
     tasks = {t.id: t for t in domain.tasks()}
     base = profile or Profile()
 
+    from ..core.strategy import Stance
+
+    role_bound = role in base.assignments and (
+        base.assignments[role].position is not None or base.assignments[role].strategy.stance != Stance.FREE)
+
     def fn(prompts: list[Any], completions: list[Any], task_id: list[str] | None = None, **kw: Any) -> list[float]:
         assert task_id is not None, "pass task ids via the dataset column 'task_id'"
+        if require_stance and not role_bound and not any(k in kw for k in (*_STANCE_COLUMNS, "option")):
+            raise ValueError(
+                f"reward_function for role {role!r}: no way to tell which answer each completion argued. Pass a "
+                "'stance', 'position' or 'strategy' dataset column (see examples/rl_trl_grpo.py), or bind the role "
+                "in the profile. Without one every completion would be scored at the default position.")
 
         async def one(i: int, c: Any, tid: str) -> float:
             text = c if isinstance(c, str) else (c[-1]["content"] if isinstance(c, list) else str(c))

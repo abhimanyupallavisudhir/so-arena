@@ -195,8 +195,14 @@ def _rlimits(mem_mb, cpu_s, no_fork):
         resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))
 
 
-def confine(read_roots, write_roots, mem_mb=None, cpu_s=None, parent=None, no_fork=True, audit=True):
-    """Confine the current process (irreversibly). Returns the layers that are active."""
+def confine(read_roots, write_roots, mem_mb=None, cpu_s=None, parent=None, no_fork=True, audit=True,
+            require_kernel=False):
+    """Confine the current process (irreversibly). Returns the layers that are active.
+
+    ``require_kernel``: on Linux, refuse to continue (exit) if the kernel filesystem sandbox
+    (Landlock) did not activate, rather than falling back silently to the Python audit hook. This
+    is the safe default for running untrusted code; set ``OA_ALLOW_NO_KERNEL_SANDBOX=1`` to override
+    (only inside a container that already isolates the filesystem)."""
     layers = {}
     if parent is not None and sys.platform.startswith("linux"):
         ctypes, libc = _libc()
@@ -207,6 +213,15 @@ def confine(read_roots, write_roots, mem_mb=None, cpu_s=None, parent=None, no_fo
     write_roots = [os.path.realpath(p) for p in write_roots]
     layers["landlock"] = _landlock(read_roots, write_roots) if sys.platform.startswith("linux") else False
     layers["seccomp"] = _seccomp() if sys.platform.startswith("linux") else False
+    if require_kernel and sys.platform.startswith("linux") and not layers["landlock"] \
+            and os.environ.get("OA_ALLOW_NO_KERNEL_SANDBOX") != "1":
+        # fail closed: the audit hook alone is not enough to grade untrusted code (e.g. it cannot see
+        # readline reading /proc, and an old kernel or restricted container may lack Landlock)
+        sys.stderr.write("OA-SANDBOX-FAILOPEN: kernel filesystem sandbox (Landlock) unavailable; refusing to "
+                         "run untrusted code. Run inside a container and set OA_ALLOW_NO_KERNEL_SANDBOX=1 to override, "
+                         "or plug in your own executor with domains._exec.set_executor.\n")
+        sys.stderr.flush()
+        os._exit(3)
     _rlimits(mem_mb, cpu_s, no_fork)
     layers["rlimits"] = True
     if audit:
@@ -300,7 +315,7 @@ def install_audit_hook(read_roots, write_roots):
     DENY_PREFIX = ("ctypes.", "socket.", "urllib.", "http.", "ftplib.", "smtplib.", "poplib.", "imaplib.",
                    "nntplib.", "telnetlib.", "_winapi.", "winreg.", "msvcrt.")
     BLOCK_IMPORT = frozenset({"ctypes", "_ctypes", "_posixsubprocess", "_multiprocessing", "cffi", "_cffi_backend",
-                              "_posixshmem", "_dbm", "_gdbm"})
+                              "_posixshmem", "_dbm", "_gdbm", "readline", "rlcompleter"})
     READ1 = frozenset({"os.listdir", "os.scandir", "os.listxattr", "os.getxattr"})
     WRITE1 = frozenset({"os.chmod", "os.chown", "os.mkdir", "os.remove", "os.rmdir", "os.truncate", "os.utime",
                         "os.setxattr", "os.removexattr", "shutil.rmtree", "os.mkfifo", "os.mknod", "os.chflags",
@@ -345,11 +360,42 @@ def install_audit_hook(read_roots, write_roots):
                 check(db[5:].partition("?")[0] if db.startswith("file:") else db, True)
 
     sys.addaudithook(hook)
+    _guard_sqlite()
+
+
+def _guard_sqlite() -> None:
+    """Set an authorizer on every new sqlite connection that denies ATTACH and DETACH (action 24
+    also covers ``VACUUM INTO``), so a connection to an allowed database cannot reach another file.
+    Best-effort defence for when the kernel sandbox is unavailable (with Landlock the file open is
+    blocked anyway); no effect if sqlite3 is not importable."""
+    try:
+        import sqlite3
+        import sqlite3.dbapi2 as _dbapi
+    except Exception:
+        return
+    _deny = frozenset({24, 25})  # SQLITE_ATTACH, SQLITE_DETACH
+    _set = sqlite3.Connection.set_authorizer
+    _orig = sqlite3.connect
+
+    def authorizer(action, a1, a2, dbname, source):
+        return 1 if action in _deny else 0  # SQLITE_DENY / SQLITE_OK
+
+    def connect(*args, **kwargs):
+        con = _orig(*args, **kwargs)
+        try:
+            _set(con, authorizer)
+        except Exception:
+            pass
+        return con
+
+    sqlite3.connect = connect  # type: ignore[assignment]
+    _dbapi.connect = connect  # type: ignore[assignment]
 
 
 def run_confined(cfg, code):
     """Entry point of a single-process sandboxed run: confine, then execute ``code``."""
-    confine(cfg["read"], cfg["write"], cfg.get("mem_mb"), cfg.get("cpu_s"))
+    confine(cfg["read"], cfg["write"], cfg.get("mem_mb"), cfg.get("cpu_s"),
+            require_kernel=cfg.get("require_kernel", False))
     exec(compile(code, "<main>", "exec"), {"__name__": "__main__", "__builtins__": __builtins__})
 
 
@@ -540,7 +586,8 @@ def serve(cfg):
     for fd in (0, 1, 2):
         os.dup2(nul, fd)  # untrusted prints and input() never touch the protocol
     os.close(nul)
-    confine(cfg["read"], [os.getcwd()], cfg.get("mem_mb"), cfg.get("cpu_s"), parent=cfg.get("parent"))
+    confine(cfg["read"], [os.getcwd()], cfg.get("mem_mb"), cfg.get("cpu_s"), parent=cfg.get("parent"),
+            require_kernel=cfg.get("require_kernel", False))
     sys.path[:0] = list(cfg.get("path") or [])
     lines = _Lines(rfd)
 
@@ -663,7 +710,7 @@ class Untrusted:
     (readable too); ``budget``: seconds for the whole session.
     """
 
-    def __init__(self, read=(), path=(), budget=10.0, mem_mb=512, lib_source=None):
+    def __init__(self, read=(), path=(), budget=10.0, mem_mb=512, lib_source=None, require_kernel=True):
         import subprocess
         import tempfile
         import time
@@ -672,10 +719,12 @@ class Untrusted:
         self.dir = os.path.realpath(tempfile.mkdtemp(prefix="untrusted_"))
         self._importers = []
         cfg = {"read": default_read_roots(list(read) + list(path)), "path": [os.path.realpath(p) for p in path],
-               "mem_mb": mem_mb, "cpu_s": int(budget) + 1, "parent": os.getpid()}
+               "mem_mb": mem_mb, "cpu_s": int(budget) + 1, "parent": os.getpid(), "require_kernel": require_kernel}
         src = (lib_source or _lib_source()) + f"\nserve({cfg!r})\n"
         env = {"PATH": "/usr/bin:/bin", "HOME": self.dir, "TMPDIR": self.dir, "LANG": "C.UTF-8",
                "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
+        if os.environ.get("OA_ALLOW_NO_KERNEL_SANDBOX") == "1":
+            env["OA_ALLOW_NO_KERNEL_SANDBOX"] = "1"
         self.proc = subprocess.Popen([sys.executable, "-I", "-B", "-c", src], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=self.dir, env=env,
                                      close_fds=True)

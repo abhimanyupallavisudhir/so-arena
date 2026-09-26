@@ -59,12 +59,14 @@ GT_MAX_ROWS = 200_000  # ground truth compares whole results (never a prefix); l
 
 
 def _cell(x: Any) -> Any:
-    """Canonical cell: numbers compare by value (310 == 310.0, float noise below 1e-9 ignored)."""
+    """Canonical cell: an int compares to an equal-valued float (310 == 310.0), and float rounding
+    noise is ignored — but integers stay exact (12345678901 != 12345678902)."""
     if isinstance(x, bool) or x is None or isinstance(x, (str, bytes)):
         return x
-    if isinstance(x, (int, float)):
-        v = float(x)
-        return float(f"{v:.10g}") if math.isfinite(v) else v
+    if isinstance(x, int):
+        return float(x) if -(2**53) <= x <= 2**53 else x  # exact where a float can represent it, else keep the int
+    if isinstance(x, float):
+        return float(f"{x:.10g}") if math.isfinite(x) else x
     return x
 
 

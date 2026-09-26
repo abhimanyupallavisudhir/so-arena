@@ -31,7 +31,7 @@ def test_calc_verifier_accepts_true_claims():
         assert verify(v, claim).verified is True, claim
     for claim in ["12 * 7 = 85", "max(3, 5) = 3"]:
         assert verify(v, claim).verified is False, claim
-    assert safe_eval("max(100,200)") == 200  # commas inside calls separate arguments
+    assert safe_eval("max(100, 200)") == 200  # a comma with a space is an argument separator
     assert verify(v, "1234567 * 10").result == "= 12345670"  # no exponent notation for integers
 
 

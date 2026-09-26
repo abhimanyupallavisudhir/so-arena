@@ -60,7 +60,7 @@ def test_mechanism_env_and_rl_adapters():
         role, obs = env.step('<bit i="0">1</bit>')
         n += 1
     assert n == 2 and set(env.rewards) == {"debater_a", "debater_b"}
-    fn = reward_function(DOM, Propaganda(), "agent", fixtures={"judge": BayesianBitJudge(trust=0.9)})
+    fn = reward_function(DOM, Propaganda(), "agent", fixtures={"judge": BayesianBitJudge(trust=0.9)}, require_stance=False)
     vals = fn(["p", "p"], ['<bit i="1">1</bit>', '<bit i="1">0</bit>'], task_id=[DOM.tasks()[0].id] * 2)
     assert len(vals) == 2 and all(isinstance(v, float) for v in vals)
     res = oa.Experiment(DOM, Propaganda(), AGENTS, oa.Seeds(n=3, strategies={"agent": oa.Strategy(name="s", params={"sample": {"claims": (1, 4), "lie_rate": (0, 1)}})}), progress=False).run()

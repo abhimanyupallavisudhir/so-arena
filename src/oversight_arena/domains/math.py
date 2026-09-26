@@ -49,23 +49,23 @@ def safe_eval(expr: str) -> float:
             return _FUNCS[n.func.id](*[ev(a) for a in n.args])
         raise ValueError(f"unsupported expression: {ast.dump(n)[:60]}")
 
-    return ev(ast.parse(_drop_thousands_separators(expr.strip().replace("^", "**")), mode="eval"))
+    return ev(ast.parse(normalize_arithmetic(expr), mode="eval"))
 
 
-def _drop_thousands_separators(expr: str) -> str:
-    """``1,000`` → ``1000`` outside function calls; commas separating call arguments stay."""
-    out: list[str] = []
-    calls: list[bool] = []  # per open parenthesis: does it belong to a function call?
-    for i, ch in enumerate(expr):
-        if ch == "(":
-            prev = "".join(out).rstrip()
-            calls.append(bool(prev) and (prev[-1].isalnum() or prev[-1] == "_"))
-        elif ch == ")" and calls:
-            calls.pop()
-        elif ch == "," and not (calls and calls[-1]) and expr[i - 1:i].isdigit() and re.match(r"\d{3}(?!\d)", expr[i + 1:]):
-            continue
-        out.append(ch)
-    return "".join(out)
+def normalize_arithmetic(expr: str) -> str:
+    """Normalise how people write arithmetic into Python: ``^``→``**``, ``×``/``·``/``x``→``*``,
+    thousands separators removed (``1,000``→``1000``, also inside calls like ``max(1,000, 5)``),
+    currency symbols dropped, and a trailing ``%`` turned into ``/100`` (``50%``→``(50/100)``).
+    A bare ``%`` with spaces around it stays modulo."""
+    e = expr.strip().replace("^", "**").replace("×", "*").replace("·", "*")
+    e = re.sub(r"[$£€₹]", "", e)
+    # a percent sign directly after a number (no space) is 'percent'; "a % b" stays modulo
+    e = re.sub(r"(\d+(?:\.\d+)?)%", r"(\1/100)", e)
+    # 'x' as multiplication between numbers: 12 x 7, 12x7 (not inside identifiers like 'max')
+    e = re.sub(r"(?<=[\d)\s])[x](?=[\s(]*[\d.])", "*", e)
+    # thousands separators: a comma between a digit and exactly three digits (not a 4th)
+    e = re.sub(r"(?<=\d),(?=\d{3}(?:\D|$))", "", e)
+    return e
 
 
 def fmt_number(v: float) -> str:
@@ -105,18 +105,20 @@ class CalcVerifier(Verifier):
 
     async def verify(self, claim: Claim, env: VerifyEnv) -> Evidence:
         text = claim.content.strip().replace("==", "=")
+        # an expression the calculator cannot evaluate is *unverified* (None), never *refuted*:
+        # refuting means "computed, and the stated value is wrong", not "could not parse".
         if "=" in text:
             lhs, rhs = (x.strip() for x in text.rsplit("=", 1))
             try:
                 val, claimed = safe_eval(lhs), safe_eval(rhs)
-                ok = math.isclose(val, claimed, rel_tol=1e-6, abs_tol=1e-9)
-                return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"{lhs} = {fmt_number(val)}", verified=ok)
             except Exception as e:
-                return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"error: {e}", verified=False)
+                return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"could not evaluate: {e}", verified=None)
+            ok = math.isclose(val, claimed, rel_tol=1e-6, abs_tol=1e-9)
+            return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"{lhs} = {fmt_number(val)}", verified=ok)
         try:
             return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"= {fmt_number(safe_eval(text))}", verified=None)
         except Exception as e:
-            return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"error: {e}", verified=False)
+            return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"could not evaluate: {e}", verified=None)
 
     def forge(self, claim: Claim, shown: Evidence, env: VerifyEnv) -> Evidence:
         text = claim.content.strip().replace("==", "=")
