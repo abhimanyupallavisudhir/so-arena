@@ -57,6 +57,24 @@ def cluster_bootstrap(
     return (est, float(lo), float(hi))
 
 
+def seed_ci(values: Sequence[float] | np.ndarray, alpha: float = 0.05) -> dict[str, float]:
+    """Mean of a quantity measured once per independent run (seed), with a Student-t CI and the
+    observed range. NaN runs (quantity undefined, e.g. a threshold never reached) are dropped and
+    counted in ``missing``; with a single run the CI is NaN."""
+    from scipy import stats as st
+
+    x = np.asarray([np.nan if v is None else v for v in values], dtype=float)
+    missing = int(np.isnan(x).sum())
+    x = x[~np.isnan(x)]
+    nan = float("nan")
+    if len(x) == 0:
+        return {"mean": nan, "ci_low": nan, "ci_high": nan, "min": nan, "max": nan, "seeds": 0, "missing": missing}
+    m = float(x.mean())
+    half = float(st.t.ppf(1 - alpha / 2, len(x) - 1) * x.std(ddof=1) / np.sqrt(len(x))) if len(x) > 1 else nan
+    return {"mean": m, "ci_low": m - half, "ci_high": m + half, "min": float(x.min()), "max": float(x.max()),
+            "seeds": len(x), "missing": missing}
+
+
 def fmt_ci(est: float, lo: float, hi: float, digits: int = 3) -> str:
     if np.isnan(lo):
         return f"{est:.{digits}f}"

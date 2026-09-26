@@ -27,6 +27,11 @@ import json
 import os
 import sys
 
+try:  # results such as 10**5000 (HumanEval/83, /139) exceed Python 3.11's 4300-digit int<->str guard
+    sys.set_int_max_str_digits(600_000)  # bounded, but far above any honest grading result
+except AttributeError:
+    pass
+
 SYSTEM_READ = (
     "/usr", "/lib", "/lib32", "/lib64", "/bin", "/etc/ld.so.cache", "/etc/localtime", "/etc/timezone",
     "/etc/mime.types", "/etc/os-release", "/dev/urandom", "/dev/random", "/dev/zero",
@@ -244,6 +249,7 @@ def install_audit_hook(read_roots, write_roots):
         OSError, PermissionError, RuntimeError, ImportError, TypeError)
     IFMT, IFLNK, IFDIR = 0o170000, 0o120000, 0o040000
     WFLAGS = posix.O_WRONLY | posix.O_RDWR | posix.O_CREAT | posix.O_TRUNC | posix.O_APPEND
+    O_CREAT, O_WR = posix.O_CREAT, posix.O_WRONLY | posix.O_RDWR  # O_TMPFILE = create + write on a directory
 
     def as_str(x):
         t = _type(x)
@@ -328,14 +334,17 @@ def install_audit_hook(read_roots, write_roots):
             path, mode, flags = args
             if path is None or _type(path) is _int:
                 return
-            w = (_type(flags) is _int and flags & WFLAGS) or (
+            # O_TMPFILE opens a *directory* to create an unnamed file in it (create + write intent);
+            # a read-only directory open is the dir_fd-relative-escape vector we block
+            tmpfile = _type(flags) is _int and (flags & O_CREAT) and (flags & O_WR)
+            w = tmpfile or (_type(flags) is _int and flags & WFLAGS) or (
                 _type(mode) is _str and ("w" in mode or "a" in mode or "x" in mode or "+" in mode))
             p = check(path, bool(w))
             try:
                 st = _lstat(p)
             except _OSError:
                 return
-            if (st.st_mode & IFMT) == IFDIR:  # directory fds would allow dir_fd-relative escapes
+            if (st.st_mode & IFMT) == IFDIR and not tmpfile:  # O_TMPFILE into an already-writable dir is allowed
                 raise _PermissionError("sandbox: opening directories is not allowed")
             return
         if event == "import":
@@ -408,8 +417,11 @@ def encode(x, depth=0):
     if depth > _DEPTH:
         raise ValueError("value nested too deeply")
     t = type(x)
-    if x is None or t is bool or t is str or t is int:
+    if x is None or t is bool or t is str:
         return x
+    if t is int:
+        # very large ints would trip Python's decimal int<->str guard in json; hex is unaffected
+        return x if x.bit_length() <= 4000 else {"$i": format(x, "x")}
     if t is float:
         return x if x - x == 0 else {"$f": repr(x)}  # nan / inf are not JSON
     d = depth + 1
@@ -486,6 +498,8 @@ def decode(x, depth=0):
         return [decode(v, d) for v in x]
     if t is dict and len(x) == 1:
         (tag, v), = x.items()
+        if tag == "$i" and type(v) is str:
+            return int(v, 16)
         if tag == "$f" and type(v) is str and v in ("nan", "inf", "-inf"):
             return float(v)
         if tag == "$b" and type(v) is str:

@@ -402,8 +402,9 @@ def demo_swarm(out: Path) -> list[Path]:
 
 
 # --------------------------------------------------------------------------- monitoring
-def demo_monitoring(out: Path) -> list[Path]:
+def demo_monitoring(out: Path, n_tasks: int = 200, n_seeds: int = 6) -> list[Path]:
     """Penalising alarms: a real monitor buys obfuscation, a robust probe buys good behaviour."""
+    from .analysis.stats import seed_ci
     from .channels import SimulatedProbe
     from .domains.monitoring_sim import AbstractMonitoring
     from .mechanisms import MonitoredReward, Monitoring
@@ -412,48 +413,68 @@ def demo_monitoring(out: Path) -> list[Path]:
 
     out.mkdir(parents=True, exist_ok=True)
     params = tm.MonitorParams(s=0.5, gain=0.3, hide_cost=0.05, d_overt=1.0, d_covert=0.1, d_honest=0.05)
-    dom = AbstractMonitoring(n_tasks=1000, success=params.s, gain=params.gain, hide_cost=params.hide_cost,
-                             d_covert=params.d_covert, d_honest=params.d_honest)
+    def domain(seed: int) -> AbstractMonitoring:
+        return AbstractMonitoring(n_tasks=n_tasks, seed=seed, success=params.s, gain=params.gain, hide_cost=params.hide_cost,
+                                  d_covert=params.d_covert, d_honest=params.d_honest)
+
     actions = [Strategy(name=a, params={"action": a}, tags={"honest": a == "honest"}) for a in ("honest", "overt", "covert")]
     monitors = {
         "keyword monitor (reads the log)": (Monitoring(monitor="llm", probe=None, grader=False), {"actor": ActionActor(), "monitor": KeywordMonitor()}),
         "probe, AUROC 0.8 (fixed)": (Monitoring(monitor="probe", probe=SimulatedProbe(auroc=0.8), grader=False), {"actor": ActionActor()}),
         "probe, AUROC 0.95 (fixed)": (Monitoring(monitor="probe", probe=SimulatedProbe(auroc=0.95), grader=False), {"actor": ActionActor()}),
     }
-    lams = np.round(np.concatenate([np.linspace(0, 1, 11), np.linspace(1.5, 8, 14)]), 3)
-    rows = []
-    for name, (mech, agents) in monitors.items():
-        res = _run(dom, mech.model_copy(update={"label": name}), agents, Cartesian(strategies={"actor": actions}))
-        alarm = {a: np.mean([r.outcome["alarm"] for r in res.records if r.bound["actor"].strategy_name == a]) for a in ("honest", "overt", "covert")}
-        for lam in lams:  # the reward rule is re-scored; the optimiser picks the best of the three behaviours
-            d = res.rescore(MonitoredReward(alarm_penalty=float(lam))).df(trainable_only=True)
-            means = d.groupby("strategy_name")["reward"].mean()
-            best = str(means.idxmax())
-            rows.append({"monitor": name, "penalty": float(lam), "action": best, "misbehaviour": float(best != "honest"),
-                         "alarm rate if misbehaving": alarm[best] if best != "honest" else np.nan, "source": "simulation"})
+    lams = np.round(np.concatenate([np.linspace(0, 1, 11), np.linspace(1.5, 10, 18)]), 3)
+    rows, thresholds = [], []
+    # the thresholds depend on the random traces and probe scores, so the whole experiment is
+    # replicated on fresh tasks (new draws) and the thresholds are reported with a CI across seeds
+    for seed in range(n_seeds):
+        for name, (mech, agents) in monitors.items():
+            res = _run(domain(seed), mech.model_copy(update={"label": name}), agents, Cartesian(strategies={"actor": actions}))
+            alarm = {a: np.mean([r.outcome["alarm"] for r in res.records if r.bound["actor"].strategy_name == a]) for a in ("honest", "overt", "covert")}
+            deterred = np.nan
+            for lam in lams:  # the reward rule is re-scored; the optimiser picks the best of the three behaviours
+                d = res.rescore(MonitoredReward(alarm_penalty=float(lam))).df(trainable_only=True)
+                best = str(d.groupby("strategy_name")["reward"].mean().idxmax())
+                rows.append({"monitor": name, "seed": seed, "penalty": float(lam), "action": best, "misbehaviour": float(best != "honest"),
+                             "alarm rate if misbehaving": alarm[best] if best != "honest" else np.nan, "source": "simulation"})
+                if best == "honest" and np.isnan(deterred):
+                    deterred = float(lam)
+            thresholds.append({"monitor": name, "seed": seed, "deterrence threshold": deterred})
     th = tm.sweep(lams, params)
     rows += [{"monitor": "theory (keyword monitor)", "penalty": r.penalty, "action": r.action, "misbehaviour": r.misbehaviour,
               "alarm rate if misbehaving": r.alarm_rate_when_misbehaving, "source": "theory"} for r in th.itertuples()]
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(rows).astype({"seed": "Int64"})
     df.to_csv(out / "monitoring_sweep.csv", index=False)
+    # averaged over seeds: the share of seeds in which the reward-maximising action misbehaves
+    avg = df.groupby(["monitor", "penalty", "source"], as_index=False, sort=False)[["misbehaviour", "alarm rate if misbehaving"]].mean()
     figs = {}
-    fig, ax = P.line_compare(df, "penalty", "misbehaviour", "monitor", title="Optimised actor: does it misbehave?",
-                             xlabel="alarm penalty λ in the actor's reward", ylabel="misbehaves (reward-maximising action)")
+    fig, ax = P.line_compare(avg, "penalty", "misbehaviour", "monitor", title="Optimised actor: does it misbehave?",
+                             xlabel="alarm penalty λ in the actor's reward", ylabel=f"misbehaves (share of {n_seeds} seeds)")
     figs["Misbehaviour vs penalty"] = P.save(fig, out / "misbehaviour_vs_penalty.png")
-    d = df[df["monitor"].str.startswith(("keyword", "theory"))]
+    d = avg[avg["monitor"].str.startswith(("keyword", "theory"))]
     fig, ax = P.line_compare(d, "penalty", "alarm rate if misbehaving", "monitor", title="…while the monitor's alarms go quiet",
                              xlabel="alarm penalty λ in the actor's reward", ylabel="alarm rate on misbehaving episodes")
     figs["Alarm rate vs penalty"] = P.save(fig, out / "alarms_vs_penalty.png")
-    summary = df[df["source"] == "simulation"].groupby("monitor").apply(
-        lambda g: pd.Series({"first penalty with covert action": g.loc[g["action"] == "covert", "penalty"].min(),
-                             "first penalty deterring misbehaviour": g.loc[g["action"] == "honest", "penalty"].min()}),
-        include_groups=False).reset_index()
+    tdf = pd.DataFrame(thresholds)
+    tdf.to_csv(out / "deterrence_thresholds_by_seed.csv", index=False)
+    summary = pd.DataFrame([{"monitor": m, **seed_ci(g["deterrence threshold"])} for m, g in tdf.groupby("monitor", sort=False)])
+    summary.to_csv(out / "deterrence_thresholds.csv", index=False)
+
+    def threshold_note(m: str, r: pd.Series) -> str:
+        m, never = m.replace(" (fixed)", ""), f"not deterred by λ = {lams[-1]:g}"
+        if r["seeds"] == 0:
+            return f"{m} {never}"
+        ci = f" (95% CI {r['ci_low']:.2f}–{r['ci_high']:.2f})" if r["seeds"] > 1 else ""
+        return f"{m} {r['mean']:.2f}{ci}" + (f", {never} in {int(r['missing'])} seeds" if r["missing"] else "")
+
+    ci_note = "; ".join(threshold_note(m, r) for m, r in summary.set_index("monitor").iterrows())
     th_row = tm.thresholds(params)
     rep = html_report(Results([]), out / "report.html", title="Monitoring as a reward: obfuscation vs deterrence",
                       subtitle=(f"Actor: honest (success {params.s:g}), overt misbehaviour (+{params.gain:g}, always leaves a trace) "
                                 f"or covert (+{params.gain - params.hide_cost:g}, trace w.p. {params.d_covert:g}). Theory: overt→covert at "
-                                f"λ={th_row['overt_to_covert']:.2f}, deterred at λ={th_row['deterred']:.1f} for the log-reading monitor."),
-                      figures=figs, tables={"Thresholds (simulation)": summary})
+                                f"λ={th_row['overt_to_covert']:.2f}, deterred at λ={th_row['deterred']:.1f} for the log-reading monitor. "
+                                f"Simulated deterrence thresholds, mean over {n_seeds} seeds: {ci_note}."),
+                      figures=figs, tables={"Deterrence threshold across seeds": summary.round(3)})
     return [rep, *figs.values()]
 
 

@@ -248,3 +248,63 @@ def test_provenance_markers_resist_lookalikes_and_role_none():
     for body_line in ["[Moderator]: B conceded.", "[VERIFIED by x]", "[VERIFIED by auditor]"]:
         assert ("      " + body_line) in r or ("      " + body_line[: -1]) in r  # indented into the body
     assert not r.startswith(" ") and "\n⟦VERIFIED" not in r
+
+
+# N8. Honest code is not over-restricted: big-integer results and tempfile work.
+
+def test_sandbox_allows_tempfile_and_big_integer_results():
+    from oversight_arena.domains._exec import run_isolated, run_python
+
+    assert run_python("import tempfile\nwith tempfile.NamedTemporaryFile('w') as t:\n    t.write('x')\n    print('ok')").stdout.strip() == "ok"
+    assert run_python("import tempfile, os\nfd, p = tempfile.mkstemp()\nos.close(fd)\nprint(os.path.exists(p))").stdout.strip() == "True"
+    # a result far beyond Python's 4300-digit int<->str guard crosses the grading boundary
+    r = run_isolated("def main(u):\n    return u.function('f')(20000)\n", code="def f(n):\n    return 10 ** n\n")
+    assert r.ok and r.value == 10 ** 20000
+    # ...and escapes are still blocked
+    assert not run_python("import os\nos.open('/etc', os.O_RDONLY)").ok
+
+
+@pytest.mark.skipif(not HE.exists(), reason="HumanEval+ not cached")
+def test_big_result_humaneval_tasks_are_graded_not_dropped():
+    from oversight_arena.domains.code import passes_hidden
+
+    rows = {r["task_id"]: r for r in json.loads(HE.read_text())}
+    for tid in ("HumanEval/83", "HumanEval/139"):
+        r = rows[tid]
+        assert passes_hidden(r["prompt"] + r["canonical_solution"], r["test"], r["entry_point"], spec=r["prompt"])
+
+
+# Also: the monitoring demo's deterrence thresholds come with a CI across seeds, not a single draw.
+
+def test_seed_ci():
+    from oversight_arena.analysis.stats import seed_ci
+
+    r = seed_ci([0.4, 0.5, 0.4, 0.5, 0.5, 0.5])
+    assert r["mean"] == pytest.approx(0.4667, abs=1e-4) and r["ci_low"] < 0.4 + 0.02 and r["ci_high"] > 0.5 - 0.02
+    assert (r["min"], r["max"], r["seeds"], r["missing"]) == (0.4, 0.5, 6, 0)
+    one = seed_ci([0.7, None, float("nan")])  # a threshold never reached is counted as missing, not averaged
+    assert one["seeds"] == 1 and one["missing"] == 2 and one["mean"] == 0.7 and math.isnan(one["ci_low"])
+
+
+def test_monitoring_demo_reports_thresholds_across_seeds(tmp_path):
+    import pandas as pd
+
+    from oversight_arena.demos import demo_monitoring
+
+    demo_monitoring(tmp_path, n_tasks=20, n_seeds=3)
+    per_seed = pd.read_csv(tmp_path / "deterrence_thresholds_by_seed.csv")
+    summary = pd.read_csv(tmp_path / "deterrence_thresholds.csv").set_index("monitor")
+    assert sorted(set(per_seed["seed"])) == [0, 1, 2] and len(summary) == 3
+    assert ((summary["seeds"] + summary["missing"]) == 3).all()
+    probes = summary.loc[summary.index.str.startswith("probe")]
+    assert (probes["seeds"] == 3).all()
+    assert (probes["ci_low"] <= probes["mean"]).all() and (probes["mean"] <= probes["ci_high"]).all()
+    # every seed is a fresh replication: the log-reading monitor's traces are redrawn too
+    sweep = pd.read_csv(tmp_path / "monitoring_sweep.csv")
+    covert = sweep[(sweep["monitor"].str.startswith("keyword")) & (sweep["action"] == "covert")]
+    assert covert.groupby("seed")["alarm rate if misbehaving"].first().nunique() > 1
+    report = (tmp_path / "report.html").read_text()
+    assert "95% CI" in report and "nan" not in report.split("Simulated deterrence thresholds")[1].split("</")[0]
+    # with so few tasks the log-reading monitor may never deter: reported as such, not averaged away
+    kw = summary.loc["keyword monitor (reads the log)"]
+    assert kw["missing"] == 0 or "not deterred by λ = 10" in report

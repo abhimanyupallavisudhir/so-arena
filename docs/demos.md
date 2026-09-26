@@ -116,11 +116,15 @@ falsehood. Every search is re-evaluated on held-out tasks.
 - Detectors: a monitor that reads the activity log, or simulated probes with a fixed AUROC against
   ground truth.
 
-**Finding** (theory.md Proposition 4).
-- Against the log-reading monitor, a tiny penalty (λ = 0.1) turns overt misbehaviour covert. Alarms
-  on misbehaving episodes drop from 100% to about 9%, while misbehaviour persists until λ = 5,
-  exactly the theoretical threshold.
-- A fixed-accuracy probe deters misbehaviour at λ = 0.5–0.7.
+**Finding** (theory.md Proposition 4). The thresholds depend on the random traces and probe
+scores, so the experiment is replicated on 6 fresh task sets (seeds). Thresholds are means with
+95% CIs across seeds; the per-seed values are in `deterrence_thresholds_by_seed.csv`.
+- Against the log-reading monitor, a tiny penalty (λ = 0.1, in every seed) turns overt misbehaviour
+  covert. Alarms on misbehaving episodes drop from 100% to about 9%, while misbehaviour persists
+  until λ = 5.9 (95% CI 4.5–7.4). The theoretical threshold is 5.
+- Fixed-accuracy probes deter much sooner: AUROC 0.95 at λ = 0.47 (0.41–0.52), AUROC 0.8 at
+  λ = 0.72 (0.67–0.76). A single run can land on either side: the AUROC 0.95 threshold is 0.4 in
+  some seeds and 0.5 in others.
 
 ![Misbehaviour vs penalty](figures/monitoring_misbehaviour.png)
 ![Alarms vs penalty](figures/monitoring_alarms.png)
