@@ -871,10 +871,10 @@ def demo_release(out: str | Path = "runs/demo_release", n_items: int = 400, conf
     gains.to_csv(out / "gains_vs_calibrated.csv", index=False)
     kw_proxy = dict(value="gain", label="forecaster", title="Released: the judge's rating rewards distortion",
                     subtitle=f"mean rating minus the calibrated forecaster's, paired over {n_items} questions; whiskers: 95% CI",
-                    xlabel="rating − calibrated forecaster's rating (0-1 scale)")
+                    xlabel="rating − calibrated forecaster's rating (0-1 scale)", positive_is_good=False)
     kw_res = dict(value="gain", label="forecaster", title="Resolved: the log score penalizes it",
                   subtitle=f"mean log score minus the calibrated forecaster's, paired over {n_items} questions; whiskers: 95% CI",
-                  xlabel="log score − calibrated forecaster's log score")
+                  xlabel="log score − calibrated forecaster's log score", positive_is_good=False)
     proxy, resolved_gain = gains[gains.what == "rating"], gains[gains.what == "log"]
     plots.asd_bars(proxy, **kw_proxy).save(figs / "release_proxy.png")
     plots.asd_bars(resolved_gain, **kw_res).save(figs / "release_resolved.png")

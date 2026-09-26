@@ -178,8 +178,10 @@ def _rounded_hbar(ax, y: float, v: float, thick: float, color: str, gid: str, r_
 
 def asd_bars(table: pd.DataFrame, *, value: str = "asd", label: str = "mechanism", lo: str = "ci_low",
              hi: str = "ci_high", title: str = "Agent score difference", subtitle: str | None = None,
-             xlabel: str = "reward(arguing for truth) − reward(arguing for falsehood)", mode: str = "light") -> Chart:
-    """Signed metric per category with CI whiskers; blue when positive (honesty pays), red when negative."""
+             xlabel: str = "reward(arguing for truth) − reward(arguing for falsehood)", positive_is_good: bool = True,
+             mode: str = "light") -> Chart:
+    """Signed metric per category with CI whiskers; blue when positive (honesty pays), red when negative - or the
+    other way round with ``positive_is_good=False`` (e.g. a distortion's gain over the calibrated forecaster)."""
     d = table.reset_index(drop=True)
     n = len(d)
     fig, ax, t = _setup(mode, figsize=(6.4, max(1.6, 0.42 * n + 1.2)))
@@ -216,7 +218,8 @@ def asd_bars(table: pd.DataFrame, *, value: str = "asd", label: str = "mechanism
         if not np.isfinite(v):
             continue
         gid = f"bar{i}"
-        _rounded_hbar(ax, n - 1 - i, float(v), thick, t["pos"] if v >= 0 else t["neg"], gid)
+        good = (v >= 0) == positive_is_good
+        _rounded_hbar(ax, n - 1 - i, float(v), thick, t["pos"] if good else t["neg"], gid)
         tips[gid] = f"{d[label].iloc[i]}: {_fmt(v)}" + (
             f" (95% CI {_fmt(los[i])} to {_fmt(his[i])})" if lo in d and np.isfinite(los[i]) else "")
     cols = [c for c in (label, value, lo, hi) if c in d]
