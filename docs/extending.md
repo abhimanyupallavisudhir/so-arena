@@ -226,6 +226,21 @@ use `identity`, so two backends served under one name never share completions. A
 its sampling should add `models.base.draw_seed(options)` to the seed, so that different roles asking the
 same thing get different samples.
 
+## Making components usable from specs
+
+Specs build reward rules, verifiers, ground-truth scorers and mechanisms from `{type: ...}` mappings through
+`so_arena.registry`. Register yours so specs and `so-arena list` see them:
+
+```python
+from so_arena.registry import register
+
+register("reward", "my_rule", MyRule)          # or @register("verifier", "my_check") on the class
+```
+
+Constructor arguments come from the mapping; nested components are built from the argument they are passed
+as (`reward`, `inner`, `rule`, `rules`, `verifiers`, `ground_truth`), so keep those names for arguments that
+take components.
+
 ## Tests
 
 * Default tests must run offline and fast: use `ScriptedPolicy`/`FunctionPolicy`, `MockModel`, the

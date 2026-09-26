@@ -196,6 +196,7 @@ To measure $(u, v)$ we need behaviours with a range of $v$. From weakest to stro
 | Behaviour arms on stateful tasks (paired branches) | `samplers.paired` | by construction + audit of the final state | honest vs. several ways of faking success |
 | Natural pools, best-of-N / tilting over game trees | `samplers.pools`, `analysis.optimization` | measured | re-weightings of the base policy |
 | Prompt search with directives (OPRO / reflective / evolutionary) | `samplers.prompt_search` | measured | behaviour far from the base policy |
+| Parameter search over programmatic agents (with measured-value constraints) | `samplers.param_search` | measured | the parameter space's frontiers |
 | PSRO with prompt-search best responses | `samplers.psro` | measured | approximate equilibria |
 | RL | `integrations.rl` (+ your trainer) | measured | trained behaviour |
 
@@ -224,6 +225,9 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
   label coverage and are NaN below 50%.
 * `theory`: analytic whistleblower model; audits as control variates; monitor-based rewards (when a
   penalty on alarms buys obfuscation instead of deterrence).
+* `analysis.diagnostics`: what matters besides IC - reward signal-to-noise, length, slot and option-label
+  biases at fixed ground truth, calibration, compliance of instructed arms, cost; `metrics.gt_regret` for
+  continuous ground truth.
 * `analysis.plots` / `analysis.report`: validated-palette charts with per-mark tooltips and
   self-contained HTML reports.
 
@@ -236,8 +240,9 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
   backends seeded from the sample index) and a warm cache replays each role's own draw; `ModelSpec`
   registry with prices and capability metadata for scaling plots.
 * **Runs**: `RunStore` directories (items, append-only episodes, metrics, figures, report), resumable.
-* **Specs + CLI**: YAML experiment specs; `so-arena run | estimate | report | release | verify | resolve | list | demo`.
+* **Specs + CLI**: YAML experiment specs, whose reward rules, verifiers and scorers a registry builds from
+  `{type: ...}` mappings (`so_arena.registry`); `so-arena run | estimate | report | release | verify | resolve | list | demo`.
 * **Releases**: ground-truth-free bundles with a SHA-256 commitment; later resolution and scoring.
 * **Integrations**: Inspect tasks (`integrations.inspect_task`), ControlArena (logs -> episodes,
   mechanisms as monitors, a sandbox-free toy setting), RL (step-wise `MechanismEnv`, TRL-style reward
-  functions, rollout prompts).
+  functions, rollout prompts, same-context preference pairs for DPO).

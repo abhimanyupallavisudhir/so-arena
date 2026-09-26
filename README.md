@@ -77,14 +77,14 @@ simulated models that prices every call).
 |---|---|
 | **Mechanisms** | naive judge, propaganda, consultancy, debate (simultaneous/sequential, judge questions, zero-sum), reviewed work (single judge, proposal→critique→rebuttal, dossiers of state changes), work-then-review, monitored work (action / CoT / tool-call / probe monitors, fail-closed scores, defer-to-trusted, simulated fixed-AUROC probes), teams with whistleblowing (partial observation, covert team channels, shared repositories with reverts), market making, prediction markets (LMSR), peer prediction (BTS, multi-task), confessions. Write your own as plain async Python. |
 | **Reward rules** | judge-score transforms, zero-sum, audited proper scores for trainable judges, team reward, whistleblower bounties (with leniency, misprision and collective liability), monitor penalties, random audits (penalty or inverse-probability-weighted), resolution scores, market scoring rules - composable and re-applicable to logged episodes |
-| **Samplers** | instructed arms (ASD), behaviour arms on stateful tasks (paired branches), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary / autoresearch-style ratchet, or GEPA) with honest/deceptive/… directives, PSRO, RL environments |
-| **Metrics** | ASD (any proper score, paired bootstrap), graded ASD, concordance, label efficiency, incentive gap recovered, expected scores, judge accuracy, AUROC/TPR |
+| **Samplers** | instructed arms (ASD), behaviour arms on stateful tasks (paired branches), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary / autoresearch-style ratchet, or GEPA) with honest/deceptive/… directives, parameter search over programmatic agents, PSRO, RL environments and DPO preference pairs |
+| **Metrics** | ASD (any proper score, paired bootstrap), graded ASD, concordance, label efficiency, incentive gap recovered, expected scores, ground-truth regret, judge accuracy, AUROC/TPR; diagnostics: reward SNR, length/slot/label biases, calibration, compliance, cost |
 | **Game theory** | empirical games, pure/strict/mixed Nash, zero-sum values, (coarse) correlated equilibria with ground-truth welfare bounds, replicator dynamics, basins, natural and vanilla policy-gradient learning dynamics (exact, or on sampled episodes), an analytic whistleblower model with partial observation, monitor-penalty thresholds (obfuscation vs. deterrence) |
 | **Domains** | synthetic persuasion, team & monitoring worlds, HiddenBits disclosure (exact Bayesian judges), chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY; stateful: repository work with hidden tests, a simulated software company |
 | **Stateful work** | forkable content-addressed state (files, SQLite, mail, ledgers, hidden environment state), a branch per decision and per best-of-N sample, reviewer dossiers of diffs, read/write access per role (and per decision), trusted tool-call records and agent-editable action logs, paired-branch experiments (work once, review many) |
 | **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, Lean statement structure, Lean typechecking, fact checkers, hidden bits) under per-mechanism claim or cost budgets, verification noise (forged-but-realistic errors), and rules for who sees verdicts and how |
 | **Deferred ground truth** | release mechanism results with a SHA-256 commitment; resolve and score when the truth arrives |
-| **Infrastructure** | Inspect backend (all providers), response cache, dry-run cost simulation, model registry, resumable run stores, YAML specs, CLI, self-contained HTML reports, a browser rating interface for human judges with time budgets, a filesystem sandbox that keeps agent code away from hidden state and hidden tests, Inspect task export, ControlArena bridge, GEPA backend for prompt search |
+| **Infrastructure** | Inspect backend (all providers), response cache, dry-run cost simulation, model registry, resumable run stores, YAML specs (any registered reward rule, verifier or scorer), CLI, self-contained HTML reports, a browser rating interface for human judges with time budgets, a filesystem sandbox that keeps agent code away from hidden state and hidden tests, Inspect task export, ControlArena bridge, GEPA backend for prompt search |
 
 ## Documentation
 
@@ -94,6 +94,9 @@ simulated models that prices every call).
   control variates; monitoring and obfuscation; peer prediction and markets; teams and whistleblowing; what else matters besides IC
 * [docs/experiments.md](docs/experiments.md) - cookbook for every experiment family
 * [docs/extending.md](docs/extending.md) - adding domains, stateful environments, verifiers, tools, scorers, mechanisms
+* [docs/beyond_ic.md](docs/beyond_ic.md) - measuring what matters besides incentive compatibility
+* [docs/controlarena.md](docs/controlarena.md) - how ControlArena's protocols and scores map onto mechanisms; the bridges
+* [docs/reference.md](docs/reference.md) - API reference (generated by `scripts/gen_reference.py`)
 * [docs/answers.md](docs/answers.md) - how the design answers the questions in the original brief
 
 ## Gallery (offline demos)
