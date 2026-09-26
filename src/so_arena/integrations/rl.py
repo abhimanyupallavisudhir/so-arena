@@ -45,6 +45,7 @@ import asyncio
 import collections
 import hashlib
 import json
+import logging
 import math
 import random
 from collections.abc import Sequence
@@ -62,6 +63,8 @@ from so_arena.core.mechanism import Episode, Mechanism
 from so_arena.core.policy import ExternalPolicy, FixedPolicy, Policy, format_instructions, stable_hash
 from so_arena.core.runner import resolve_stance, run_sync, score_episode
 from so_arena.core.types import Message
+
+log = logging.getLogger("so_arena")
 
 
 def request_messages(request: ActionRequest, extra_system: str | None = None) -> list[dict[str, str]]:
@@ -439,7 +442,8 @@ def _prompt(ep: Episode, role: str, turn: Any, item: TaskItem | None) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
-def _episode_pairs(episodes: Sequence[Episode], role: str, items: dict[str, TaskItem], min_gap: float) -> list[dict[str, Any]]:
+def _episode_pairs(episodes: Sequence[Episode], role: str, items: dict[str, TaskItem], min_gap: float,
+                   skipped: list[str] | None = None) -> list[dict[str, Any]]:
     from so_arena.analysis.frames import config_key, mechanism_labels
 
     labels = mechanism_labels(episodes)
@@ -448,6 +452,8 @@ def _episode_pairs(episodes: Sequence[Episode], role: str, items: dict[str, Task
         r = ep.rewards.get(role)
         turns = ep.turns_of(role)
         if ep.error is not None or ep.reward_status != "final" or not _finite(r) or not turns:
+            if skipped is not None and turns:  # the role acted, but the episode cannot be ranked
+                skipped.append(ep.id)
             continue
         first = min(turns, key=lambda t: t.slot)
         prompt = _prompt(ep, role, first, items.get(ep.item_id))
@@ -537,7 +543,9 @@ def preference_pairs(source: Sequence[Any], role: str, *, items: Sequence[TaskIt
     Pairs never mix contexts: two behaviours are paired only if everything but the role's own behaviour is
     the same - mechanism configuration, item, the other roles' policies and stances, the role's assigned
     stance and the transcript it saw before its first move (``context``). Pairs whose rewards differ by at
-    most ``min_gap`` are left out; so are episodes that errored or whose reward is missing or pending.
+    most ``min_gap`` are left out; so are episodes that errored or whose reward is missing or pending - counted
+    in ``df.attrs["episodes_skipped"]`` (with ``episodes_used``) and warned about, since a behaviour that breaks
+    its episodes would otherwise just be missing from the data rather than rejected.
 
     ``source`` is either episodes (a multi-turn role's texts are all its turns) or sampled game trees
     (:class:`~so_arena.analysis.optimization.GameTree`): then the candidates of each of the role's
@@ -555,7 +563,15 @@ def preference_pairs(source: Sequence[Any], role: str, *, items: Sequence[TaskIt
     if src and all(isinstance(x, GameTree) for x in src):
         rows = _tree_pairs(src, role, by_id, min_gap, value_key, episodes)
     else:
-        rows = _episode_pairs(src, role, by_id, min_gap)
+        skipped: list[str] = []
+        rows = _episode_pairs(src, role, by_id, min_gap, skipped)
     cols = ["context", "mechanism", "mechanism_config", "item_id", "role", "stance", "prompt", "chosen", "rejected",
             "reward_chosen", "reward_rejected", "reward_gap", "value_chosen", "value_rejected", "gt_agrees"]
-    return pd.DataFrame(rows, columns=list(dict.fromkeys([*cols, *(k for r in rows for k in r)])))
+    df = pd.DataFrame(rows, columns=list(dict.fromkeys([*cols, *(k for r in rows for k in r)])))
+    if not (src and all(isinstance(x, GameTree) for x in src)):
+        acted = sum(1 for ep in src if ep.turns_of(role))
+        df.attrs["episodes_skipped"], df.attrs["episodes_used"] = len(skipped), acted - len(skipped)
+        if skipped:
+            log.warning("preference_pairs: %d of %d episodes where %s acted have no final reward (errored or "
+                        "pending) and are left out", len(skipped), acted, role)
+    return df

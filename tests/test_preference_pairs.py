@@ -111,3 +111,14 @@ def test_tree_pairs_compare_candidates_of_one_information_set():
     bare = preference_pairs(trees, "agent")
     assert len(bare) == 20 and bare["prompt"].isna().all()
     assert bare["reward_chosen"].tolist() == pytest.approx(pairs["reward_chosen"].tolist())
+
+
+def test_episodes_without_a_final_reward_are_counted_not_silently_dropped():
+    items, ctx = setup(n=3)
+    agent = synthetic_arguer(honest_mean=1.0, dishonest_mean=0.2, sd=1.0)
+    profiles = [Profile(name="p", players={"agent": PlayerSpec(policy=agent, stance="true"), "judge": synthetic_judge()})]
+    eps = run(Propaganda(affordances={"agents": ["answer_key"]}), items, ctx, profiles)
+    broken = eps[0].model_copy(update={"error": "the agent crashed"})
+    pairs = preference_pairs([broken, *eps[1:]], "agent")
+    assert pairs.attrs["episodes_skipped"] == 1 and pairs.attrs["episodes_used"] == len(eps) - 1
+    assert preference_pairs(eps, "agent").attrs["episodes_skipped"] == 0
