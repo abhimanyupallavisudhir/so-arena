@@ -170,6 +170,19 @@ def test_training_algorithm_selects_the_equilibrium():
     assert wb.basin_of_deterrence(2, natural=True, **kw) > wb.basin_of_deterrence(2, natural=False, **kw)
 
 
+def test_theory_doc_numbers_for_npg_vs_reinforce():
+    """docs/theory.md, section 8: bounty above the stake, start x = 0.5, p = 0.1, step size 2."""
+    g = wb.team_game(2, **TEAM, s=0.45, P=0.3, o=0.8)
+    xs = {}
+    for natural in (True, False):
+        df = policy_gradient(g, init=[wb.team_mix(0.5, 0.1)] * 3, shared=[g.players], lr=2.0, steps=260, natural=natural)
+        xs[natural] = np.array([wb.team_marginals([r[f"p_worker_1_{s}"] for s in wb.TEAM_STRATEGIES])[0]
+                                for _, r in df.iterrows()])
+    assert int(np.argmax(xs[True] < 0.5)) == 29
+    assert int(np.argmax(xs[False] < 0.5)) == 227 and round(xs[False].max(), 2) == 0.89
+    assert wb.report_equilibrium_bounty(2, **TEAM, o=0.8) == pytest.approx(0.1)
+
+
 def test_natural_and_vanilla_gradient_share_rest_points():
     # KL-regularized ascent for one player: both reach the tilted policy softmax(u / tau)
     u = np.array([0.0, 1.0, 0.5])
@@ -325,3 +338,17 @@ def test_strategy_gradient_on_sampled_team_episodes():
     with pytest.raises(ValueError):
         StrategyGradient(mech, items, strategies, shared=[["worker_1", "judge"]])
     assert math.isfinite(df["reward_worker_1"].iloc[0])
+
+
+def test_line_chart_bands_and_dashed_series():
+    import pandas as pd
+
+    from so_arena.analysis import plots
+
+    df = pd.DataFrame({"t": [0, 1, 2], "a": [0.2, 0.4, 0.5], "a lo": [0.1, 0.3, 0.4], "a hi": [0.3, 0.5, 0.6],
+                       "b": [0.5, 0.5, 0.5]})
+    ch = plots.line_chart(df, x="t", ys=["a", "b"], bands={"a": ("a lo", "a hi")}, dashed=["b"])
+    assert list(ch.table.columns) == ["t", "a", "b", "a lo", "a hi"]
+    assert any("95% CI" in tip for tip in ch.tooltips.values())
+    assert [ln.get_linestyle() for ln in ch.fig.axes[0].lines].count("--") == 1
+    ch.close()

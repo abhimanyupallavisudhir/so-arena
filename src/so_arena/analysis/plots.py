@@ -280,22 +280,33 @@ def parametric_curves(df: pd.DataFrame, *, x: str, y: str, series: str | None = 
 
 def line_chart(df: pd.DataFrame, *, x: str, ys: Sequence[str], labels: Sequence[str] | None = None,
                title: str = "", subtitle: str | None = None, xlabel: str = "", ylabel: str = "",
-               ylim: tuple[float, float] | None = None, mode: str = "light") -> Chart:
-    """Multi-series lines (<= 4 per chart), direct-labelled at the right end, with a legend."""
+               ylim: tuple[float, float] | None = None, bands: dict[str, tuple[str, str]] | None = None,
+               dashed: Sequence[str] = (), mode: str = "light") -> Chart:
+    """Multi-series lines (<= 4 per chart), direct-labelled at the right end, with a legend.
+
+    ``bands[col] = (lo, hi)`` shades an interval (e.g. a 95% CI) around a series; ``dashed`` series are
+    drawn dashed (e.g. a theoretical prediction next to its simulation)."""
     if len(ys) > 4:
         raise ValueError("at most 4 series per line chart; facet into several charts")
     fig, ax, t = _setup(mode, figsize=(6.4, 3.6))
     labels = list(labels or ys)
+    bands = bands or {}
     tips: dict[str, str] = {}
     step = max(1, len(df) // 40)
     for i, (col, lab) in enumerate(zip(ys, labels)):
         c = t["series"][i]
-        ax.plot(df[x], df[col], color=c, linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=lab)
+        if col in bands:
+            lo, hi = bands[col]
+            ax.fill_between(df[x], df[lo], df[hi], color=c, alpha=0.18, linewidth=0)
+        ax.plot(df[x], df[col], color=c, linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=lab,
+                linestyle="--" if col in dashed else "-")
         for j in range(0, len(df), step):
             (pt,) = ax.plot([df[x].iloc[j]], [df[col].iloc[j]], marker="o", markersize=10, alpha=0.0, linestyle="none")
             gid = f"l{i}_{j}"
             pt.set_gid(gid)
-            tips[gid] = f"{lab}: {_fmt(df[col].iloc[j])} at {x}={df[x].iloc[j]:g}"
+            ci = (f" (95% CI {_fmt(df[bands[col][0]].iloc[j])} to {_fmt(df[bands[col][1]].iloc[j])})"
+                  if col in bands else "")
+            tips[gid] = f"{lab}: {_fmt(df[col].iloc[j])}{ci} at {x}={df[x].iloc[j]:g}"
         last = df.iloc[-1]
         (end,) = ax.plot([last[x]], [last[col]], marker="o", markersize=7, color=c, markeredgecolor=t["surface"],
                          markeredgewidth=1.5, linestyle="none")
@@ -307,7 +318,8 @@ def line_chart(df: pd.DataFrame, *, x: str, ys: Sequence[str], labels: Sequence[
         ax.set_ylim(*ylim)
     _title(ax, t, title, subtitle)
     fig.tight_layout()
-    return Chart(fig, tips, df[[x, *ys]].reset_index(drop=True), title)
+    extra = [c for col in ys if col in bands for c in bands[col]]
+    return Chart(fig, tips, df[[x, *ys, *extra]].reset_index(drop=True), title)
 
 
 def threshold_curves(df: pd.DataFrame, *, x: str, y: str, series: str, title: str = "", subtitle: str | None = None,

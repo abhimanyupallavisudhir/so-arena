@@ -99,7 +99,10 @@ with a bounty larger than the hack's stake reporting is dominant; in between the
 equilibria separated by the threshold $p^* = 1-(s/\Delta)^{1/(n-1)}$, so whether snitching pays depends
 on what an agent expects others to do, training selects the equilibrium by initial propensity, and the
 silent basin shrinks with team size; collective liability for unreported violations can make reporting
-dominant even with small bounties. The simulated team game reproduces the analytic payoffs exactly;
+dominant even with small bounties. When a teammate sees the violation only with probability $o$
+(`Team(observe_prob=o)`), a witness may be alone, and below a threshold bounty $b_R$ silence is the only
+equilibrium; and which equilibrium training reaches depends on the training algorithm (natural vs.
+vanilla policy gradient, `games.learning`). The simulated team game reproduces the analytic payoffs exactly;
 `elicit_beliefs=True` records agents' predictions of their teammates so actions can be tested against
 best responses; the code domain provides an LLM-scale team task with a hackable visible-test grader, and
 the repository domain the same game on a shared, stateful repository (reporters inspect teammates' code;
