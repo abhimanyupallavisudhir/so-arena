@@ -44,7 +44,7 @@ import sys
 import tempfile
 import unicodedata
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -231,6 +231,8 @@ class VerificationPolicy(BaseModel):
     """
 
     model_config = {"arbitrary_types_allowed": True}
+    # options newer than the policy's first version: at these defaults they stay out of config hashes
+    HASH_OMIT_DEFAULTS: ClassVar[dict[str, Any]] = {"budget": None, "costs": None, "noise": 0.0, "show_to": None}
 
     verifiers: list[Any] = Field(default_factory=list)  # Verifier instances or registered names
     roles: list[str] | None = None  # roles whose claims are checked; None = all agent roles

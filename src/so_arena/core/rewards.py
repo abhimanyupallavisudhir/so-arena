@@ -14,7 +14,7 @@ import abc
 import asyncio
 import math
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from so_arena.core.policy import stable_hash
 
@@ -296,6 +296,8 @@ class Whistleblower(RewardRule):
             verified report of that violator - the penalty $m$ of :mod:`so_arena.theory.whistleblower`. As with
             collective liability, a refuted or unverifiable accusation does not count as a report.
     """
+
+    HASH_OMIT_DEFAULTS: ClassVar[dict[str, Any]] = {"leniency": 0.0, "misprision": 0.0}  # newer options
 
     def __init__(self, bounty: float = 1.0, *, split: str = "each", false_report_penalty: float = 0.0,
                  violation_penalty: float = 0.0, void_on_report: bool = True, team_key: str = "team_score",

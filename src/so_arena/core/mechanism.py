@@ -88,12 +88,18 @@ def describe_config(obj: Any, _depth: int = 8, _seen: frozenset[int] = frozenset
         return _describe_function(obj, deeper)
     if isinstance(obj, (types.BuiltinFunctionType, type)):
         return _qualname(obj)
+    # options added after a class's first release are left out at their defaults (``HASH_OMIT_DEFAULTS``), so the
+    # configurations that existed before keep their hashes - and resumable run stores their episodes
+    omit = getattr(type(obj), "HASH_OMIT_DEFAULTS", {})
     if isinstance(obj, BaseModel):
-        return {"class": _qualname(type(obj)), **{f: deeper(getattr(obj, f)) for f in type(obj).model_fields}}
+        fields = {f: getattr(obj, f) for f in type(obj).model_fields}
+        return {"class": _qualname(type(obj)),
+                **{f: deeper(v) for f, v in fields.items() if not (f in omit and v == omit[f])}}
     if isinstance(obj, Policy):
         return deeper(obj.describe())
     if isinstance(obj, (RewardRule, Verifier)):
-        attrs = {k: v for k, v in getattr(obj, "__dict__", {}).items() if not k.startswith("_")}
+        attrs = {k: v for k, v in getattr(obj, "__dict__", {}).items()
+                 if not k.startswith("_") and not (k in omit and v == omit[k])}
         return {"class": _qualname(type(obj)), **{k: deeper(attrs[k]) for k in sorted(attrs)}}
     out: dict[str, Any] = {"class": _qualname(type(obj))}
     if isinstance(getattr(obj, "name", None), str):

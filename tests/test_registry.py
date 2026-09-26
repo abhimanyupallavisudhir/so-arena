@@ -142,3 +142,26 @@ def test_every_component_class_is_registered():
                 if issubclass(obj, base) and obj is not base and ref not in targets[kind] and ref not in PYTHON_ONLY:
                     missing.append(f"{kind} {ref}")
     assert not missing, f"unregistered components: {missing}"
+
+
+def test_existing_configurations_keep_their_config_hashes():
+    """Options added later stay out of config hashes at their defaults: configurations that existed before keep
+    their hashes, so run stores resume and old and new runs group together. (``MonitoredWork`` changed on
+    purpose: missing monitor scores now fail closed, so episodes stored before are not reused.)"""
+    from so_arena.core.rewards import Whistleblower
+    from so_arena.mechanisms import get_mechanism
+
+    pinned = {  # the hashes of the configurations as first released
+        "debate+verification": (lambda: get_mechanism("debate", verification=VerificationPolicy(verifiers=["quote"], budget_per_role=2)),
+                                "f5cad58faa"),
+        "debate": (lambda: get_mechanism("debate"), "17f5edbc74"),
+        "team+whistleblower": (lambda: get_mechanism("team", reward=Whistleblower(bounty=0.5)), "8e80ad892d"),
+        "team": (lambda: get_mechanism("team"), "69ed34a15c"),
+        "consultancy": (lambda: get_mechanism("consultancy"), "7ebd5af6f1"),
+        "peer_prediction": (lambda: get_mechanism("peer_prediction"), "e3db2938df"),
+    }
+    for name, (make, h) in pinned.items():
+        assert make().config_hash() == h, name
+    # and a new option, once set, does change the hash
+    assert get_mechanism("debate", verification=VerificationPolicy(verifiers=["quote"], budget_per_role=2, noise=0.1)).config_hash() \
+        != "f5cad58faa"
