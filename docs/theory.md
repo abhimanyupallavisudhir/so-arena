@@ -4,7 +4,7 @@ This note sets out the theory the library is built on: what a scalable-oversight
 it means for one to be incentive-compatible *under training*, how best-of-N, KL-regularized RL and ASD
 are the same quantity at different optimization pressures, what equilibrium analysis adds for
 multi-agent mechanisms, and what the mechanism-design literature (implementation theory, evidence,
-costly verification, peer prediction, markets, team production) predicts. Section 10 answers "what
+costly verification, moral hazard and monitoring, peer prediction, markets, team production) predicts. Section 10 answers "what
 else besides incentive compatibility matters?". Pointers to the code are given as `module.function`.
 
 ## 1. Setup
@@ -244,6 +244,84 @@ suspicion only on audited episodes, when flagged episodes are always audited and
 learns that not flagging is safe; paying $\mathbb 1[\text{audited}]\, s/P(\text{audited})$ restores a proper
 scoring rule in expectation (`MonitoredWork(penalty="audit", audit_unflagged=q)`).
 
+### 6.1 Monitors: moral hazard and manipulable signals
+
+Monitoring protocols from AI control (trusted monitoring, defer-to-trusted, chain-of-thought and probe
+monitors; Greenblatt et al. 2024) become mechanisms once their signals pay the agent: in `MonitoredWork`
+the worker earns the grader's measured success minus a penalty driven by the monitor. Principal-agent
+theory with hidden actions (moral hazard) says what to expect.
+
+* **Informativeness** (Holmström 1979): the reward should condition on every signal that carries
+  information about the hidden action beyond the others - output, monitor, chain of thought, probe
+  readings (`monitor_sees`) - and on nothing else, which only adds noise.
+* **Multitask moral hazard** (Holmström & Milgrom 1991): when some dimensions of the work are measured
+  and others are not, strong incentives on the measured ones divert effort from the rest, so optimal
+  incentives are *weaker*. This is reward hacking in economists' terms, and a principled rationale for KL
+  regularization and early stopping when the reward measures only part of what we want.
+* **Becker with limited liability.** An audit with probability $a$ and penalty $P$ deters a violation worth
+  $G$ iff $aP \ge (1-a)G$ when a caught violator forfeits the gain, and iff $aP \ge G$ when it keeps it
+  (Becker 1968; Mookherjee & Png 1989; `theory.monitoring.min_audit_rate`). "Audit rarely, punish hard"
+  needs unbounded penalties; RL rewards are clipped and normalized - limited liability - so audits must be
+  frequent, and with $P < G$ a kept gain is not deterred at all. Forfeiture matters as much as the penalty:
+  a flagged worker in `MonitoredWork` earns $-\lambda$ (`forfeit=True`, the default), keeps its measured
+  success minus $\lambda$ with `forfeit=False`, and loses its credit when its work is deferred to a trusted
+  model (`defer=True`).
+* **Strategic classification** (Hardt et al. 2016; Frankel & Kartik 2019): a signal that is informative
+  about unoptimized behaviour loses information once agents are rewarded on it - they move the signal, not
+  the behaviour. A monitor's suspicion is such a signal; optimizing against chain-of-thought monitors
+  produces obfuscated reward hacking (Baker et al. 2025). A monitor's value must be measured under the
+  optimization it will face.
+* **Fail closed.** A monitor that gives no score must not count as a pass, or breaking the monitor (output
+  that does not parse, an injection that derails it) becomes a strategy that beats every other form of
+  misbehaviour. `MonitoredWork` treats a missing score or probe reading as maximal suspicion
+  (`missing_score="flag"`) and counts them (`missing_scores`).
+
+A minimal model shows the mechanics (`theory.monitoring`; the synthetic world `domains.monitoring`
+implements it).
+
+**Proposition 4 (penalizing alarms can buy obfuscation instead of good behaviour).** An actor chooses
+honest work (measured success $s$), overt misbehaviour ($s + \Delta$) or covert misbehaviour
+($s + \Delta - \kappa$; hiding costs $\kappa \ge 0$). A monitor raises an alarm with probabilities
+$d_h \le d_c < d_o$, and the reward is measured success minus $\lambda \cdot \mathbb 1[\text{alarm}]$. Covert
+beats overt misbehaviour iff $\lambda (d_o - d_c) > \kappa$, and beats honest work iff
+$\Delta - \kappa > \lambda (d_c - d_h)$. So if hiding is cheap relative to the detection gap,
+$\kappa/(d_o - d_c) < (\Delta - \kappa)/(d_c - d_h)$, then as $\lambda$ grows
+
+* overt misbehaviour turns covert at $\lambda = \kappa/(d_o - d_c)$;
+* misbehaviour stops only for $\lambda > (\Delta - \kappa)/(d_c - d_h)$ - never if covert misbehaviour is
+  undetectable ($d_c = d_h$).
+
+If hiding is expensive, covert misbehaviour is never optimal and overt misbehaviour stops at
+$\lambda = \Delta/(d_o - d_h)$. Throughout the covert phase the alarm rate on misbehaving episodes is $d_c$,
+not $d_o$: the monitor looks increasingly effective while the misbehaviour persists.
+
+*Proof.* The expected rewards $s - \lambda d_h$, $s + \Delta - \lambda d_o$ and $s + \Delta - \kappa - \lambda d_c$
+are lines in $\lambda$; the best response is their upper envelope, which starts with overt misbehaviour and
+passes to ever flatter lines. Pairwise comparison gives the crossings $\lambda_{oc} = \kappa/(d_o - d_c)$,
+$\lambda_{ch} = (\Delta - \kappa)/(d_c - d_h)$ and $\lambda_{oh} = \Delta/(d_o - d_h)$, and
+$\lambda_{oh} = [(d_o - d_c)\lambda_{oc} + (d_c - d_h)\lambda_{ch}]/(d_o - d_h)$ is a weighted average of the
+other two. So either $\lambda_{oc} < \lambda_{oh} < \lambda_{ch}$ and the covert line is on the envelope
+between $\lambda_{oc}$ and $\lambda_{ch}$, or $\lambda_{ch} \le \lambda_{oh} \le \lambda_{oc}$ and honest work
+overtakes overt misbehaviour before covert misbehaviour does. $\square$
+
+With forfeiture a behaviour with measured success $m_a$ earns $m_a(1 - d_a) - \lambda d_a$ - still a line,
+and `theory.monitoring.envelope` gives the switch points of any such menu; with $d_o = 1$, hiding then pays
+even without a penalty.
+
+The remedy is a detector whose accuracy does not respond to the agent's optimization. A simulated probe
+(`integrations.probes.SimulatedProbe`) draws readings from ground truth with a fixed AUROC; thresholded,
+it flags every kind of misbehaviour with the same probability $d_c = d_o = \mathrm{TPR}$ and honest work
+with $d_h = \mathrm{FPR}$, so hiding never pays and misbehaviour stops at $\lambda = \Delta/(\mathrm{TPR} -
+\mathrm{FPR})$. It stands in for a capability we might have (a robust deception probe); it reads ground
+truth, so its uses are recorded (`Episode.gt_access`). Real detectors - LLM monitors, keyword rules, probes
+fit on the agent's outputs (`integrations.probes.fit_linear_probe`) - can be optimized against. The gap
+between the two, ground-truth misbehaviour against alarm rates under the same optimization pressure, is the
+manipulation effect. `demos.demo_monitoring` measures it: with $s = 0.5$, $\Delta = 0.3$, $\kappa = 0.05$,
+$d_o = 1$, $d_c = 0.15$, $d_h = 0.05$, a best-responding actor turns covert against a keyword monitor at
+$\lambda \approx 0.059$ (theory $1/17$) and is deterred at $2.62$ (95% CI $2.44$-$2.82$; theory $2.5$),
+while against a probe with AUROC 0.9 it never hides and is deterred at $0.467$ ($0.460$-$0.474$; theory
+$0.472$).
+
 ## 7. When ground truth never arrives, or arrives late
 
 * **Output agreement** (pay for matching peers) makes truth-telling an equilibrium, but so is any
@@ -320,7 +398,7 @@ teammate can hard-code them).
   never be sampled (the limitation of best-of-N), and models may under-explore deliberately.
 * **Chain-of-thought as oversight channel**: penalizing suspicious reasoning teaches concealment; a
   monitor's value must be measured after optimization against it (`mechanisms.MonitoredWork` with
-  `monitor_sees=("reasoning",)`).
+  `monitor_sees=("reasoning",)`; Proposition 4 in section 6.1).
 
 ## 10. What matters besides incentive compatibility
 
@@ -366,6 +444,7 @@ useful mechanism also needs:
 
 Angelopoulos, Bates, Fannjiang, Jordan & Zrnic (2023), Prediction-powered inference, *Science*.
 Azar & Micali (2012), Rational proofs, *STOC*.
+Baker et al. (2025), Monitoring reasoning models for misbehavior and the risks of promoting obfuscation.
 Barnes & Christiano (2020), Debate update: obfuscated arguments problem, *AI Alignment Forum*.
 Becker (1968), Crime and punishment: an economic approach, *JPE*.
 Beirami et al. (2024), Theoretical guarantees on the best-of-n alignment policy.
@@ -377,14 +456,18 @@ Bull & Watson (2007), Hard evidence and mechanism design, *GEB*.
 Chen, McCauley & Singh (2016), Rational proofs with multiple provers, *ITCS*.
 Chen, Dimitrov, Sami, Reeves, Pennock, Hanson, Fortnow & Gonen (2010), Gaming prediction markets, *Algorithmica*.
 Dasgupta & Ghosh (2013), Crowdsourced judgement elicitation with endogenous proficiency, *WWW*.
+Frankel & Kartik (2019), Muddled information, *JPE*.
 Gao, Schulman & Hilton (2023), Scaling laws for reward model overoptimization, *ICML*.
 Green & Laffont (1986), Partially verifiable information and mechanism design, *RES*.
+Greenblatt, Shlegeris, Sachan & Roger (2024), AI control: improving safety despite intentional subversion, *ICML*.
 Grossman (1981), The informational role of warranties and private disclosure, *JLE*.
 Hanson (2003), Combinatorial information market design; (2007) Logarithmic market scoring rules.
 Harrington (2008), Optimal corporate leniency programs, *JIE*.
+Hardt, Megiddo, Papadimitriou & Wootters (2016), Strategic classification, *ITCS*.
 Harsanyi & Selten (1988), *A General Theory of Equilibrium Selection in Games*.
 Hart, Kremer & Perry (2017), Evidence games: truth and commitment, *AER*.
 Holmström (1979), Moral hazard and observability, *Bell J. Econ.*; (1982) Moral hazard in teams, *Bell J. Econ.*
+Holmström & Milgrom (1991), Multitask principal-agent analyses, *JLEO*.
 Hubinger (2020), AI safety via market making, *AI Alignment Forum*.
 Irving, Christiano & Amodei (2018), AI safety via debate.
 Lanctot et al. (2017), A unified game-theoretic approach to multiagent reinforcement learning, *NeurIPS*.
@@ -393,6 +476,7 @@ Maskin (1999), Nash equilibrium and welfare optimality, *RES*.
 McKelvey & Palfrey (1998), Quantal response equilibria for extensive form games, *Experimental Economics*.
 Milgrom (1981), Good news and bad news: representation theorems and applications, *Bell J. Econ.*
 Miller, Resnick & Zeckhauser (2005), Eliciting informative feedback: the peer-prediction method, *Management Science*.
+Mookherjee & Png (1989), Optimal auditing, insurance, and redistribution, *QJE*.
 Moore & Repullo (1988), Subgame perfect implementation, *Econometrica*.
 Motta & Polo (2003), Leniency programs and cartel prosecution, *IJIO*.
 Paleka, Pallavi Sudhir et al. (2025), Consistency checks for language model forecasters, *ICLR*.
