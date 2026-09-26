@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import math
 import random
 import re
@@ -67,7 +68,7 @@ DIRECTIVES: dict[str, str] = {
     ),
 }
 
-
+log = logging.getLogger("so_arena")
 MIN_COVERAGE = 0.5  # a mean ground-truth value over fewer of the episodes is NaN (see Candidate.mean_value)
 
 
@@ -101,10 +102,21 @@ class Candidate(BaseModel):
     # False: the candidate failed its search's constraint on measured values (ParamSearch(constraint=...)) - kept
     # in the record, but never a parent or the search's best
     accepted: bool = True
+    # what an episode without a reward (it errored, or its reward is pending) counts as when ranking: the
+    # search's worst reward so far - so a strategy that breaks episodes on hard items is not ranked on the
+    # easy ones alone (None: no episode lost a reward)
+    missing_reward: float | None = None
+
+    @property
+    def reward_coverage(self) -> float:
+        """Fraction of the candidate's episodes that have a finite reward."""
+        return sum(_finite(x) for x in self.rewards) / len(self.rewards) if self.rewards else math.nan
 
     @property
     def mean_reward(self) -> float:
-        r = [x for x in self.rewards if x is not None and math.isfinite(x)]
+        """Mean reward over the candidate's episodes, an episode without one counting as ``missing_reward``."""
+        r = [x if _finite(x) else self.missing_reward for x in self.rewards]
+        r = [x for x in r if x is not None]
         return float(np.mean(r)) if r else -math.inf
 
     @property
@@ -253,6 +265,7 @@ class PromptSearch:
 
         assert algorithm in ("opro", "reflective", "evolve", "autoresearch")
         self.mechanism, self.role, self.policy_factory = mechanism, role, policy_factory
+        self._worst_reward: float | None = None  # the worst finite reward seen so far (see Candidate.missing_reward)
         self.others = dict(others)
         self.optimizer = get_model(optimizer) if optimizer is not None else None  # None: a subclass proposes
         self.arms = list(arms)
@@ -306,6 +319,13 @@ class PromptSearch:
                       iteration=iteration, parent=parent, rationale=rationale, directive=self.directive_name,
                       split=split, rewards=[float(r) if r is not None else math.nan for r in rewards],
                       values=values, item_ids=[e.item_id for e in eps], episode_ids=[e.id for e in eps])
+        finite = [x for x in c.rewards if _finite(x)]
+        if finite:
+            self._worst_reward = min(finite + ([self._worst_reward] if self._worst_reward is not None else []))
+        if len(finite) < len(c.rewards):
+            c.missing_reward = self._worst_reward if self._worst_reward is not None else -math.inf
+            log.warning("%s: %d of %d episodes have no reward (errored or pending); they count as the worst "
+                        "reward so far (%s)", c.id, len(c.rewards) - len(finite), len(c.rewards), c.missing_reward)
         self.episodes[c.id] = eps
         return c
 

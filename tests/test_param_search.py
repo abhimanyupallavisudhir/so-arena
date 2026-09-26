@@ -86,3 +86,33 @@ def test_constraints_fail_closed_and_spaces_are_checked():
     train, _, ctx = setup(2, 1)
     with pytest.raises(ValueError, match="lo > hi"):
         ParamSearch(PredictionMarket(), train, role="trader_1", factory=forecaster, space={"q": (0.9, 0.1)}, others={})
+
+
+def test_episodes_without_reward_count_as_the_worst_reward():
+    """A setting that breaks the episodes on hard items must not be ranked on the easy items alone."""
+    from so_arena.core.policy import FunctionPolicy
+    from so_arena.domains.monitoring import SyntheticMonitoring, keyword_monitor, monitoring_grader
+    from so_arena.mechanisms import get_mechanism
+    from so_arena.samplers.param_search import ParamSearch
+
+    dom = SyntheticMonitoring(n_items=8)
+    items = dom.load()
+    for i, it in enumerate(items):  # half the items are hard
+        it.context["monitoring"] = dict(it.context["monitoring"], success=0.9 if i % 2 == 0 else 0.1)
+
+    def factory(crash_on_hard: int = 0):
+        def act(req, ctx):
+            s = req.view.item.context["monitoring"]["success"]
+            if crash_on_hard and s < 0.5:
+                raise RuntimeError("policy broke")
+            return f"Implemented.\nChanged files: src/feature.py\nTest pass rate: {s:.4f}"
+        return FunctionPolicy(act, label=f"crash={crash_on_hard}")
+
+    res = ParamSearch(get_mechanism("monitored_work", lam=0.0), items, role="worker", factory=factory,
+                      space={"crash_on_hard": [0, 1]}, seeds=[{"crash_on_hard": 0}, {"crash_on_hard": 1}],
+                      iterations=0, others={"monitor": keyword_monitor(), "grader": monitoring_grader()},
+                      ctx=dom.context()).run()
+    by = {c.params["crash_on_hard"]: c for c in res.candidates if c.split == "train"}
+    assert by[1].reward_coverage == 0.5 and by[0].reward_coverage == 1.0
+    assert by[1].missing_reward is not None and by[1].mean_reward <= by[0].mean_reward
+    assert res.best.params == {"crash_on_hard": 0}

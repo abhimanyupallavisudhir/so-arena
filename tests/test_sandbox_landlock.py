@@ -220,3 +220,25 @@ def test_landlock_abi_matches_the_kernel():
         assert (abi >= 1) == ("landlock" in lsm.read_text().split(","))
     if abi and sandbox.backend() in ("bwrap", "unshare") and os.environ.get(sandbox.LANDLOCK_ENV) is None:
         assert sandbox.layers() == [sandbox.backend(), "landlock"]  # the second layer wherever the kernel has it
+
+
+def test_hidden_directory_behind_a_symlinked_read_root(mode, tmp_path, monkeypatch):
+    """A system read root that is a symlink (``/lib`` -> ``/usr/lib`` on merged-/usr systems) must not expose
+    what is hidden inside its target: Landlock rules follow symlinks, so the holes are matched after resolving."""
+    real = tmp_path / "real"
+    (real / "secret").mkdir(parents=True)
+    (real / "secret" / "gt.txt").write_text(SECRET)
+    (real / "public.txt").write_text("hello")
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    wd = tmp_path / "wd"
+    wd.mkdir()
+    monkeypatch.setattr(sandbox, "_LANDLOCK_SYSTEM", (*sandbox._LANDLOCK_SYSTEM, str(alias)))
+    sandbox.hide(real / "secret")
+    try:
+        r = sh(f"cat {alias}/public.txt {real}/public.txt; cat {alias}/secret/gt.txt; cat {real}/secret/gt.txt", wd)
+    finally:
+        sandbox.unhide(real / "secret")
+    if mode == "landlock":  # under namespaces the scratch /tmp hides tmp_path altogether
+        assert "hello" in r.stdout, r.stderr
+    assert SECRET not in r.stdout

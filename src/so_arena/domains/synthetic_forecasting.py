@@ -154,15 +154,16 @@ def synthetic_forecaster(style: str = "calibrated", *, temper: float | None = No
     return FunctionPolicy(act, label=label or style)
 
 
-_FORECAST_RE = re.compile(r"forecast:\s*[^:,]+:\s*([0-9.]+)")
+_FORECAST_RE = re.compile(r"forecast:\s*[^:,]+:\s*(\d+(?:\.\d+)?|\.\d+)")
 
 
 def rating_judge(confidence: float = 1.0, *, label: str | None = None) -> FunctionPolicy:
     """A judge who rates a forecast $q$ (0-10) as $10\\,[c\\,|2q - 1| + (1 - c)(1 - |q - h|)]$: decisiveness with
     weight $c$ = ``confidence``, agreement with its own view $h$ (``judge_info``, 0.5 without it) otherwise.
 
-    It reads the forecast from the rating prompt (``Forecast``'s "<forecaster>'s forecast: yes: 0.730, ...") and
-    never sees the outcome. Neither term is a proper score of the forecast: both are maximized by reports other
+    It reads the forecast :class:`~so_arena.mechanisms.Forecast` passes with the request (else the first
+    "<forecaster>'s forecast: yes: 0.730, ..." line of the prompt) - never the rationale - and never sees the
+    outcome. Neither term is a proper score of the forecast: both are maximized by reports other
     than the forecaster's belief (``docs/theory.md``, Proposition 5).
     """
     if not 0.0 <= confidence <= 1.0:
@@ -171,10 +172,15 @@ def rating_judge(confidence: float = 1.0, *, label: str | None = None) -> Functi
     def act(req: ActionRequest, ctx: ActContext) -> Any:
         if req.kind != "score":
             return "(the rating judge only rates forecasts)"
-        found = _FORECAST_RE.findall("\n".join(m.content for m in req.prompt))
-        if not found:
-            return Action(text="No forecast to rate.", score=None, parse_ok=False)
-        q = min(max(float(found[-1]), 0.0), 1.0)
+        forecast = (req.metadata or {}).get("forecast")
+        if forecast:  # Forecast passes the distribution itself: nothing a forecaster writes can change it
+            q = float(next(iter(forecast.values())))
+        else:  # the first forecast line of the prompt (the mechanism's, above any rationale)
+            found = _FORECAST_RE.search("\n".join(m.content for m in req.prompt))
+            if not found:
+                return Action(text="No forecast to rate.", score=None, parse_ok=False)
+            q = float(found.group(1))
+        q = min(max(q, 0.0), 1.0)
         h = _info(req, ctx, "judge_info")
         h = 0.5 if h is None else h
         rating = 10 * (confidence * abs(2 * q - 1) + (1 - confidence) * (1 - abs(q - h)))

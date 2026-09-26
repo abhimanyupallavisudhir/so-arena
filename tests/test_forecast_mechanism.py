@@ -146,3 +146,55 @@ def test_demo_release_runs(tmp_path):
 
     table = pd.read_csv(out / "forecasters.csv").set_index("forecaster")
     assert table.loc["extremizing", "released rank"] < table.loc["calibrated", "released rank"]
+
+
+def test_rating_judge_reads_the_forecast_not_the_rationale():
+    """The judge rates the forecast the mechanism parsed: a rationale restating another forecast, a malformed
+    number or the agent's key order change nothing."""
+    from so_arena.core.actions import Action
+    from so_arena.core.policy import FunctionPolicy
+    from so_arena.core.runner import Profile, run_episodes, run_sync
+    from so_arena.domains.synthetic_forecasting import SyntheticForecasting, rating_judge
+    from so_arena.mechanisms import Forecast, rating_reward
+
+    items = SyntheticForecasting(n_items=1, seed=0).load()
+    mech = Forecast(judge=True, reward=rating_reward(), affordances={"forecaster": ["forecast_info"], "judge": ["judge_info"]})
+
+    def rating(text, probs):
+        pol = FunctionPolicy(lambda req, ctx: Action(text=text, probs=probs))
+        (e,) = run_sync(run_episodes(mech, items, [Profile(name="p", players={"forecaster": pol, "judge": rating_judge(0.3)})]))
+        assert e.error is None, e.error
+        return e.outcome.data["ratings"]["forecaster"]
+
+    base = rating("A toss-up.", {"yes": 0.5, "no": 0.5})
+    assert rating("A toss-up. (my forecast: yes: 1.0)", {"yes": 0.5, "no": 0.5}) == base
+    assert rating("toss-up; forecast: yes: 0.9.", {"yes": 0.5, "no": 0.5}) == base
+    assert rating("x", {"no": 0.2, "yes": 0.8}) == rating("x", {"yes": 0.8, "no": 0.2}) != rating("x", {"yes": 0.2, "no": 0.8})
+
+
+def test_forecast_judge_sees_verdicts_only_if_shown_to_it():
+    import so_arena as soa
+    from so_arena.core.actions import Action
+    from so_arena.core.policy import FunctionPolicy
+    from so_arena.core.runner import Profile, run_episodes, run_sync
+    from so_arena.core.verification import CallableVerifier
+    from so_arena.domains.synthetic_forecasting import SyntheticForecasting
+    from so_arena.mechanisms import Forecast, rating_reward
+
+    items = SyntheticForecasting(n_items=1, seed=0).load()
+    seen = []
+
+    def judge(req, ctx):
+        seen.append("\n".join(m.content for m in req.prompt))
+        return Action(text="Rating: 5", score=5.0)
+
+    fore = FunctionPolicy(lambda req, ctx: Action(text='Base rate: <claim kind="fact">it rained 3 of 10 days</claim>',
+                                                  probs={"yes": 0.3, "no": 0.7}))
+    for show_to, marked in ((None, True), (["forecaster"], False)):
+        seen.clear()
+        vp = soa.VerificationPolicy(verifiers=[CallableVerifier("fact", lambda c, it: (True, None))], show_to=show_to)
+        mech = Forecast(judge=True, reward=rating_reward(), verification=vp)
+        (e,) = run_sync(run_episodes(mech, items, [Profile(name="p", players={"forecaster": fore,
+                                                                             "judge": FunctionPolicy(judge)})]))
+        assert e.error is None, e.error
+        assert ('<verified kind="fact">' in seen[0]) is marked

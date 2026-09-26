@@ -278,11 +278,15 @@ class Forecast(Mechanism):
         if self.judge:
             ratings, ok = {}, {}
             for f, a in zip(self.forecasters, acts):
-                shown = next((t.shown for t in reversed(g.turns) if t.role == f and t.phase == "forecast"), a.text)
-                body = (question_block(g, "judge") + f"\n\n{self.role_title(f)}'s forecast: {_fmt(dists[f])}.\n"
+                # the rationale as the judge may read it (verdicts only if the verification policy shows them to it)
+                shown = next((g.shown_to("judge", t) for t in reversed(g.turns) if t.role == f and t.phase == "forecast"),
+                             a.text)
+                forecast = {o: dists[f].get(o, 0.0) for o in labels}  # in the options' order, not the agent's
+                body = (question_block(g, "judge") + f"\n\n{self.role_title(f)}'s forecast: {_fmt(forecast)}.\n"
                         f"Rationale:\n{shown.strip() or '(none)'}\n\nRate the quality of this forecast from 0 to 10.")
                 r = await g.act("judge", kind="score", phase=f"rating:{f}", score_range=(0, 10),
                                 score_meaning="quality of the forecast", visible_to=["judge"],
+                                metadata={"forecast": forecast},
                                 prompt=[Message.system("You are judging forecasts before the question resolves. You do "
                                                        "not know the outcome."), Message.user(body)])
                 ok[f] = r.parse_ok and r.score is not None

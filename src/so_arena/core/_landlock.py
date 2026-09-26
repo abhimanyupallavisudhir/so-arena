@@ -89,7 +89,7 @@ def _landlock(cfg: dict, abi: int) -> None:
     rs = libc.syscall(L(SYS_CREATE), buf, L(len(attr)), L(0))
     if rs < 0:
         _refuse(f"cannot create a Landlock ruleset ({os.strerror(ctypes.get_errno())})")
-    holes = sorted({os.path.normpath(h) for h in cfg.get("holes", ())})
+    holes = sorted({os.path.realpath(h) for h in cfg.get("holes", ())})
 
     def add(path: str, access: int) -> None:
         try:
@@ -109,8 +109,10 @@ def _landlock(cfg: dict, abi: int) -> None:
             os.close(fd)
 
     def grant(path: str, access: int) -> None:
-        """``access`` beneath ``path`` except beneath the holes: around a hole, entry by entry."""
-        path = os.path.normpath(path)
+        """``access`` beneath ``path`` except beneath the holes: around a hole, entry by entry. ``path`` is
+        resolved first: a rule follows symlinks (``/lib`` -> ``/usr/lib`` on merged-/usr systems), so the holes
+        must be compared with where it really points."""
+        path = os.path.realpath(path)
         if path in holes:
             return
         prefix = path.rstrip("/") + "/"
