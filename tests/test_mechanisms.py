@@ -121,14 +121,13 @@ def test_reviewed_work_asd_and_critic_zero_sum():
         # accepts in proportion to the worker's argument strength minus the critic's
         from so_arena.domains.synthetic import argument_strengths
 
-        texts = [t.text for t in req.view.transcript]
         s = sum(argument_strengths([t.text for t in req.view.transcript if t.role == "worker"]).values())
         c = sum(argument_strengths([t.text for t in req.view.transcript if t.role == "critic"]).values())
         p = 1 / (1 + math.exp(-(s - 0.5 * c)))
         return {"accept": p, "reject": 1 - p}
 
     def critic(req, ctx_):
-        return f'<arg for="reject" strength="1.0"> The submission has a flaw.'
+        return '<arg for="reject" strength="1.0"> The submission has a flaw.'
 
     arguer = synthetic_arguer(honest_mean=2.0, dishonest_mean=0.0, sd=0.2)
     mech = ReviewedWork(critique_rounds=1, affordances={"agents": ["answer_key"]})

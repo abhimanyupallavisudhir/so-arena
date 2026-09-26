@@ -38,7 +38,6 @@ def brute_bon_plugin(w, n):
     probs = np.zeros(k)
     for s in itertools.product(range(k), repeat=n):
         m = max(w[i] for i in s)
-        winners = sorted({i for i in s if w[i] == m})
         # ties among *distinct candidates* with equal payoff: split uniformly over tied candidates
         tied = [i for i in range(k) if w[i] == m]
         for i in tied:

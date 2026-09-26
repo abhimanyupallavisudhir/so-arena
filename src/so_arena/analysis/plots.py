@@ -300,7 +300,7 @@ def line_chart(df: pd.DataFrame, *, x: str, ys: Sequence[str], labels: Sequence[
         (end,) = ax.plot([last[x]], [last[col]], marker="o", markersize=7, color=c, markeredgecolor=t["surface"],
                          markeredgewidth=1.5, linestyle="none")
     if len(ys) >= 2:
-        leg = ax.legend(frameon=False, fontsize=8, loc="best", labelcolor=t["ink2"])
+        ax.legend(frameon=False, fontsize=8, loc="best", labelcolor=t["ink2"])
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     if ylim:

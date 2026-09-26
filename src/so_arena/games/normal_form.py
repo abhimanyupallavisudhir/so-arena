@@ -109,7 +109,7 @@ class NormalFormGame:
 
     def expected_outcome(self, mixed: Mixed, key: str, *, min_coverage: float = 0.5,
                          warn: bool = True) -> tuple[float, float]:
-        """(expectation, coverage) of outcome ``key`` under independent mixed strategies.
+        r"""(expectation, coverage) of outcome ``key`` under independent mixed strategies.
 
         The expectation averages the profiles where the outcome was observed, renormalized; the coverage
         is the probability mass of measured episodes, $\sum_s x(s)\,c(s)$ with $c(s)$ the fraction of

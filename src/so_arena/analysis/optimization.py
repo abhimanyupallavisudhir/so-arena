@@ -369,7 +369,7 @@ class _Tree:
 
 def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, *,
                   fp_iters: int = 200, tol: float = 1e-12) -> TreeValue:
-    """Expected rewards (per role) and values when each role uses its selection policy, by backward
+    r"""Expected rewards (per role) and values when each role uses its selection policy, by backward
     induction over *information sets*.
 
     A node's key is its role's information set (see :meth:`~so_arena.core.game.Game._infoset_key`): the
