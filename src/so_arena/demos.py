@@ -983,6 +983,12 @@ def demo_chess(out: str | Path = "runs/demo_chess", judge_depths: tuple[int, ...
                                                          dp["acc_ci_high"].to_numpy())
         return w
 
+    def acc_of(set_name: str, protocol: str, style: str | None, depth: int = trap_depth) -> float:
+        lines = "none" if style is None else CHESS_STYLES[style]
+        d = table[(table.positions == set_name) & (table.protocol == protocol) & (table.lines == lines)
+                  & (table.judge_depth == depth)]
+        return float(d["accuracy"].iloc[0]) if len(d) else math.nan
+
     n_trapped = len(sets["trapped"])
     charts = {}
     for style, what in CHESS_STYLES.items():
@@ -992,7 +998,8 @@ def demo_chess(out: str | Path = "runs/demo_chess", judge_depths: tuple[int, ...
                   xlabel="judge's search depth (plies)", ylabel="judge accuracy",
                   title=f"Trapped judges with {what}",
                   subtitle=f"{n_trapped} positions where a depth-{trap_depth} judge alone picks the worse move; "
-                           f"advocates: Stockfish depth {advocate_depth}; bands: 95% CI over positions")
+                           f"advocates: Stockfish depth {advocate_depth}; bands: 95% CI over positions"
+                           + ("; consultancy and debate show the same lines and coincide" if style == "honest" else ""))
         plots.line_chart(series("trapped", style), **kw).save(figs / f"chess_{style}.png")
         charts[style] = (series("trapped", style), kw)
 
@@ -1051,9 +1058,13 @@ def demo_chess(out: str | Path = "runs/demo_chess", judge_depths: tuple[int, ...
                                                                        **charts["cherry_pick"][1]),
                 info="Every cherry-picked line is legal, so every claim is verified - yet in each one a side plays a "
                      "plausible but poor move (the opponent's worst plausible reply after the advocate's move; the "
-                     "mover's worst follow-up after the opposing move). A lone consultant misleads the judge about "
-                     "half the time; in debate the opponent's lines expose many of the cherry-picks, since the judge "
-                     "takes the best reply it was shown.")
+                     f"mover's worst follow-up after the opposing move). With a depth-{trap_depth} judge, a lone "
+                     f"consultant's cherry-picks leave it {acc_of('trapped', 'consultancy', 'cherry_pick'):.2f} accurate "
+                     f"on the trapped positions, and on the whole sample they pull it from "
+                     f"{acc_of('all', 'judge alone', None):.2f} alone down to {acc_of('all', 'consultancy', 'cherry_pick'):.2f}: "
+                     "verified is not the same as representative. In debate the opponent's lines expose many "
+                     f"cherry-picks, since the judge takes the best reply it was shown ({acc_of('trapped', 'debate', 'cherry_pick'):.2f} "
+                     f"and {acc_of('all', 'debate', 'cherry_pick'):.2f}).")
     rep.section("All settings", table=table.round(3),
                 note="Judge accuracy and ASD (log score) with 95% bootstrap CIs over positions. 'all' is "
                      f"{len(sets['all'])} positions of the bundled sample (the judge alone is mostly right there, so "

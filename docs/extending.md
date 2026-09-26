@@ -121,7 +121,9 @@ Grant them per role: `Debate(tools={"agents": ["engine"]})`; affordances likewis
 
 A tool that runs anything the agent wrote (commands, code, queries through an interpreter) must launch
 it through `core.sandbox.wrap(argv, workdir)`, which hides state stores, datasets and run directories
-from it; register further secret directories with `core.sandbox.hide(path)`. A tool must also reveal
+from it; register further secret directories with `core.sandbox.hide(path)`. Pass the command a minimal
+environment with `HOME` and `TMPDIR` in its working directory: under the Landlock backend (containers without
+user namespaces) `/tmp` and the home directory are not scratch space but invisible. A tool must also reveal
 only what the item and the visible state determine: in game trees, decisions are grouped into
 information sets by what their role is shown, so a tool reading hidden, path-dependent game data would
 break that grouping.
