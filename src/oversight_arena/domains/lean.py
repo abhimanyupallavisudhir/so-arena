@@ -9,7 +9,7 @@ Formats:
   prove/disprove things; ``<lean>`` claims are kernel-checked.
 - ``proof``: the proposer writes a proof (artifact); GT = kernel check (needs a checker).
 
-Checkers: :class:`LocalLean` (``lake env lean`` inside a Mathlib project) or
+Checkers: :class:`LocalLean` (a local Mathlib project; Lean runs confined) or
 :class:`KiminaLean` (a Kimina Lean Server URL). Without a checker, ``<lean>`` claims are
 reported as unverifiable.
 """
@@ -40,19 +40,54 @@ class LeanChecker(ABC):
     def check(self, code: str, timeout: float = 60.0) -> tuple[bool, str]: ...
 
 
+_LEAN_ENV = re.compile(r"(LEAN|LAKE|ELAN)\w*|PATH|LD_LIBRARY_PATH|DYLD_LIBRARY_PATH")
+
+
 class LocalLean(LeanChecker):
-    """Run ``lake env lean`` on a temp file inside a Lean project that has Mathlib.
+    """Check code with ``lean`` from a local Lean project that has Mathlib.
 
-    This runs Lean on the host. Untrusted proofs are screened first (:func:`kernel_check` rejects
-    ``#eval``, ``run_cmd`` and other metaprogramming that would execute at elaboration time), but
-    Lean is a large program with its own file access; for untrusted proofs at scale run it inside a
-    container (or use :class:`KiminaLean`, a separate server). Always reach Lean through
-    :func:`kernel_check` / :class:`LeanProofGT`, never by calling :meth:`check` on raw model text."""
+    Lean runs confined (:func:`~oversight_arena.domains._exec.run_command`): it reads only its
+    toolchain, the project and the packages on ``LEAN_PATH``; it writes only in a scratch folder;
+    no network; and it gets only the Lean/Lake variables of the environment (no API keys). The
+    environment ``lake env`` sets up is computed once, on no untrusted input. Code is screened too:
+    always reach Lean through :func:`kernel_check` / :class:`LeanProofGT`, which refuse ``#eval``,
+    ``run_cmd`` and other metaprogramming. ``sandbox=False`` runs ``lake env lean`` on the host
+    (trusted input only)."""
 
-    def __init__(self, project_dir: str):
-        self.project_dir = project_dir
+    def __init__(self, project_dir: str, sandbox: bool = True, mem_mb: int | None = None):
+        self.project_dir = os.path.realpath(project_dir)
+        self.sandbox = sandbox
+        self.mem_mb = mem_mb
+        self._env: dict[str, str] | None = None
+
+    def lean_env(self) -> dict[str, str]:
+        """The Lean/Lake variables ``lake env`` sets up for this project (``LEAN_PATH`` etc.)."""
+        if self._env is None:
+            p = subprocess.run(["lake", "env", "env", "-0"], cwd=self.project_dir, capture_output=True, timeout=600)
+            if p.returncode != 0:
+                raise RuntimeError(f"`lake env` failed in {self.project_dir}: {p.stderr.decode(errors='replace')[-500:]}")
+            pairs = (kv.split("=", 1) for kv in p.stdout.decode(errors="replace").split("\0") if "=" in kv)
+            self._env = {k: v for k, v in pairs if _LEAN_ENV.fullmatch(k)}
+        return self._env
 
     def check(self, code: str, timeout: float = 120.0) -> tuple[bool, str]:
+        if not self.sandbox:
+            return self._check_on_host(code, timeout)
+        from ._exec import run_command
+
+        env = self.lean_env()
+        sysroot = env.get("LEAN_SYSROOT", "")
+        lean = os.path.join(sysroot, "bin", "lean") if sysroot and os.path.exists(os.path.join(sysroot, "bin", "lean")) else "lean"
+        roots = [self.project_dir, sysroot, *env.get("LEAN_PATH", "").split(os.pathsep), *env.get("LEAN_SRC_PATH", "").split(os.pathsep)]
+        r = run_command([lean, "Check.lean"], files={"Check.lean": code}, timeout=timeout, mem_mb=self.mem_mb,
+                        allow_read=[x for x in roots if x], env=env)
+        if r.timeout:
+            return False, "timeout"
+        msg = (r.stdout + r.stderr).strip()
+        errors = re.search(r":\d+:\d+: error\b|^error\b", msg, re.M)  # Lean's message format, not names
+        return r.ok and not errors and "declaration uses 'sorry'" not in msg, msg[-3000:]
+
+    def _check_on_host(self, code: str, timeout: float) -> tuple[bool, str]:
         with tempfile.NamedTemporaryFile("w", suffix=".lean", dir=self.project_dir, delete=False) as f:
             f.write(code)
             path = f.name

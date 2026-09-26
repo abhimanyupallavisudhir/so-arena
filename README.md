@@ -162,9 +162,10 @@ src/oversight_arena/
 - **Results so far.** The demos use programmatic agents and exact judges. They validate the
   machinery and the theory. Results with frontier LLMs are what the examples and configs are for.
 - **Sandboxing.** Code from models runs confined (Landlock, seccomp and rlimits on Linux, plus a
-  Python audit hook): no reads outside the Python installation, no network, no new processes.
-  Grading runs trusted tests in a separate process, so graded code cannot fake its result (see the
-  [cookbook](docs/cookbook.md#8-real-capability-gaps)). For adversarial workloads at scale, also
+  Python audit hook): no reads outside the Python installation, no network, no new processes. It
+  fails closed where Landlock is unavailable (override with `OA_ALLOW_NO_KERNEL_SANDBOX=1` inside a
+  container). Lean runs confined too. Grading runs trusted tests in a separate process, so graded
+  code cannot fake its result (see the [cookbook](docs/cookbook.md#8-real-capability-gaps)). For adversarial workloads at scale, also
   use a container or plug in an executor (`domains._exec.set_executor`).
 
 ## Citing

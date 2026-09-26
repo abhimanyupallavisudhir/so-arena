@@ -127,17 +127,19 @@ def _landlock(read_roots, write_roots):
 # (audit arch, syscall numbers); signals are allowed only to the process itself
 _SECCOMP = {
     "x86_64": (0xC000003E, {
-        "deny": [41, 53, 101, 310, 311, 312, 59, 322, 424, 434, 438, 425, 426, 427, 321, 323, 298, 248, 249, 250, 272, 308],
+        "deny": [41, 53, 101, 310, 311, 312, 424, 434, 438, 425, 426, 427, 321, 323, 298, 248, 249, 250, 272, 308],
+        "exec": [59, 322],  # execve, execveat
         "self": [62, 200, 234, 129, 297],  # kill tkill tgkill rt_sigqueueinfo rt_tgsigqueueinfo
     }),
     "aarch64": (0xC00000B7, {
-        "deny": [198, 199, 117, 270, 271, 272, 221, 281, 424, 434, 438, 425, 426, 427, 280, 282, 241, 217, 218, 219, 97, 268],
+        "deny": [198, 199, 117, 270, 271, 272, 424, 434, 438, 425, 426, 427, 280, 282, 241, 217, 218, 219, 97, 268],
+        "exec": [221, 281],
         "self": [129, 130, 131, 138, 240],
     }),
 }
 
 
-def _seccomp():
+def _seccomp(allow_exec=False):
     import struct
 
     spec = _SECCOMP.get(os.uname().machine)
@@ -160,7 +162,7 @@ def _seccomp():
     if arch == 0xC000003E:
         op(JSET, 0, 1, 0x40000000)  # x32 ABI
         op(RET, 0, 0, EPERM)
-    for n in nr["deny"]:
+    for n in nr["deny"] + ([] if allow_exec else nr["exec"]):
         op(JEQ, 0, 1, n)
         op(RET, 0, 0, EPERM)
     pid = os.getpid()
@@ -201,8 +203,11 @@ def _rlimits(mem_mb, cpu_s, no_fork):
 
 
 def confine(read_roots, write_roots, mem_mb=None, cpu_s=None, parent=None, no_fork=True, audit=True,
-            require_kernel=False):
+            require_kernel=False, allow_exec=False):
     """Confine the current process (irreversibly). Returns the layers that are active.
+
+    ``allow_exec`` keeps ``execve`` available (for :func:`exec_confined`); Landlock, seccomp and
+    rlimits survive it, so the new program stays confined.
 
     ``require_kernel``: on Linux, refuse to continue (exit) if the kernel filesystem sandbox
     (Landlock) did not activate, rather than falling back silently to the Python audit hook. This
@@ -217,7 +222,7 @@ def confine(read_roots, write_roots, mem_mb=None, cpu_s=None, parent=None, no_fo
     read_roots = [os.path.realpath(p) for p in read_roots]
     write_roots = [os.path.realpath(p) for p in write_roots]
     layers["landlock"] = _landlock(read_roots, write_roots) if sys.platform.startswith("linux") else False
-    layers["seccomp"] = _seccomp() if sys.platform.startswith("linux") else False
+    layers["seccomp"] = _seccomp(allow_exec) if sys.platform.startswith("linux") else False
     if require_kernel and sys.platform.startswith("linux") and not layers["landlock"] \
             and os.environ.get("OA_ALLOW_NO_KERNEL_SANDBOX") != "1":
         # fail closed: the audit hook alone is not enough to grade untrusted code (e.g. it cannot see
@@ -399,6 +404,14 @@ def _guard_sqlite() -> None:
 
     sqlite3.connect = connect  # type: ignore[assignment]
     _dbapi.connect = connect  # type: ignore[assignment]
+
+
+def exec_confined(cfg):
+    """Confine this process, then replace it with the external program ``cfg["argv"]``. It keeps
+    the confinement (filesystem, no network or ptrace, limits) and so does every process it starts."""
+    confine(cfg["read"], cfg["write"], cfg.get("mem_mb"), cfg.get("cpu_s"), parent=cfg.get("parent"),
+            no_fork=False, audit=False, require_kernel=cfg.get("require_kernel", True), allow_exec=True)
+    os.execve(cfg["argv"][0], cfg["argv"], cfg["env"])
 
 
 def run_confined(cfg, code):

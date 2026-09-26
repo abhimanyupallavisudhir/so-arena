@@ -76,6 +76,7 @@ def test_lean_perturbation():
 
 @pytest.mark.stockfish
 def test_chess_line_verifier():
+    pytest.importorskip("chess")  # the optional python-chess extra
     from oversight_arena.channels.evidence import Claim, VerifyEnv
     from oversight_arena.core.task import TaskView
     from oversight_arena.domains.chess import LineVerifier, apply_line

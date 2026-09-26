@@ -126,9 +126,10 @@ of a response (e.g. a programmatic actor's action label, which its monitor must 
 **Provenance.** In rendered transcripts, text written by the system is marked with reserved
 brackets: speaker labels (`⟦Debater A⟧:`), moderator lines, trusted tool output and verification
 verdicts (`⟦VERIFIED by sql_executor⟧`). Participant-written text (messages, reasoning, tool
-arguments and results, claim text) cannot contain those brackets, look-alikes of them, or
-invisible and direction-changing characters, so it cannot pass itself off as system text. LLM
-agents are told what the brackets mean.
+arguments and results, claim text, and tool output relayed from ControlArena) cannot contain those
+brackets, look-alikes of them (including `[[ ]]`), or invisible and direction-changing
+characters, and its continuation lines are indented, so it cannot pass itself off as system text.
+LLM agents are told what the brackets mean.
 
 **Built-in domains**, grouped by the kind of gap between experts and the judge:
 
@@ -167,7 +168,9 @@ Only trusted code can mark a claim as verified: status marks that agents write t
 stripped (look-alike letters included). Verifiers check what the claim means, not only that it
 runs: quotes must match whole words, chess lines may not pass (null moves), `<run>` / `<assert>`
 expressions may not rebind or patch the implementations they are about, and `<lean>` snippets may
-not use escape hatches (their axioms are audited). Domain knobs add verifier *strength*, e.g.
+not use escape hatches (their axioms are audited). A claim the verifier cannot evaluate is
+unverified, not refuted: `<calc>` reads common notation (`12 × 7`, `12 x 7`, `$12`, `50%`,
+`1,000`) and reports anything else as unchecked. Domain knobs add verifier *strength*, e.g.
 `ChessMoves.verify_depth` (0 = legality only) or the quote length limit. Together these make "what can be proven, by whom, how cheaply, how
 reliably" a systematic experimental factor (see `sweep` and the `hiddenbits` demo).
 

@@ -9,6 +9,8 @@
   the untrusted code in a separate confined process, and only plain data crosses between them.
   The verdict comes from the harness, tagged with a per-run nonce, so untrusted code cannot print
   a fake verdict, exit early, or return objects with a forged ``__eq__``.
+- :func:`run_command` runs an external program on untrusted input (e.g. a proof checker) under
+  the same kernel confinement.
 
 The kernel layers (Landlock, seccomp) need Linux; elsewhere only the rlimits and a Python-level
 audit hook apply. For adversarial workloads at scale, also run inside a container, or plug in your
@@ -20,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -203,6 +206,56 @@ def run_isolated(harness: str, *, code: str | None = None, path: str | None = No
         return IsolatedResult(False, error="timeout")
     tail = r.stderr.strip().splitlines()
     return IsolatedResult(False, error=tail[-1] if tail else "harness failed")
+
+
+def run_command(argv: Sequence[str], *, files: dict[str, str] | None = None, timeout: float = 60.0,
+                mem_mb: int | None = None, allow_read: Sequence[str] = (), env: dict[str, str] | None = None,
+                require_kernel: bool = True) -> ExecResult:
+    """Run an external program on untrusted input, confined like model code.
+
+    It reads only system directories, the Python installation, the program file itself and
+    ``allow_read`` (e.g. its toolchain); it writes only in a fresh working directory, which holds
+    ``files`` and is its cwd; no network, ptrace, or signals to other processes; CPU, file-size
+    and (optionally) memory limits. It may start threads and processes, and they stay confined. On
+    Linux it refuses to run without the kernel filesystem sandbox, like :func:`run_python`. Example:
+    ``run_command(["lean", "Check.lean"], files={"Check.lean": proof}, allow_read=[toolchain])``."""
+    env = {**_CHILD_ENV, **(env or {})}
+    prog = argv[0] if os.sep in argv[0] else shutil.which(argv[0], path=env.get("PATH"))
+    if prog is None or not os.path.exists(prog):
+        return ExecResult(False, "", f"{argv[0]}: command not found", False)
+    prog = os.path.realpath(prog)
+    with tempfile.TemporaryDirectory(prefix="oa_cmd_") as d:
+        d = os.path.realpath(d)
+        for name, text in (files or {}).items():
+            path = os.path.realpath(os.path.join(d, name))
+            if not path.startswith(d + os.sep):
+                raise ValueError(f"file outside the working directory: {name!r}")
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w") as f:
+                f.write(text)
+        cfg = {"read": _lib.default_read_roots([prog, *allow_read]), "write": [d], "mem_mb": mem_mb,
+               "cpu_s": int(timeout) + 1, "require_kernel": require_kernel, "parent": os.getpid(),
+               "argv": [prog, *argv[1:]], "env": {**env, **_passthrough_env(), "HOME": d, "TMPDIR": d}}
+        launcher, out_p, err_p = (os.path.join(d, n) for n in (".oa_launch.py", ".oa_out", ".oa_err"))
+        with open(launcher, "w") as f:
+            f.write(f"{_LIB_SRC}\nexec_confined({cfg!r})\n")
+        timed_out = False
+        with open(out_p, "wb") as fo, open(err_p, "wb") as fe:
+            p = subprocess.Popen([sys.executable, "-I", "-B", launcher], stdin=subprocess.DEVNULL, stdout=fo, stderr=fe,
+                                 cwd=d, env={**_CHILD_ENV, **_passthrough_env()}, start_new_session=True)
+            try:
+                p.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                try:
+                    os.killpg(p.pid, signal.SIGKILL)
+                except OSError:
+                    p.kill()
+                p.wait()
+        out, err = _tail(out_p, _MAX_OUT), _tail(err_p, 20000)
+        if timed_out:
+            err = (err + "\ntimeout").strip()
+        return ExecResult(p.returncode == 0 and not timed_out, out, err, timed_out)
 
 
 def sandbox_layers() -> dict[str, bool]:

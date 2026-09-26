@@ -203,7 +203,8 @@ so degenerate games are covered), `.outcomes()`, `.regret(g.pure({...}))`, `.coa
   - `reward_function(domain, mechanism, role, fixtures)` is a TRL/GRPO reward for single-turn
     roles (see `examples/rl_trl_grpo.py`). Give each dataset row the stance its prompt asked for
     (a `stance`, `position` or `strategy` column), so every completion is scored at the position
-    it argued.
+    it argued. Without one it raises, rather than scoring every completion at the default
+    position; pass `require_stance=False` for roles with no assigned position (e.g. a forecaster).
   - `preference_pairs(results, role)` produces DPO pairs (with a `prompt` column), pairing only
     episodes with the same mechanism configuration, task, position and opponents, with a column
     saying whether ground truth agrees with each preference.
@@ -229,22 +230,34 @@ leak it:
   limits. On Linux this is kernel-enforced (Landlock, seccomp, rlimits), plus a Python audit hook.
   Model code cannot read the parent's environment (API keys), data caches (which implementation is
   the mutant) or hidden tests. `_exec.sandbox_layers()` reports what is active.
+- It fails closed: if the kernel filesystem sandbox (Landlock) is unavailable, model code is not
+  run. Inside a container that already isolates the filesystem, set `OA_ALLOW_NO_KERNEL_SANDBOX=1`;
+  the audit hook then still blocks what it can see (including `readline` and SQLite `ATTACH` /
+  `VACUUM INTO`).
+- Honest code is not over-restricted: temporary files in its own folder work, and results of any
+  size (e.g. integers with a million digits) cross the grading boundary.
 - `domains._exec.run_isolated(harness, code=...)` is for grading: trusted test code runs in one
   process and calls the untrusted code, confined in another, through plain-data proxies. Printing
   a fake verdict, exiting early, patching the tests or returning an always-equal object cannot
   pass. `passes_hidden` (code ground truth), `<run>` / `<assert>` verifiers and SimOps' true score
   use it.
 - `<run>` and `<assert>` expressions must be about the task's implementations: no `:=`, no
-  private or dunder names, and calls only to `impl_*`, lambdas, methods and plain builtins.
+  private or dunder names, and calls only to `impl_*`, lambdas, methods and plain builtins
+  (including `type` / `isinstance`). A lambda parameter or comprehension variable may not shadow
+  an implementation or builtin (`all(impl_B(x) for impl_B in [impl_A])` is refused).
 - `<lean>` claims and proofs are screened for escape hatches (`sorry`, `axiom`, `native_decide`,
-  `debug.skipKernelTC`, metaprogramming, ...) and every declared theorem's axioms are audited with
-  `#print axioms`. A proof must prove *the given statement*: the statement is elaborated before the
+  `debug.skipKernelTC`, `#eval`, `run_cmd`, `run_elab`, environment-changing metaprogramming, ...;
+  comments are stripped first, so a theorem in a comment declares nothing) and every declared
+  theorem's axioms are audited with `#print axioms`. A proof must prove *the given statement*: the statement is elaborated before the
   proof (so the proof's notations or instances cannot change its meaning) and the kernel checks
   `example : <statement> := @<theorem>` after it.
 - SimOps reads no result from the output of worker code: its own scorer calls each test through
   the same channel. Misconduct in code (hard-coded answers, however obfuscated or spread across
   files; scorer hacks such as always-equal values) is found by replaying the log and checking each
   snapshot's behaviour, and the write that introduced it is blamed.
+- `LocalLean` runs `lean` confined too (`_exec.run_command`, for any external checker): it reads
+  only the toolchain and the project's packages, writes only in a scratch folder, has no network,
+  and gets only the Lean/Lake environment variables.
 - For adversarial workloads at scale, run inside a container as well, or plug in your own executor
   (`_exec.set_executor`).
 

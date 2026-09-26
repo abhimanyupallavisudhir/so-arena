@@ -331,6 +331,7 @@ def test_assert_claims_cannot_rebind_the_implementations():
 # M9. Chess lines cannot contain null moves.
 
 def test_chess_lines_reject_null_moves():
+    pytest.importorskip("chess")  # the optional python-chess extra
     from oversight_arena.domains.chess import apply_line
 
     fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"

@@ -1,6 +1,7 @@
 """Regression tests for the third review (items A, B, 1-6); each test pins one failure mode."""
 
 import asyncio
+import importlib.util
 import math
 import os
 import sys
@@ -488,12 +489,14 @@ def test_demo_all_skips_chess_without_stockfish(monkeypatch, tmp_path):
         raise RuntimeError("Stockfish not found")
 
     monkeypatch.setattr(chess_domain, "find_stockfish", missing)
-    with pytest.warns(UserWarning, match="skipping the chess demo: Stockfish not found"):
+    # without the python-chess extra the demo is skipped for that reason instead
+    reason = "Stockfish not found" if importlib.util.find_spec("chess") else "No module named 'chess'"
+    with pytest.warns(UserWarning, match=f"skipping the chess demo: {reason}"):
         demos.run("all", tmp_path)
     assert "chess" not in ran and len(ran) == len(demos.DEMOS) - 1
     skipped = []
     demos.run("all", tmp_path, on_skip=skipped.append)
-    assert skipped == ["skipping the chess demo: Stockfish not found"]
+    assert skipped == [f"skipping the chess demo: {reason}"]
     ran.clear()
     demos.run("chess", tmp_path)  # asked for by name, it is not skipped (and fails loudly on its own)
     assert ran == ["chess"]
