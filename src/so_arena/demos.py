@@ -446,7 +446,7 @@ def demo_work(out: str | Path = "runs/demo_work", n_repo: int = 6, n_firm: int =
     return out
 
 
-def demo_monitoring(out: str | Path = "runs/demo_monitoring", n_items: int = 200, n_seeds: int = 20,
+def demo_monitoring(out: str | Path = "runs/demo_monitoring", n_items: int = 300, n_seeds: int = 30,
                     auroc: float = 0.9) -> Path:
     """Monitor-based rewards under optimization (``docs/theory.md``, Proposition 4).
 
