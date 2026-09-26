@@ -29,6 +29,9 @@ class RunStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.mkdir(parents=True, exist_ok=True)
+        from so_arena.core import sandbox
+
+        sandbox.hide(self.path)  # episodes and items hold ground truth: never visible to agent commands
         self._lock = threading.Lock()
 
     @property

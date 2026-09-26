@@ -10,9 +10,12 @@ of the file system:
 
 * ``/tmp``, ``/var/tmp``, ``/dev/shm`` and the user's home are empty, fresh scratch space - except the
   command's own working directory, which stays at its path and writable;
-* the interpreter's installation (``sys.prefix``, ``sys.base_prefix``) is visible read-only, so Python
-  runs, but the ``so_arena`` package (its bundled samples), the dataset cache (``$SO_ARENA_DATA``) and
-  every directory registered with :func:`hide` (state stores, work roots, run directories) are not;
+* nothing else can be changed: the rest of the file system is read-only;
+* the interpreter's installation (``sys.prefix``, ``sys.base_prefix``) is visible, so Python runs, but
+  the ``so_arena`` package (its bundled samples), the dataset cache (``$SO_ARENA_DATA``), the response
+  cache, the experimenter's working directory (where runs, configs and data usually live) and every
+  directory registered with :func:`hide` - state stores, work roots and run directories register
+  themselves - are not;
 * host processes are invisible (a private process namespace: ``/proc/<pid>/root`` of the parent cannot
   reach the unsandboxed view), there is no network by default, and the command has no capabilities, so it
   cannot unmount what hides the rest.
@@ -93,29 +96,43 @@ def _under(p: str, roots: Sequence[str]) -> bool:
     return any(p == r or p.startswith(r.rstrip("/") + "/") for r in roots)
 
 
-def _plan(workdir: str, visible: Sequence[str]) -> tuple[list[str], list[str], list[str], list[str]]:
-    """(scratch dirs replaced by empty tmpfs, read-only exposures, secret dirs to cover, read-only extras)."""
-    scratch = [d for d in (_existing_dir(tempfile.gettempdir()), _existing_dir("/tmp"), _existing_dir("/var/tmp"),
-                           _existing_dir("/dev/shm"), _existing_dir(Path.home())) if d]
-    scratch = sorted(set(scratch), key=len)
-    scratch = [d for i, d in enumerate(scratch) if not _under(d, scratch[:i]) and d != "/"]
-    ro = sorted({d for d in (_existing_dir(sys.prefix), _existing_dir(sys.base_prefix), _existing_dir(sys.exec_prefix),
-                             _existing_dir(os.path.dirname(os.path.realpath(sys.executable)))) if d}, key=len)
-    ro = [d for i, d in enumerate(ro) if not _under(d, ro[:i])]
+_PSEUDO_FS = ("proc|sysfs|cgroup2?|devpts|devtmpfs|mqueue|tracefs|debugfs|securityfs|selinuxfs|pstore|bpf|autofs|"
+              "binfmt_misc|fusectl|hugetlbfs|configfs|efivarfs|rpc_pipefs|nsfs")
+# system directories never hidden, even when they are the experimenter's working directory
+_SYSTEM = ("/", "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/etc", "/dev", "/proc", "/sys", "/run", "/var")
+
+
+def _plan(workdir: str, visible: Sequence[str]) -> list[tuple[str, str]]:
+    """The view's mounts, in the order to apply them: ``(path, op)`` with ``op`` one of ``"scratch"`` (an
+    empty, writable tmpfs), ``"cover"`` (an empty tmpfs over a secret), ``"ro"`` (the real directory,
+    read-only) and ``"rw"`` (the working directory).
+
+    Operations apply shallowest first, so nesting resolves: a project directory is covered, the virtual
+    environment inside it re-exposed read-only, the ``so_arena`` package inside that covered again, and the
+    working directory - whatever holds it - exposed last among its ancestors.
+    """
     import so_arena
+    from so_arena.config import settings
     from so_arena.datasets import cache_dir
 
+    ops: dict[str, str] = {}
+    for d in (tempfile.gettempdir(), "/tmp", "/var/tmp", "/dev/shm", f"/run/user/{os.getuid()}", Path.home()):
+        if (r := _existing_dir(d)) and r not in _SYSTEM:
+            ops[r] = "scratch"
     with _LOCK:
         registered = set(_HIDDEN)
-    secrets = {d for d in (_existing_dir(Path(so_arena.__file__).parent), _existing_dir(cache_dir()),
-                           *(_existing_dir(h) for h in registered)) if d}
-    # only secrets that would otherwise be visible need covering (the working directory is re-exposed after
-    # them, so a work root holding it is still covered: other working copies stay out of sight); a secret
-    # must not contain the interpreter's installation, which would then be hidden too
-    secrets_l = sorted((s for s in secrets if (not _under(s, scratch) or _under(s, ro)) and s != "/"
-                        and not any(_under(r, [s]) for r in ro)), key=len)
-    extras = sorted({d for d in (_existing_dir(v) for v in visible) if d}, key=len)
-    return scratch, ro, secrets_l, extras
+    # secrets: the package (bundled samples with hidden tests), the dataset and response caches, every
+    # registered store and run directory, and the experimenter's working directory (runs, configs, data)
+    for d in (Path(so_arena.__file__).parent, cache_dir(), settings.cache_dir, os.getcwd(), *registered):
+        if d is not None and (r := _existing_dir(d)) and r not in _SYSTEM and ops.get(r) != "scratch":
+            ops[r] = "cover"
+    for d in (sys.prefix, sys.base_prefix, sys.exec_prefix, os.path.dirname(os.path.realpath(sys.executable)),
+              *visible):
+        if r := _existing_dir(d):
+            ops[r] = "ro"
+    ops[workdir] = "rw"
+    rank = {"scratch": 0, "cover": 1, "ro": 2, "rw": 3}
+    return sorted(ops.items(), key=lambda kv: (kv[0].rstrip("/").count("/"), rank[kv[1]], kv[0]))
 
 
 @functools.lru_cache(maxsize=None)
@@ -148,46 +165,44 @@ def available() -> bool:
 
 def _wrap_with(kind: str, argv: Sequence[str], workdir: str, *, network: bool, visible: Sequence[str],
                chdir: str | None = None) -> list[str]:
-    scratch, ro, secrets, extras = _plan(workdir, visible)
+    ops = _plan(workdir, visible)
     start = chdir or workdir
     if kind == "bwrap":
         out = ["bwrap", "--die-with-parent", "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
                "--unshare-cgroup-try", *(() if network else ("--unshare-net",)), "--ro-bind", "/", "/",
                "--dev", "/dev", "--proc", "/proc"]
-        for d in scratch:
-            out += ["--tmpfs", d]
-        for d in ro:
-            out += ["--ro-bind", d, d]
-        for d in secrets:
-            out += ["--tmpfs", d]
-        out += ["--bind", workdir, workdir]
-        for d in extras:
-            out += ["--ro-bind", d, d]
+        for d, op in ops:
+            out += {"scratch": ["--tmpfs", d], "cover": ["--tmpfs", d], "ro": ["--ro-bind", d, d],
+                    "rw": ["--bind", d, d]}[op]
         return [*out, "--chdir", start, "--", *argv]
-    # unshare: a setup script (as root of a fresh user namespace) builds the view, then drops every
-    # capability before running the command, so it cannot undo the mounts. Directories it re-exposes are
-    # opened first and bound from their descriptors: their paths are covered by then.
-    keep = [workdir, *ro, *extras]
+    # unshare: a setup script (as root of a fresh user namespace) makes every existing mount read-only - the
+    # root included, so nothing outside the scratch space and the working directory can be changed -, applies
+    # the view's mounts, then drops every capability before running the command, so it cannot undo them.
+    # Directories it exposes are opened first and bound from their descriptors: their paths may be covered
+    # by then.
+    keep = [d for d, op in ops if op in ("ro", "rw")]
     q = shlex.quote
     lines = ["set -e"]
     lines += [f"exec {10 + i}<{q(d)}" for i, d in enumerate(keep)]
-    lines += [f"mount -t tmpfs -o mode=1777 tmpfs {q(d)}" for d in scratch]
-
-    def expose(i: int, d: str, *, readonly: bool) -> list[str]:
-        cmds = [f"mkdir -p {q(d)}", f"mount --no-canonicalize --bind /proc/self/fd/{10 + i} {q(d)}"]
-        return cmds + ([f"mount -o remount,bind,ro {q(d)}"] if readonly else [])
-
-    for d in ro:
-        lines += expose(keep.index(d), d, readonly=True)
-    lines += [f"if [ -d {q(d)} ]; then mount -t tmpfs -o mode=755 tmpfs {q(d)}; fi" for d in secrets]
-    lines += expose(0, workdir, readonly=False)
-    for d in extras:
-        lines += expose(keep.index(d), d, readonly=True)
+    # (kernel pseudo-filesystems hold no files to change, so only real file systems are remounted)
+    lines += ["for m in $(awk '{for (i = 7; i <= NF; i++) if ($i == \"-\") {t = $(i + 1); break} "
+              f"if (t !~ /^({_PSEUDO_FS})$/) print $5}}' /proc/self/mountinfo | sort -u); do "
+              'mount -o remount,bind,ro "$m" 2>/dev/null || [ "$m" != / ] || exit 97; done']
+    for d, op in ops:
+        if op == "scratch":
+            lines.append(f"mount -t tmpfs -o mode=1777 tmpfs {q(d)}")
+        elif op == "cover":
+            lines.append(f"if [ -d {q(d)} ]; then mount -t tmpfs -o mode=755 tmpfs {q(d)}; fi")
+        else:
+            i = keep.index(d)
+            lines += [f"mkdir -p {q(d)}", f"mount --no-canonicalize --bind /proc/self/fd/{10 + i} {q(d)}",
+                      f"mount -o remount,bind,{op} {q(d)}"]
     lines += [f"exec {10 + i}<&-" for i in range(len(keep))]
     lines += [f"cd {q(start)}",
               'exec setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs -- "$@"']
-    return ["unshare", "--user", "--map-root-user", "--mount", "--pid", "--fork", "--kill-child", "--mount-proc",
-            *(() if network else ("--net",)), "--", "bash", "-c", "\n".join(lines), "so-arena-sandbox", *argv]
+    return ["unshare", "--user", "--map-root-user", "--mount", "--pid", "--ipc", "--fork", "--kill-child", "--mount-proc",
+            *(() if network else ("--net",)), "--", "bash", "--norc", "--noprofile", "-c", "\n".join(lines),
+            "so-arena-sandbox", *argv]
 
 
 def wrap(argv: Sequence[str], workdir: str | os.PathLike[str], *, network: bool = False,

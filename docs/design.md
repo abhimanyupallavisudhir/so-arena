@@ -113,9 +113,9 @@ Isolation between branches is by copying directories (fine for small workspaces)
 *agents* from what grades them is by a sandbox (`core.sandbox`): every agent-controlled command -
 workspace shells and test runs, candidate programs, executable claims, Lean checks - runs in a private
 view of the file system in which the temporary and home directories are empty except for its own
-working directory, the interpreter is visible read-only, and no state store, work root, dataset, bundled
-sample or run directory is (`sandbox.hide(path)` adds more), with host processes invisible, no network
-and no capabilities. Backends are bubblewrap or unprivileged user namespaces (`unshare` + `setpriv`);
+working directory, everything else is read-only, the interpreter is visible, and no state store, work
+root, run directory, dataset, bundled sample, response cache or the experimenter's working directory is
+(`sandbox.hide(path)` adds more), with host processes invisible, no network and no capabilities. Backends are bubblewrap or unprivileged user namespaces (`unshare` + `setpriv`);
 where neither exists, agent code is refused unless the experimenter opts in
 (`SO_ARENA_ALLOW_UNSANDBOXED=1`). It is filesystem isolation for honest experiments, not a boundary
 against a determined attacker. The abstraction is backend-neutral: an environment backed by containers,

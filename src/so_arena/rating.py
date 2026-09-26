@@ -92,6 +92,11 @@ class RatingServer:
         self.token = token
         self.reassign_after_s = reassign_after_s
         self.log_path = Path(log_dir) / "judgments.jsonl" if log_dir is not None else None
+        if log_dir is not None:
+            from so_arena.core import sandbox
+
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
+            sandbox.hide(log_dir)  # other raters' judgments
         if self.log_path is not None:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._tasks: dict[str, RatingTask] = {}

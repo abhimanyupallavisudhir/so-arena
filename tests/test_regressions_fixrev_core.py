@@ -148,3 +148,62 @@ def test_the_number_of_hidden_turns_does_not_split_an_information_set():
     assert len({n.key for n in tree.nodes.values() if n.role == "guesser"}) == 1  # was 2: indices counted hidden turns
     assert evaluate_tree(tree, {"guesser": BestOfN(2)}).rewards["guesser"] == pytest.approx(0.5)
     assert all(ix == [0] for ix in seen)  # turns are numbered among those the viewer sees
+
+
+# ------------------------------------------------------------------------------ sandbox
+
+
+def _outside_dir():
+    """A writable directory outside the home and temporary directories (as /code or /workspace in containers)."""
+    import os
+    import tempfile
+
+    for base in ("/code", "/workspace", "/srv", "/data", "/mnt"):
+        if os.path.isdir(base) and os.access(base, os.W_OK):
+            return tempfile.mkdtemp(prefix="so_arena_outside_", dir=base)
+    return None
+
+
+def test_run_directories_and_the_working_directory_are_hidden(tmp_path, monkeypatch):
+    from so_arena.core import sandbox
+    from so_arena.core.store import RunStore
+
+    store = RunStore(tmp_path / "runs" / "x")
+    assert str((tmp_path / "runs" / "x").resolve()) in sandbox._HIDDEN  # stores register themselves
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    ops = dict(sandbox._plan(str(tmp_path / "work"), ()))
+    assert ops[str(project.resolve())] == "cover"  # the experimenter's working directory (runs, configs, data)
+    del store
+
+
+@pytest.mark.skipif(not __import__("so_arena.core.sandbox", fromlist=["x"]).available(), reason="no sandbox backend")
+def test_the_sandbox_makes_everything_but_its_working_directory_read_only(tmp_path):
+    import subprocess
+
+    from so_arena.core import sandbox
+    from so_arena.core.store import RunStore
+
+    work = tmp_path / "work"
+    work.mkdir()
+    r = subprocess.run(sandbox.wrap(["bash", "-c", "awk '$5 == \"/\" {print $6}' /proc/self/mountinfo; echo x > ok.txt"],
+                                    work), cwd=work, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r.stdout.split(",")[0].strip() == "ro" and (work / "ok.txt").read_text() == "x\n"
+    outside = _outside_dir()
+    if outside is None:
+        pytest.skip("no writable directory outside home and /tmp to probe")
+    import os
+    import shutil
+
+    try:
+        runs = RunStore(f"{outside}/runs")
+        (runs.path / "episodes.jsonl").write_text('{"ground_truth": {"correct": "B"}}\n')
+        cmd = f"cat {runs.path}/episodes.jsonl; echo tamper >> {runs.path}/episodes.jsonl; touch {outside}/planted"
+        r = subprocess.run(sandbox.wrap(["bash", "-c", cmd], work), cwd=work, capture_output=True, text=True,
+                           stdin=subprocess.DEVNULL)
+        assert '"correct"' not in r.stdout  # an earlier episode's ground truth is out of reach ...
+        assert (runs.path / "episodes.jsonl").read_text() == '{"ground_truth": {"correct": "B"}}\n'  # ... unchanged
+        assert not os.path.exists(f"{outside}/planted")  # nothing outside the working copy can be written
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
