@@ -249,3 +249,12 @@ def test_cli_skips_chess_demo_without_stockfish(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(demos, "demo_chess", lambda out: called.append(out))
     assert cli.main(["demo", "chess", "--out", str(tmp_path)]) == 1
     assert not called and "needs Stockfish" in capsys.readouterr().err
+
+
+@needs_engine
+def test_trap_selection_comes_before_balancing():
+    """Filtering a balanced set by traps would unbalance it: the traps are selected first."""
+    from so_arena.domains.chess import blind_baselines
+
+    items = ChessDomain(trap_depth=2, balanced=True).load()
+    assert items and all(abs(v - 0.5) < 1e-9 for v in blind_baselines(items).values())

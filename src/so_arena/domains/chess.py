@@ -1539,12 +1539,13 @@ class ChessDomain(Domain):
                 it = build(rec, min_gap_cp=self.min_gap_cp, win_cp=self.win_cp, not_win_cp=self.not_win_cp)
             if it is not None:
                 items.append(it)
+        if self.trap_depth is not None:  # select first, then balance: filtering a balanced set unbalances it
+            items = [it for it in items if self._traps(it)]
         if self.balanced:
             items = balance_surface(items)
-        if self.trap_depth is not None:
-            items = [it for it in items if self._traps(it)]
         random.Random(seed).shuffle(items)
         n = min(x for x in (limit, self.n_items, len(items)) if x is not None)
+        # a limit takes a random subset: a balanced set (eval_claim, balanced=True) stays balanced in expectation
         return items[:n]
 
     def _traps(self, item: TaskItem) -> bool:
