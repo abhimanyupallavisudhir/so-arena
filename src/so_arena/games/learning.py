@@ -248,14 +248,20 @@ class StrategyGradient:
         from so_arena.core.policy import stable_hash
         from so_arena.core.runner import run_episodes
 
+        from so_arena.config import settings
+
+        sem = asyncio.Semaphore(self.concurrency or settings.concurrency)  # one limit for the whole batch
+
+        async def one(b: int, item: Any, prof: Any, it: int) -> list[Any]:
+            async with sem:
+                return await run_episodes(self.mechanism, [item], [prof], ctx=self.ctx, ground_truth=self.ground_truth,
+                                          seed=stable_hash("strategy-gradient", self.seed, it, b) % 10**9)
+
         rows = []
         for it in range(self.iterations + 1):
             rng = np.random.default_rng([self.seed, it])
             jobs = self._profiles(it, rng)
-            runs = await asyncio.gather(*[
-                run_episodes(self.mechanism, [item], [prof], ctx=self.ctx, ground_truth=self.ground_truth,
-                             concurrency=self.concurrency, seed=stable_hash("strategy-gradient", self.seed, it, b) % 10**9)
-                for b, (item, prof, _) in enumerate(jobs)])
+            runs = await asyncio.gather(*[one(b, item, prof, it) for b, (item, prof, _) in enumerate(jobs)])
             eps = [r[0] if r else None for r in runs]
             self.episodes += [e for e in eps if e is not None]
             rewards = {r: self._rewards(r, eps) for r in self.roles}

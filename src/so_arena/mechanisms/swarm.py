@@ -62,7 +62,8 @@ class Team(Mechanism):
             communication); by default no overseer can.
         observe_prob: probability that a teammate sees a given contribution (drawn independently per
             contribution and teammate, by :meth:`~so_arena.core.game.Game.chance`); ``None``: everyone sees
-            everything. Overseers (grader, auditor) always see all work. ``outcome.data["witnesses"]`` maps each
+            everything. Overseers (grader, auditor) always see all work. On stateful tasks this hides the
+            contribution's turn, not its changes to the shared state. ``outcome.data["witnesses"]`` maps each
             worker to the teammates who saw any of its work - the mechanism's own record of what it showed
             whom, used by misprision penalties (``Whistleblower(misprision=...)``).
         self_reports: let a worker report itself (a confession, e.g. for ``Whistleblower(leniency=...)``);
