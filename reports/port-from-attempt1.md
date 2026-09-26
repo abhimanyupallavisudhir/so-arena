@@ -2,7 +2,7 @@
 
 2026-09-26. Master is attempt #2 (`so_arena`, merged as PR #3). Attempt #1 (`oversight_arena`, task #1 attempt 1, branch head `db90587` after its own fix rounds) was compared against it feature by feature. Where #1 was better, the idea was re-expressed in master's abstractions: Mechanism + RewardRule, `Game`/`g.chance`, `VerificationPolicy`/`Verifier`, domains, samplers, games, theory. #1's code was not pasted in. #1's known bugs were not carried over (see [bug-hunt.md](bug-hunt.md) and [fix-review.md](fix-review.md)).
 
-Tests: **738 pass, 0 skipped** with the optional control-arena 19.0.0 and Stockfish 17.1 installed. Without them it is 735 passed and 3 skipped. Lint (`ruff --select F,E9,W605`) is clean.
+Tests: **751 pass, 0 skipped** with the optional control-arena 19.0.0 and Stockfish 17.1 installed. Lint (`ruff --select F,E9,W605`) is clean. One full run had a single transient failure whose name wasn't captured; two further full runs and three runs of the timing-sensitive files (sandbox, state, repository, trust) all passed, so a flaky test may remain.
 
 ## Brought over
 
@@ -40,8 +40,22 @@ Tests: **738 pass, 0 skipped** with the optional control-arena 19.0.0 and Stockf
 - **Release demo colours:** the charts showed a distortion's gain in the "good" colour. `asd_bars(positive_is_good=)` fixes this.
 - **Figures script:** `scripts/make_figures.py` now covers every demo and takes demo names.
 - **Unused code:** unused imports and locals are removed.
-- **Demo reports regenerated** from the final code (`scripts/make_figures.py`). They reproduce the numbers in each package's own report, except the verified-debate row of the ASD demo. `VerificationPolicy` gained fields, so its config hash and thus the scripted agents' random draws changed: ASD 3.07 (CI 2.65–3.53), was 2.96 (2.53–3.35). The ASD report also gains the new diagnostics table. `demo_monitoring`'s defaults now match its published run (300 tasks × 30 seeds).
+- **Demo reports regenerated** from the final code (`scripts/make_figures.py`). They reproduce the numbers in each package's own report and in master's original ASD demo. `demo_monitoring`'s defaults now match its published run (300 tasks × 30 seeds). The ASD report gains the diagnostics table.
 - **ControlArena bridge:** exercised for the first time in these reviews, against control-arena 19.0.0. All its tests pass.
+
+**A final independent review of the new code** found 10 issues, all fixed with regression tests:
+1. Search candidates whose episodes errored were ranked on their surviving episodes only; lost rewards now count as the worst reward so far.
+2. The forecast judge read agent-written text and the agent's key order; it now rates the parsed forecast, passed with the request.
+3. Landlock read roots that are symlinks (`/lib` -> `/usr/lib`) could expose hidden directories.
+4. The forecast judge ignored `show_to`.
+5. A `MonitoredReward` could silently disagree with its mechanism (e.g. an audit reward where nothing is audited).
+6. The new options changed the config hashes of existing configurations. They are now left out at their defaults and pinned by a test; `MonitoredWork` changes on purpose, since missing scores now fail closed.
+7. Noise forged a restated expectation as "verified", which a genuine check never shows.
+8. Chess trap selection ran after balancing, which unbalanced the set.
+9. Misprision could charge teammates who never saw the violating round.
+10. The mean-field model assumed a single potential violator per task for any `opportunity`.
+
+Also: `preference_pairs` now reports how many episodes it leaves out.
 
 All round-3 review items for #2 (information sets keyed on hidden state and on turn indices, run directories visible to the sandbox, the forgeable tests verifier, `expect=` laundering, SQL bullet lists, collective-liability escape, frozen `MechanismEnv` audits, parse status in plain ASD) were already fixed in master before this work. Their repro scripts were re-run and confirm it.
 
