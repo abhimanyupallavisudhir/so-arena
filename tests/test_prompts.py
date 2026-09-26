@@ -5,7 +5,7 @@ import pytest
 
 import so_arena as soa
 from so_arena.core.runner import PlayerSpec, Profile, run_episodes, run_sync
-from so_arena.mechanisms import Consultancy, Debate, DirectJudge, Propaganda, ReviewedWork
+from so_arena.mechanisms import Consultancy, Debate, Propaganda, ReviewedWork
 
 
 def recording_policy(log, role):

@@ -88,12 +88,18 @@ def describe_config(obj: Any, _depth: int = 8, _seen: frozenset[int] = frozenset
         return _describe_function(obj, deeper)
     if isinstance(obj, (types.BuiltinFunctionType, type)):
         return _qualname(obj)
+    # options added after a class's first release are left out at their defaults (``HASH_OMIT_DEFAULTS``), so the
+    # configurations that existed before keep their hashes - and resumable run stores their episodes
+    omit = getattr(type(obj), "HASH_OMIT_DEFAULTS", {})
     if isinstance(obj, BaseModel):
-        return {"class": _qualname(type(obj)), **{f: deeper(getattr(obj, f)) for f in type(obj).model_fields}}
+        fields = {f: getattr(obj, f) for f in type(obj).model_fields}
+        return {"class": _qualname(type(obj)),
+                **{f: deeper(v) for f, v in fields.items() if not (f in omit and v == omit[f])}}
     if isinstance(obj, Policy):
         return deeper(obj.describe())
     if isinstance(obj, (RewardRule, Verifier)):
-        attrs = {k: v for k, v in getattr(obj, "__dict__", {}).items() if not k.startswith("_")}
+        attrs = {k: v for k, v in getattr(obj, "__dict__", {}).items()
+                 if not k.startswith("_") and not (k in omit and v == omit[k])}
         return {"class": _qualname(type(obj)), **{k: deeper(attrs[k]) for k in sorted(attrs)}}
     out: dict[str, Any] = {"class": _qualname(type(obj))}
     if isinstance(getattr(obj, "name", None), str):
@@ -185,6 +191,8 @@ class Episode(BaseModel):
     # canonical leaf, so the tree's leaf episodes sum to its total without double counting
     # (see samplers.pools.expand_tree)
     usage: dict[str, Usage] = Field(default_factory=dict)
+    # the mechanism's uses of ground truth (audits, simulated probes): channel, role, cost - never findings
+    gt_access: list[dict[str, Any]] = Field(default_factory=list)
     tags: dict[str, Any] = Field(default_factory=dict)
     trainable_roles: list[str] = Field(default_factory=list)
     role_kinds: dict[str, str] = Field(default_factory=dict)
@@ -410,6 +418,7 @@ class Mechanism(abc.ABC):
             turns=list(g.turns),
             outcome=outcome,
             usage=g.episode_usage(),  # in branch mode: none (expand_tree charges each shared pool to one leaf)
+            gt_access=list(g.gt_access),
             tags=dict(tags or {}),
             trainable_roles=self.trainable_roles(),
             role_kinds={r: spec.kind for r, spec in g.roles.items()},

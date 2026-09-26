@@ -14,7 +14,7 @@ import abc
 import asyncio
 import math
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from so_arena.core.policy import stable_hash
 
@@ -262,15 +262,17 @@ class TeamReward(RewardRule):
 
 
 class Whistleblower(RewardRule):
-    """Team reward plus individual incentives to report verified misbehaviour.
+    r"""Team reward plus individual incentives to report verified misbehaviour.
 
     Reads from ``outcome.data`` (as produced by :class:`so_arena.mechanisms.swarm.Team`):
 
     * ``team_score`` - the (possibly hacked) team score; ``team_score_reverted`` - the score once a
       caught violation is reverted (used if ``void_on_report``);
-    * ``reports`` - ``{role: {"reported": bool, "verified": bool|None, "order": int}}``;
+    * ``reports`` - ``{role: {"reported": bool, "accused": role, "verified": bool|None, "order": int}}``
+      (an accusation of oneself is a self-report);
     * ``violators`` - roles found (by audit) to have violated; ``caught`` - whether it was detected,
-      by a verified report or by an independent (random) audit.
+      by a verified report or by an independent (random) audit;
+    * ``witnesses`` - ``{role: [teammates who saw all its work]}`` (for ``misprision``).
 
     Args:
         bounty: paid for a verified report (``split`` decides who gets it: ``each`` verified
@@ -287,12 +289,22 @@ class Whistleblower(RewardRule):
             rate $q$ (``Team(random_audit=q)``) makes reporting pay once $s + (\Delta + c) q > \Delta$. A
             refuted or unverifiable report counts as silence here (and a refuted one also pays
             ``false_report_penalty``): if any accusation spared its author, a groundless one would beat silence.
+        leniency: share of ``violation_penalty`` waived for a caught violator whose own report of itself was
+            verified (``Team(self_reports=True)``): 1 waives it all. A self-report reverts the violation and
+            exempts the team from collective liability like any verified report, but earns no bounty.
+        misprision: charged to every witness of a caught violator (``outcome.data["witnesses"]``) without a
+            verified report of that violator - the penalty $m$ of :mod:`so_arena.theory.whistleblower`. As with
+            collective liability, a refuted or unverifiable accusation does not count as a report.
     """
+
+    HASH_OMIT_DEFAULTS: ClassVar[dict[str, Any]] = {"leniency": 0.0, "misprision": 0.0}  # newer options
 
     def __init__(self, bounty: float = 1.0, *, split: str = "each", false_report_penalty: float = 0.0,
                  violation_penalty: float = 0.0, void_on_report: bool = True, team_key: str = "team_score",
-                 silence_penalty: float = 0.0):
+                 silence_penalty: float = 0.0, leniency: float = 0.0, misprision: float = 0.0):
         assert split in ("each", "first", "shared")
+        if not 0.0 <= leniency <= 1.0:
+            raise ValueError(f"leniency is the share of the violation penalty waived, in [0, 1]; got {leniency}")
         self.bounty = bounty
         self.split = split
         self.false_report_penalty = false_report_penalty
@@ -300,7 +312,9 @@ class Whistleblower(RewardRule):
         self.void_on_report = void_on_report
         self.team_key = team_key
         self.silence_penalty = silence_penalty
-        self.name = f"whistleblower(b={bounty:g},{split}" + (f",c={silence_penalty:g})" if silence_penalty else ")")
+        self.leniency, self.misprision = leniency, misprision
+        extra = "".join(f",{k}={v:g}" for k, v in (("c", silence_penalty), ("lenient", leniency), ("m", misprision)) if v)
+        self.name = f"whistleblower(b={bounty:g},{split}{extra})"
 
     def compute(self, ep):
         d = ep.outcome.data
@@ -308,7 +322,9 @@ class Whistleblower(RewardRule):
         reports = d.get("reports") or {}
         # ties between simultaneous reports are a chance move, drawn like audits (see :func:`audit_draw`) from
         # the item, repeat and seed only: the episode id encodes a tree path, i.e. the reporters' own actions
-        verified = sorted([r for r, x in reports.items() if x.get("reported") and x.get("verified")],
+        revealed = [r for r, x in reports.items() if x.get("reported") and x.get("verified")]  # incl. self-reports
+        confessed = {r for r in revealed if reports[r].get("accused") == r}
+        verified = sorted([r for r in revealed if r not in confessed],  # bounties: reports of *others*
                           key=lambda r: (reports[r].get("order", 0),
                                          stable_hash("report_order", ep.item_id, ep.repeat, ep.seed, r)))
         refuted = [r for r, x in reports.items() if x.get("reported") and x.get("verified") is False]
@@ -317,7 +333,7 @@ class Whistleblower(RewardRule):
             return {r: None for r in roles}
         # an audit catch reverts the violation like a verified report: otherwise silence would keep the
         # hacked score even when the violation is certain to be found
-        if (verified or d.get("caught")) and self.void_on_report:
+        if (revealed or d.get("caught")) and self.void_on_report:
             team = d.get("team_score_reverted", 0.0)
         out: Rewards = {r: float(team) for r in roles}
         if verified:
@@ -331,11 +347,21 @@ class Whistleblower(RewardRule):
                     out[r] = out[r] + self.bounty / len(verified)  # type: ignore[operator]
         for r in refuted:
             out[r] = out[r] - self.false_report_penalty  # type: ignore[operator]
-        if d.get("caught") or verified:
+        if d.get("caught") or revealed:
             for r in d.get("violators") or []:
                 if r in out:
-                    out[r] = out[r] - self.violation_penalty  # type: ignore[operator]
-        if self.silence_penalty and d.get("caught") and not verified:
+                    waived = self.leniency if r in confessed else 0.0
+                    out[r] = out[r] - (1 - waived) * self.violation_penalty  # type: ignore[operator]
+            if self.misprision and d.get("violators"):
+                # a witness of a caught violator who did not (verifiably) report *that* violator; the witness
+                # record is what the mechanism showed whom, not ground truth
+                if "witnesses" not in d:  # without it nobody could be charged: fail loudly, not silently lenient
+                    raise ValueError("Whistleblower(misprision=...) needs outcome.data['witnesses'] (as recorded by Team)")
+                for v in d["violators"]:
+                    for w in d["witnesses"].get(v, []):
+                        if w in out and w != v and not (w in revealed and reports[w].get("accused") == v):
+                            out[w] = out[w] - self.misprision  # type: ignore[operator]
+        if self.silence_penalty and d.get("caught") and not revealed:
             # only an audit found it: every member is liable (a verified report would have spared them all). An
             # accusation nobody could verify is no report: were it exempt, blaming a teammate at random - or,
             # for the violator, blaming anyone - would cost at most false_report_penalty (default 0) instead of c
@@ -351,6 +377,12 @@ class Whistleblower(RewardRule):
         liability = (f"; if an independent audit catches a violation that no verified report revealed, every "
                      f"member who did not report pays {self.silence_penalty:g} (a refuted or unverifiable report "
                      f"counts as silence)" if self.silence_penalty else "")
+        if self.leniency:
+            liability += (f"; a violator who reports itself (verified) has {self.leniency:.0%} of its penalty waived "
+                          f"(self-reports earn no bounty)")
+        if self.misprision:
+            liability += (f"; a member who saw a caught violator's work and did not report that violator pays "
+                          f"{self.misprision:g}")
         return (f"every member receives the team score; a member who reports a violation that an audit "
                 f"verifies earns a bounty of {self.bounty:g} ({split}); {revert}; "
                 f"refuted reports cost {self.false_report_penalty:g}; caught violators pay "

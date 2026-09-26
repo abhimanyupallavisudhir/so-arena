@@ -92,6 +92,16 @@ Rules-only verifiers (e.g. chess legality without evaluation) are valuable: they
 without seeing conclusions. A verifier that runs claimed code must run it sandboxed
 (`core.verification.run_python`, or `core.sandbox.wrap(argv, workdir)` for other interpreters).
 
+Two optional hooks make a verifier usable under every knob of `VerificationPolicy`: `cost` (what one check
+costs against a cost `budget`; a policy's `costs=` overrides it) and `forge(result, rng)`, what the verifier
+shows when verification noise makes it err. A forgery must look exactly like a genuine result: the default
+flips verdicts that carry no output and perturbs informational (`executed`) outputs with
+`perturb_output`; a verifier whose verdicts come with a revealing output (the expected value it matched, a
+legal line's resulting position) overrides `forge` - see `PythonExecVerifier`, `QueryClaimVerifier`,
+`CommandClaimVerifier` and `SQLVerifier` - or returns None, and noise on it then fails the episode rather
+than show a recognisable forgery. Programmatic judges read verdicts as shown with
+`core.verification.parse_markers(text)`, never from the turn's verification records.
+
 ## Tools (capability gaps)
 
 Tools are private affordances used while acting, via `<tool name="NAME">ARGS</tool>` in LLM output:
@@ -111,7 +121,9 @@ Grant them per role: `Debate(tools={"agents": ["engine"]})`; affordances likewis
 
 A tool that runs anything the agent wrote (commands, code, queries through an interpreter) must launch
 it through `core.sandbox.wrap(argv, workdir)`, which hides state stores, datasets and run directories
-from it; register further secret directories with `core.sandbox.hide(path)`. A tool must also reveal
+from it; register further secret directories with `core.sandbox.hide(path)`. Pass the command a minimal
+environment with `HOME` and `TMPDIR` in its working directory: under the Landlock backend (containers without
+user namespaces) `/tmp` and the home directory are not scratch space but invisible. A tool must also reveal
 only what the item and the visible state determine: in game trees, decisions are grouped into
 information sets by what their role is shown, so a tool reading hidden, path-dependent game data would
 break that grouping.
@@ -201,7 +213,11 @@ and `g.simultaneous([...])` for simultaneous moves (required for correct best-of
 moves of the mechanism itself (audits, tie-breaks) from `g.chance("tag")`, never from `g.rng` or anything
 a role's action can change, so best-of-N compares candidates under the same luck. Use the
 helpers in `so_arena.mechanisms._common` for consistent prompts. Store anything reward rules or scorers
-need in `Outcome.data`. Register with `so_arena.mechanisms.register_mechanism`.
+need in `Outcome.data`. A mechanism that consults ground truth (an audit oracle from `g.ctx.resources`, a
+simulated detector) records each use with `g.log_gt_access(channel, role=..., cost=...)` - never what it
+found - so analyses can count the ground truth it consumed (`Episode.gt_access`); a signal that can be
+missing (an unparsed score) should fail closed, not count as benign. Register with
+`so_arena.mechanisms.register_mechanism`.
 
 ## Models
 
@@ -211,6 +227,21 @@ keep them in `_args` (or override `identity`): the response cache, policy descri
 use `identity`, so two backends served under one name never share completions. A backend that seeds
 its sampling should add `models.base.draw_seed(options)` to the seed, so that different roles asking the
 same thing get different samples.
+
+## Making components usable from specs
+
+Specs build reward rules, verifiers, ground-truth scorers and mechanisms from `{type: ...}` mappings through
+`so_arena.registry`. Register yours so specs and `so-arena list` see them:
+
+```python
+from so_arena.registry import register
+
+register("reward", "my_rule", MyRule)          # or @register("verifier", "my_check") on the class
+```
+
+Constructor arguments come from the mapping; nested components are built from the argument they are passed
+as (`reward`, `inner`, `rule`, `rules`, `verifiers`, `ground_truth`), so keep those names for arguments that
+take components.
 
 ## Tests
 

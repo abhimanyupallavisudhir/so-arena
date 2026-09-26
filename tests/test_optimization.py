@@ -1,18 +1,15 @@
 import itertools
-import math
 
 import numpy as np
 import pandas as pd
 import pytest
 
-import so_arena as soa
 from so_arena.analysis.optimization import (
     BestOfN,
     Tilted,
     Uniform,
     evaluate_tree,
     first_order_gain,
-    optimization_grid,
     pool_curve,
 )
 from so_arena.core.runner import Profile, PlayerSpec, build_players, run_sync
@@ -38,7 +35,6 @@ def brute_bon_plugin(w, n):
     probs = np.zeros(k)
     for s in itertools.product(range(k), repeat=n):
         m = max(w[i] for i in s)
-        winners = sorted({i for i in s if w[i] == m})
         # ties among *distinct candidates* with equal payoff: split uniformly over tied candidates
         tied = [i for i in range(k) if w[i] == m]
         for i in tied:

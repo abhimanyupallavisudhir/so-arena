@@ -8,6 +8,11 @@ meta-strategy of the others* (the optimizer is told their strategies and probabi
 the population. Repeat. The meta-strategy's NashConv (sum of regrets against the new best
 responses) estimates how far the population is from equilibrium; the ground-truth value of the
 meta-strategy is what the mechanism incentivizes at (approximate) equilibrium.
+
+The meta-solver sets the optimizers' model of each other (the solution-concept table of
+``docs/theory.md``, section 3): ``nash`` is PSRO / double oracle; ``uniform`` best-responds to the
+whole population so far (fictitious play); ``last`` only to the others' newest strategy - iterated best
+response, i.e. level-$k$ reasoning, where the level-$k$ strategy best-responds to level $k-1$.
 """
 
 from __future__ import annotations
@@ -30,9 +35,16 @@ from so_arena.games.normal_form import NormalFormGame
 from so_arena.samplers.prompt_search import PromptSearch, SearchResult
 
 
+META_SOLVERS = ("nash", "replicator", "fictitious", "uniform", "last")
+
+
 def solve_meta(game: NormalFormGame, solver: str = "nash", symmetric: Sequence[str] | None = None, *,
                tol: float = 1e-4) -> list[np.ndarray]:
-    """Meta-strategy for PSRO: ``nash``, ``replicator`` (from uniform), ``fictitious`` or ``uniform``.
+    """Meta-strategy for PSRO: ``nash``, ``replicator`` (from uniform), ``fictitious``, ``uniform`` or ``last``.
+
+    ``last`` puts all weight on each player's most recently added strategy (the last in the game's
+    strategy order, which is the population's order): iterated best response, i.e. level-$k$ thinking.
+    It ignores the payoffs, so it is exactly as far from equilibrium as its NashConv says.
 
     ``nash`` with two players is exact: support enumeration, the max-entropy equilibrium. With more
     players (or a degenerate two-player game) it is :meth:`NormalFormGame.approximate_nash`, the
@@ -46,8 +58,12 @@ def solve_meta(game: NormalFormGame, solver: str = "nash", symmetric: Sequence[s
     reward, which would make a never-observed profile the equilibrium. ``symmetric`` players (one shared
     population) get one mixed strategy: a symmetric equilibrium, or replicator dynamics on one population.
     """
+    if solver not in META_SOLVERS:
+        raise ValueError(f"unknown meta-solver {solver!r}; expected one of {META_SOLVERS}")
     if solver == "uniform":
         return game.uniform()
+    if solver == "last":
+        return [np.eye(k)[k - 1] for k in game.shape]
     clean = game.imputed()
     sym = [p for p in (symmetric or []) if p in game.players]
     sym = sym if len(sym) > 1 else []
@@ -113,6 +129,10 @@ class PSRO:
         roles: roles whose strategies evolve (others are ``fixtures``).
         initial: role -> {name: strategy text} initial populations.
         policy_factories: role -> ``strategy_text -> Policy``.
+        meta_solver: what each role's best response is computed against (:func:`solve_meta`): ``nash``
+            (PSRO), ``uniform`` (fictitious play), ``last`` (the others' newest strategies - iterated best
+            response; at the start, the last of each ``initial`` population is level 0), ``replicator``
+            or ``fictitious``.
         search_kwargs: passed to each :class:`PromptSearch` (optimizer, iterations, algorithm, ...).
         symmetric: exchangeable roles, which share one population: their initial strategies (and
             stances) must agree, each iteration searches one best response for them (as the first of
@@ -131,6 +151,8 @@ class PSRO:
                  ground_truth: Sequence[GroundTruthScorer] | None = None, ctx: RunContext | None = None,
                  symmetric: Sequence[str] | None = None, repeats: int = 1, concurrency: int | None = None, seed: int = 0,
                  nash_tol: float = 1e-4, min_coverage: float = 0.5):
+        if meta_solver not in META_SOLVERS:
+            raise ValueError(f"unknown meta-solver {meta_solver!r}; expected one of {META_SOLVERS}")
         self.mechanism, self.items, self.roles = mechanism, list(items), list(roles)
         self.populations = {r: dict(initial[r]) for r in self.roles}
         self.factories, self.fixtures, self.optimizer = policy_factories, dict(fixtures), optimizer

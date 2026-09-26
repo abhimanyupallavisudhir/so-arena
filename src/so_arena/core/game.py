@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import random
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
@@ -35,6 +36,7 @@ from so_arena.core.types import Message, Usage
 from so_arena.core.verification import (
     JUDGE_VERIFICATION_NOTE,
     Verification,
+    VerificationNoiseError,
     Verifier,
     annotate,
     neutralize_markers,
@@ -95,6 +97,10 @@ class Turn(BaseModel):
     kind: ActionKind = "text"
     text: str = ""  # what the policy produced (public part)
     shown: str = ""  # what other roles see (claims replaced by verification markers, forged markers escaped)
+    # VerificationPolicy.show_to: the roles (names or kinds) that see ``shown``; the others see ``unmarked``
+    # (the claims as written, escaped, without verdicts). None = everyone sees ``shown``
+    verdicts_to: list[str] | None = None
+    unmarked: str | None = None
     reasoning: str | None = None
     visible_to: list[str] | None = None  # None = everyone
     choice: str | None = None
@@ -164,6 +170,19 @@ class _Produced(BaseModel):
     usage: Usage
     state: str | None = None  # snapshot left behind by a role with write access
     checked: int = 0  # claims sent to a verifier (charged to the role's verification budget)
+    spent: float = 0.0  # their cost (charged to a cost budget)
+    unmarked: str | None = None  # the text without verdicts, for roles outside VerificationPolicy.show_to
+
+
+class _Checked(BaseModel):
+    """What checking one action's claims produced (:meth:`Game._verify`)."""
+
+    verifications: list[Verification] = Field(default_factory=list)
+    shown: str = ""
+    unmarked: str | None = None
+    usage: Usage = Field(default_factory=Usage)
+    checked: int = 0
+    spent: float = 0.0
 
 
 class BranchController:
@@ -293,7 +312,8 @@ class Game:
         self._decisions: dict[int, tuple[str, int]] = {}
         self._slot_group: dict[int, str | None] = {}
         self._slot_role: dict[int, str] = {}
-        self._verif_used: dict[int, tuple[str, int]] = {}  # slot -> (role, claims charged to its budget)
+        # slot -> (role, claims charged to its budget, their cost)
+        self._verif_used: dict[int, tuple[str, int, float]] = {}
         self._group_counter = 0
         self.state = state
         self.base_state = base_state if base_state is not None else state
@@ -301,6 +321,8 @@ class Game:
         self._group_state: dict[str, str | None] = {}  # simultaneous group -> the state its movers act on
         # reverts of stateful work (state_without): reverted roles ("a,b") -> paths whose changes did not merge
         self.revert_conflicts: dict[str, list[str]] = {}
+        # uses of experimenter-side ground truth by the mechanism (audits, simulated probes): see log_gt_access
+        self.gt_access: list[dict[str, Any]] = []
         import random
 
         # per-episode randomness: in a game tree it differs by path, so nature's moves use chance() instead
@@ -322,6 +344,12 @@ class Game:
 
         return random.Random(stable_hash("chance", tag, self.item.id, self.repeat, self.seed))
 
+    def log_gt_access(self, channel: str, *, role: str | None = None, cost: float = 1.0) -> None:
+        """Record that the mechanism consulted ground truth through ``channel`` (an audit, a simulated probe)
+        about ``role``, at ``cost``: recorded as ``Episode.gt_access``, so analyses can count how much ground
+        truth a mechanism consumed. What was found is never recorded here (the ledger is published)."""
+        self.gt_access.append({"channel": channel, "role": role, "cost": float(cost), "slot": self._slot})
+
     # ------------------------------------------------------------------------------ views
     def stance(self, role: str) -> str | None:
         return self.positions.get(role)
@@ -340,6 +368,17 @@ class Game:
 
     def can_see(self, viewer: str, turn: Turn) -> bool:
         return turn.visible_to is None or viewer in turn.visible_to or viewer == turn.role
+
+    def shown_to(self, viewer: str, turn: Turn) -> str:
+        """``turn`` as ``viewer`` reads it: its author's own text; else the text with verification markers -
+        or, for a role outside the verification policy's ``show_to``, the claims as written, without verdicts."""
+        if viewer == turn.role:
+            return turn.text
+        if turn.verdicts_to is None or turn.unmarked is None:
+            return turn.shown
+        spec = self.roles.get(viewer)
+        return turn.shown if viewer in turn.verdicts_to or (spec is not None and spec.kind in turn.verdicts_to) \
+            else turn.unmarked
 
     def sees_reasoning(self, viewer: str, author: str) -> bool:
         if viewer == author:
@@ -365,7 +404,7 @@ class Game:
         for i, t in enumerate(visible):  # numbered among the turns the viewer sees: hidden ones are not counted
             own = t.role == role
             reasoning = t.reasoning if self.sees_reasoning(role, t.role) else None
-            turns.append(TurnView(index=i, role=t.role, phase=t.phase, text=t.text if own else t.shown,
+            turns.append(TurnView(index=i, role=t.role, phase=t.phase, text=self.shown_to(role, t),
                                   reasoning=reasoning if own or reasoning is None else neutralize_markers(reasoning)))
         # public positions: the viewer's own, those of roles it has heard from, and published ones
         speakers = {t.role for t in visible}
@@ -395,7 +434,7 @@ class Game:
                 continue
             if t.kind != "text" and not t.text:
                 continue
-            body = t.text if t.role == viewer else t.shown
+            body = self.shown_to(viewer, t)
             head = f"### {self.role_title(t.role)}" + (f" ({t.phase})" if t.phase else "")
             block = f"{head}\n{body.strip()}"
             if include_reasoning and t.reasoning and self.sees_reasoning(viewer, t.role) and t.role != viewer:
@@ -443,7 +482,13 @@ class Game:
         return vp.agent_instructions(vs)
 
     def judge_note(self) -> str:
-        return JUDGE_VERIFICATION_NOTE if self.verifiers else ""
+        if not self.verifiers:
+            return ""
+        vp = self.mechanism.verification
+        noise = vp.max_noise() if vp is not None else 0.0
+        return JUDGE_VERIFICATION_NOTE + (
+            f" The verification tool is imperfect: each verdict or output it shows is wrong with probability up "
+            f"to {noise:g}, and a wrong one looks exactly like a correct one." if noise > 0 else "")
 
     # ------------------------------------------------------------------------------ state
     @property
@@ -505,7 +550,7 @@ class Game:
         return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
     def _infoset_key(self, role: str, request: ActionRequest, *, slot: int, access: str, state: str | None,
-                     used: int) -> str:
+                     used: Any) -> str:
         """A game-tree decision's key: its *information set* - everything the role can condition on here.
 
         That is the request it is sent (prompt and view: every turn it may see, as shown to it, numbered
@@ -531,10 +576,11 @@ class Game:
         return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
     async def _produce(self, role: str, request: ActionRequest, sample_index: int, key: str = "",
-                       budget_used: int = 0, access: str | None = None, parent: str | None = None) -> _Produced:
+                       budget_used: tuple[int, float] = (0, 0.0), access: str | None = None,
+                       parent: str | None = None) -> _Produced:
         """Sample one candidate action on the state ``parent`` (see :meth:`act`); ``budget_used`` is how
-        many verifications ``role`` has already used on this play (each candidate is charged separately:
-        siblings never share a budget)."""
+        many verifications ``role`` has already used on this play, and their cost (each candidate is charged
+        separately: siblings never share a budget)."""
         player = self.players[role]
         # Seed policy randomness from the decision key (+ the episode id outside branch mode, so that
         # repeats differ). In branch mode the episode id depends on the path, so it is excluded:
@@ -571,9 +617,9 @@ class Game:
             new_state = kept if kept != parent else None
         usage = action.usage + actx.usage if action.usage.calls or action.usage.effort_seconds else actx.usage
         action.usage = usage
-        verifs, shown, vusage, checked = await self._verify(role, action, budget_used, new_state or parent)
-        return _Produced(action=action, verifications=verifs, shown=shown, usage=usage + vusage, state=new_state,
-                         checked=checked)
+        v = await self._verify(role, action, budget_used, new_state or parent)
+        return _Produced(action=action, verifications=v.verifications, shown=v.shown, usage=usage + v.usage,
+                         state=new_state, checked=v.checked, spent=v.spent, unmarked=v.unmarked)
 
     def _mirror(self, slot: WorkspaceSlot | None, access: str, role: str, phase: str,
                 calls: Sequence[dict[str, Any]]) -> None:
@@ -585,30 +631,37 @@ class Game:
                 ws.append_jsonl(log_path, {"role": role, "phase": phase, "tool": c["name"],
                                            "args": str(c["args"])[:2000], "result": str(c["result"])[:2000]})
 
-    async def _verify(self, role: str, action: Action, budget_used: int, target: str | None
-                      ) -> tuple[list[Verification], str, Usage, int]:
+    async def _verify(self, role: str, action: Action, budget_used: tuple[int, float], target: str | None
+                      ) -> _Checked:
         """Check the claims in ``action``: the verifications, the text others see (claims replaced by
-        markers), the verifiers' usage and how many claims were charged to the role's budget. A claim about
-        the state is checked on a scratch copy of ``target``, the state the claimant left."""
-        verifs: list[Verification] = []
-        checked = 0
-        usage = Usage()
-        # what others see: marker tags the role wrote itself are escaped, so only verifiers make markers
-        shown = neutralize_markers(action.text)
+        markers), the verifiers' usage and how many claims - at what cost - were charged to the role's budgets
+        (``budget_used``: its claims and cost so far on this play). A claim about the state is checked on a
+        scratch copy of ``target``, the state the claimant left.
+
+        With verification noise, whether the role's n-th checked claim on this play errs is a chance move
+        (tag ``verification_noise:<role>:<n>``), as is the forged result (``verification_forgery:...``): the
+        same for every candidate of the decision, so best-of-N cannot select the candidates whose checks
+        erred in their favour."""
+        out = _Checked(shown=neutralize_markers(action.text))  # marker tags the role wrote itself are escaped
         vs = self.verifiers_for(role)
         if not (vs and action.text):
-            return verifs, shown, usage, checked
+            return out
         vp = self.mechanism.verification
         assert vp is not None
+        n_used, cost_used = budget_used
         for claim in parse_claims(action.text, role):
             v = vs.get(claim.kind)
             if v is None:
-                verifs.append(Verification(claim=claim, status="unknown_kind"))
+                out.verifications.append(Verification(claim=claim, status="unknown_kind"))
                 continue
-            if vp.budget_per_role is not None and budget_used + checked >= vp.budget_per_role:
-                verifs.append(Verification(claim=claim, status="over_budget"))
+            cost = vp.cost_of(v)
+            if ((vp.budget_per_role is not None and n_used + out.checked >= vp.budget_per_role)
+                    or (vp.budget is not None and cost_used + out.spent + cost > vp.budget + 1e-9)):
+                out.verifications.append(Verification(claim=claim, status="over_budget"))
                 continue
-            checked += 1
+            index = n_used + out.checked  # the role's n-th checked claim on this play
+            out.checked += 1
+            out.spent += cost
             # a fresh scratch copy per claim: an earlier claim's command must not rig the state a later
             # claim is checked on
             scratch = self.states.fork(target, access="read") if getattr(v, "uses_state", False) and target else None
@@ -620,13 +673,30 @@ class Game:
             finally:
                 if scratch is not None:
                     self.states.discard(scratch)
-            usage = usage + res.usage
-            verifs.append(res)
-        shown = annotate(action.text, verifs, display=vp.display, show_output=vp.show_output)
-        return verifs, shown, usage, checked
+            rate = vp.noise_for(v)
+            if rate > 0 and self.chance(f"verification_noise:{role}:{index}").random() < rate:
+                res = self._err(v, res, self.chance(f"verification_forgery:{role}:{index}"))
+            out.usage = out.usage + res.usage
+            out.verifications.append(res)
+        out.shown = annotate(action.text, out.verifications, display=vp.display, show_output=vp.show_output)
+        if vp.show_to is not None:
+            out.unmarked = neutralize_markers(action.text)
+        return out
+
+    @staticmethod
+    def _err(v: Verifier, res: Verification, rng: random.Random) -> Verification:
+        """``res`` as the erring verifier shows it, with the correct result kept as its truth."""
+        forged = v.forge(res, rng)
+        if forged is None:
+            raise VerificationNoiseError(
+                f"verifier {v.name!r} cannot err realistically on a {res.status!r} result (its forge() returned "
+                "None): implement forge() or set its noise to 0 (VerificationPolicy(noise={name: p}))")
+        if (forged.status, forged.output) == (res.status, res.output):
+            return res
+        return forged.model_copy(update={"claim": res.claim, "true_status": res.status, "true_output": res.output})
 
     async def _adapt(self, p: _Produced, role: str, request: ActionRequest, access: str | None,
-                     parent: str | None, origin: str | None, budget_used: int) -> _Produced | None:
+                     parent: str | None, origin: str | None, budget_used: tuple[int, float]) -> _Produced | None:
         """Candidate ``p`` - sampled at another node of this information set, in state ``origin`` - as it plays
         out at this node, in state ``parent``, which differs from ``origin`` only in what ``role`` cannot see.
 
@@ -672,9 +742,9 @@ class Game:
             here, there = new_state or parent, p.state or origin
             if (here is None) != (there is None) or (here and there and self.states.visible_id(here) != self.states.visible_id(there)):
                 return None
-        verifs, shown, _, checked = await self._verify(role, p.action, budget_used, new_state or parent)
-        return p.model_copy(deep=True, update={"state": new_state, "verifications": verifs, "shown": shown,
-                                               "checked": checked})
+        v = await self._verify(role, p.action, budget_used, new_state or parent)
+        return p.model_copy(deep=True, update={"state": new_state, "verifications": v.verifications, "shown": v.shown,
+                                               "checked": v.checked, "spent": v.spent, "unmarked": v.unmarked})
 
     async def act(
         self,
@@ -714,15 +784,19 @@ class Game:
         self._slot_group[slot] = group
         self._slot_role[slot] = role
         request = request.model_copy(update={"view": self.view(role, exclude_group=group), "phase": request.phase or phase})
-        # verifications the role used on this play so far (earlier decisions only, like the node key)
-        used = sum(n for s, (r, n) in self._verif_used.items() if r == role and s < slot)
+        # verifications the role used on this play so far, and their cost (earlier decisions only, like the node key)
+        mine = [(n, c) for s, (r, n, c) in self._verif_used.items() if r == role and s < slot]
+        used = (sum(n for n, _ in mine), sum(c for _, c in mine))
         # the state the decision acts on; simultaneous movers all act on the state the stage began with, as
         # their views exclude each other's moves (a partner may finish first, in plain runs and in replays)
         parent = self._group_state.setdefault(group, self.state) if group is not None else self.state
         if self.branch is not None:  # game trees: one pool per information set, keyed on what the role can see
             visible = self.states.visible_id(parent) if parent else None
+            vp = self.mechanism.verification
+            # what the role's budgets have left is part of what it acts on (its cost only under a cost budget)
+            spent = used if vp is not None and vp.budget is not None else used[0]
             key = self._infoset_key(role, request, slot=slot, access=self.state_access(role, access), state=visible,
-                                    used=used)
+                                    used=spent)
         else:
             key = self._node_key(role, request.phase, slot, group)
 
@@ -742,7 +816,7 @@ class Game:
             node, cand = None, None
             self.usage[role] = self.usage[role] + produced.usage
         self._decisions[slot] = (key, cand or 0)
-        self._verif_used[slot] = (role, produced.checked)
+        self._verif_used[slot] = (role, produced.checked, produced.spent)
         if produced.state is not None:
             self.state = produced.state
 
@@ -752,6 +826,9 @@ class Game:
                 Turn(
                     index=len(self.turns), slot=slot, role=role, phase=request.phase, kind=request.kind,
                     text=a.text, shown=produced.shown, reasoning=a.reasoning,
+                    verdicts_to=(list(self.mechanism.verification.show_to)
+                                 if produced.unmarked is not None and self.mechanism.verification is not None else None),
+                    unmarked=produced.unmarked,
                     visible_to=list(visible_to) if visible_to is not None else None,
                     choice=a.choice, probs=a.probs, score=a.score, data=a.data,
                     verifications=produced.verifications, tool_calls=a.tool_calls,

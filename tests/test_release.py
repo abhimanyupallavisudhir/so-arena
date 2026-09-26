@@ -4,7 +4,7 @@ import math
 import pytest
 
 import so_arena as soa
-from so_arena.core.runner import PlayerSpec, Profile, run_episodes, run_sync
+from so_arena.core.runner import Profile, run_episodes, run_sync
 from so_arena.mechanisms import MarketScoringReward, PredictionMarket
 from so_arena.release import release, resolve, verify
 

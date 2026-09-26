@@ -21,6 +21,15 @@ the whole release's total.
 
 ``resolve`` takes the release plus ground truth when it arrives, verifies the manifest, fills in
 deferred rewards (e.g. market scoring rules), scores every episode, and writes metrics and a report.
+
+A *sealed* release (``release(..., sealed=True)``) is commit-then-reveal on top of this: what would be published -
+each released item with its released episodes, and the summary (rankings) - is committed to leaf by leaf with
+salted hashes (:mod:`so_arena.release.commit`), and only the commitments, their Merkle inclusion proofs and the
+root (the digest to publish) go into the bundle. The openings (contents and salts) are written to a private
+directory outside it. :func:`reveal` later publishes openings - all, or item by item as questions resolve - and
+:func:`verify` checks every revealed item against its commitment. Use it when the results themselves must not
+be seen before a date (they would move a market, or a judge could be tuned to them) yet must provably not have
+been edited since.
 """
 
 from __future__ import annotations
@@ -39,6 +48,8 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 
+from so_arena.release import commit as _commit
+
 from so_arena.analysis.frames import config_key, mechanism_labels
 from so_arena.core.game import Turn
 from so_arena.core.ground_truth import GroundTruthScorer, default_scorers
@@ -53,6 +64,8 @@ log = logging.getLogger("so_arena")
 
 FILES = ("items.jsonl", "episodes.jsonl", "rankings.json")  # data files every manifest covers
 HTML = "index.html"  # the viewer; covered by the manifest too when written
+COMMITMENTS = "commitments.jsonl"  # a sealed release's one published data file
+OPENINGS = "openings.jsonl"  # a sealed release's openings: in the private directory, and once revealed in the bundle
 
 
 def _sha(path: Path) -> str:
@@ -71,7 +84,8 @@ PUBLIC_REWARD_DETAILS = ("audited",)
 # its default until it is listed here. Not ``usage``: input tokens count the prompt, whose directive (the arm's
 # instructions) is not shown - arms whose directives differ in length would be told apart by it; likewise the
 # usage of a turn's verifications and of the episode (the manifest keeps the release's total)
-PUBLIC_TURN_FIELDS = ("index", "slot", "role", "phase", "kind", "text", "shown", "reasoning", "visible_to", "choice",
+PUBLIC_TURN_FIELDS = ("index", "slot", "role", "phase", "kind", "text", "shown", "verdicts_to", "unmarked", "reasoning",
+                      "visible_to", "choice",
                       "probs", "score", "data", "verifications", "tool_calls", "parse_ok", "node",
                       "candidate", "group", "state")
 # Turn metadata holds the policies' annotations, among them the experimenter's account of how behaviour was
@@ -113,7 +127,9 @@ def _public_config(ep: Episode, salt: str) -> dict[str, Any]:
 def _public_turn(t: Turn, *, public_labels: bool) -> Turn:
     keep = PUBLIC_TURN_METADATA + (LABEL_TURN_METADATA if public_labels else ())
     fields = {f: getattr(t, f) for f in PUBLIC_TURN_FIELDS}
-    fields["verifications"] = [v.model_copy(update={"usage": Usage()}) for v in t.verifications]
+    # with verification noise, what a correct check would have said is the experimenter's: withheld
+    fields["verifications"] = [v.model_copy(update={"usage": Usage(), "true_status": None, "true_output": None})
+                               for v in t.verifications]
     return Turn(**fields, metadata={k: v for k, v in t.metadata.items() if k in keep})
 
 
@@ -186,6 +202,7 @@ class Manifest(BaseModel):
     notes: str = ""
     mechanisms: list[str] = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)  # model usage of all released episodes together (never per episode)
+    sealed: bool = False  # commit-then-reveal: ``digest`` is the Merkle root of the per-leaf commitments
 
 
 def _digest(files: dict[str, str]) -> str:
@@ -201,7 +218,8 @@ def _released_item(item: TaskItem, private_keys: Sequence[str]) -> TaskItem:
 
 def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str | Path, *, title: str = "Release",
             notes: str = "", html: bool = True, exclude_restricted: bool = False, private_keys: Sequence[str] = (),
-            public_labels: bool = False, salt: str | None = None) -> Manifest:
+            public_labels: bool = False, salt: str | None = None, sealed: bool = False,
+            private_dir: str | Path | None = None) -> Manifest:
     """Write a ground-truth-free release bundle and return its manifest (``manifest.digest`` is the commitment).
 
     Items whose licence forbids publication (``metadata["do_not_publish"]``, e.g. GPQA) are refused
@@ -218,6 +236,10 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
       pass and keep your own to reproduce a bundle or map pseudonyms back to the run's episodes).
     * Designs where a role always takes the same side of the truth (e.g. game stances
       ``{debater_a: true}``) reveal it through positions; run both side assignments before releasing.
+    * ``sealed=True`` publishes only commitments (see the module docstring): the bundle holds ``MANIFEST.json``
+      (the digest is the Merkle root) and ``commitments.jsonl``; the openings go to ``private_dir`` (default: a
+      ``<out_dir>.private`` sibling), which must lie outside ``out_dir`` - keep it private until :func:`reveal`.
+      What is committed is exactly what an unsealed release would publish; no viewer is written.
     """
     restricted = {it.id for it in items if it.metadata.get("do_not_publish")}
     if restricted and not exclude_restricted:
@@ -245,6 +267,9 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
     # follows the arms
     eps = sorted(released, key=lambda e: (group[(labels[(e.mechanism, config_key(e))], e.item_id)], e.id))
     out = Path(out_dir)
+    if sealed:
+        return _seal(items, eps, labels, out, private_dir, title=title, notes=notes, private_keys=private_keys,
+                     usage=total)
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "items.jsonl", "w") as f:
         for it in items:
@@ -269,6 +294,141 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
     return man
 
 
+def _seal(items: Sequence[TaskItem], eps: Sequence[Episode], labels: dict, out: Path, private_dir: str | Path | None, *,
+          title: str, notes: str, private_keys: Sequence[str], usage: Usage) -> Manifest:
+    """Commit to the released content leaf by leaf; write the commitments to ``out``, the openings privately."""
+    private = Path(private_dir) if private_dir is not None else out.parent / f"{out.name}.private"
+    o, pr = out.resolve(), private.resolve()
+    if pr == o or o in pr.parents or pr in o.parents:
+        raise ValueError(f"the private directory {private} must lie outside the release {out} (and not contain it)")
+    contents = [{"kind": "item", "item": json.loads(_released_item(it, private_keys).model_dump_json()),
+                 "episodes": [json.loads(e.model_dump_json()) for e in eps if e.item_id == it.id]} for it in items]
+    contents.append({"kind": "summary", "rankings": json.loads(json.dumps(rankings(eps), default=str)),
+                     "mechanisms": sorted(set(labels.values())), "usage": json.loads(usage.model_dump_json())})
+    leaves = []
+    for content in contents:
+        s = _commit.new_salt()
+        leaves.append({"salt": s, "commitment": _commit.commitment(content, s), "content": content})
+    leaves.sort(key=lambda x: x["commitment"])  # the order says nothing about the content
+    hashes = [x["commitment"] for x in leaves]
+    root = _commit.merkle_root(hashes)
+    out.mkdir(parents=True, exist_ok=True)
+    private.mkdir(parents=True, exist_ok=True)
+    with open(out / COMMITMENTS, "w") as f:
+        for i, h in enumerate(hashes):
+            f.write(json.dumps({"leaf": i, "commitment": h, "proof": _commit.merkle_proof(hashes, i)}) + "\n")
+    with open(private / OPENINGS, "w") as f:
+        for i, x in enumerate(leaves):
+            f.write(json.dumps({"leaf": i, **x}, sort_keys=True) + "\n")
+    man = Manifest(title=title, created_at=_dt.datetime.now(_dt.timezone.utc).isoformat(),
+                   files={COMMITMENTS: _sha(out / COMMITMENTS)}, digest=root, n_items=len(items),
+                   n_episodes=len(eps), notes=notes, sealed=True)
+    (out / "MANIFEST.json").write_text(man.model_dump_json(indent=2))
+    return man
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(x) for x in path.read_text().splitlines() if x.strip()] if path.exists() else []
+
+
+def _revealed_files(openings: Sequence[dict[str, Any]]) -> dict[str, str]:
+    """The data files a set of openings determines (the bundle's ``items.jsonl`` etc. after a reveal)."""
+    items = [o["content"] for o in openings if o["content"].get("kind") == "item"]
+    out = {"items.jsonl": "".join(_commit.canonical(c["item"]).decode() + "\n" for c in items),
+           "episodes.jsonl": "".join(_commit.canonical(e).decode() + "\n" for c in items for e in c["episodes"])}
+    summary = [o["content"] for o in openings if o["content"].get("kind") == "summary"]
+    if summary:
+        out["rankings.json"] = json.dumps(summary[0]["rankings"], indent=1)
+    return out
+
+
+def _sealed_state(d: Path, man: Manifest) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+    """The commitments and revealed openings of a sealed release, or None if anything fails to verify."""
+    if set(man.files) != {COMMITMENTS} or not (d / COMMITMENTS).exists() or _sha(d / COMMITMENTS) != man.files[COMMITMENTS]:
+        return None
+    rows = _read_jsonl(d / COMMITMENTS)
+    hashes = [r.get("commitment") for r in rows]
+    if [r.get("leaf") for r in rows] != list(range(len(rows))) or _commit.merkle_root(hashes) != man.digest:
+        return None
+    if not all(_commit.verify_proof(r["commitment"], r.get("proof") or [], man.digest) for r in rows):
+        return None
+    openings = _read_jsonl(d / OPENINGS)
+    seen = set()
+    for o in openings:
+        i = o.get("leaf")
+        if not isinstance(i, int) or not 0 <= i < len(rows) or i in seen:
+            return None
+        seen.add(i)
+        if not _commit.verify_opening(o, rows[i]["proof"], man.digest) or o["commitment"] != rows[i]["commitment"]:
+            return None
+    # what the bundle shows as revealed data must be exactly what the verified openings say
+    expected = _revealed_files(sorted(openings, key=lambda o: o["leaf"])) if openings else {}
+    for name in FILES:
+        present = (d / name).exists()
+        if present != (name in expected) or (present and (d / name).read_text() != expected[name]):
+            return None
+    return rows, openings
+
+
+def reveal(release_dir: str | Path, private_dir: str | Path | None = None, *,
+           items: Sequence[str] | None = None) -> dict[str, Any]:
+    """Open a sealed release: publish the openings of ``items`` (item ids; default: everything, the summary
+    included) from the private directory into the bundle, with the data files they determine.
+
+    The summary (rankings over all items) is revealed with the last item, never before: it aggregates items
+    still sealed. Openings that do not match their commitments are refused. Returns counts of revealed and
+    still sealed leaves.
+    """
+    d = Path(release_dir)
+    man = Manifest.model_validate_json((d / "MANIFEST.json").read_text())
+    if not man.sealed:
+        raise ValueError(f"{d} is not a sealed release")
+    state = _sealed_state(d, man)
+    if state is None:
+        raise ValueError("the sealed release does not verify - refusing to add openings to it")
+    rows, revealed = state
+    private = Path(private_dir) if private_dir is not None else d.parent / f"{d.name}.private"
+    have = {o["leaf"]: o for o in revealed}
+    for o in _read_jsonl(private / OPENINGS):
+        i = o.get("leaf")
+        if not isinstance(i, int) or not 0 <= i < len(rows) or not _commit.verify_opening(o, rows[i]["proof"], man.digest):
+            raise ValueError(f"private opening {i} does not match the published commitments")
+        c = o["content"]
+        if c.get("kind") == "item" and (items is None or c["item"]["id"] in set(items)):
+            have[i] = o
+    n_items = len(rows) - 1  # every leaf but the summary
+    if items is not None and (unknown := set(items) - {o["content"]["item"]["id"] for o in have.values()
+                                                       if o["content"].get("kind") == "item"}):
+        raise ValueError(f"no sealed item {sorted(unknown)[:3]} in the openings")
+    if sum(1 for o in have.values() if o["content"].get("kind") == "item") == n_items:
+        summary = [o for o in _read_jsonl(private / OPENINGS) if o["content"].get("kind") == "summary"]
+        for o in summary:
+            if not _commit.verify_opening(o, rows[o["leaf"]]["proof"], man.digest):
+                raise ValueError("the private summary opening does not match its commitment")
+            have[o["leaf"]] = o
+    openings = [have[i] for i in sorted(have)]
+    with open(d / OPENINGS, "w") as f:
+        for o in openings:
+            f.write(json.dumps(o, sort_keys=True) + "\n")
+    for name, text in _revealed_files(openings).items():
+        (d / name).write_text(text)
+    if not verify(d):
+        raise ValueError("the revealed release does not verify")
+    return {"revealed": len(openings), "sealed": len(rows) - len(openings), "complete": len(openings) == len(rows)}
+
+
+def inclusion_proof(release_dir: str | Path, item_id: str) -> dict[str, Any]:
+    """What a third party needs to check one revealed item against the published digest alone: its opening,
+    its inclusion proof and the root (:func:`so_arena.release.commit.verify_opening`)."""
+    d = Path(release_dir)
+    man = Manifest.model_validate_json((d / "MANIFEST.json").read_text())
+    rows = _read_jsonl(d / COMMITMENTS)
+    for o in _read_jsonl(d / OPENINGS):
+        if o["content"].get("kind") == "item" and o["content"]["item"]["id"] == item_id:
+            return {"opening": o, "proof": rows[o["leaf"]]["proof"], "root": man.digest}
+    raise KeyError(f"item {item_id!r} is not revealed in {d}")
+
+
 def release_run(run_dir: str | Path, out_dir: str | Path, **kwargs: Any) -> Manifest:
     store = RunStore(run_dir)
     return release(store.episodes(), store.items(), out_dir, **kwargs)
@@ -278,6 +438,8 @@ def release_digest(release_dir: str | Path) -> str:
     """Digest of the manifest's files as they are now (equal to ``MANIFEST.json``'s if nothing changed)."""
     d = Path(release_dir)
     man = Manifest.model_validate_json((d / "MANIFEST.json").read_text())
+    if man.sealed:
+        return _commit.merkle_root([r.get("commitment") for r in _read_jsonl(d / COMMITMENTS)])
     return _digest({name: _sha(d / name) if (d / name).exists() else "missing" for name in man.files})
 
 
@@ -286,6 +448,8 @@ def uncovered_files(release_dir: str | Path) -> list[str]:
     bundle made before the manifest covered it): nothing vouches for them."""
     d = Path(release_dir)
     man = Manifest.model_validate_json((d / "MANIFEST.json").read_text())
+    if man.sealed:  # revealed data files are vouched for by their openings
+        return [HTML] if (d / HTML).exists() else []
     return [n for n in (*FILES, HTML) if (d / n).exists() and n not in man.files]
 
 
@@ -295,9 +459,14 @@ def verify(release_dir: str | Path, digest: str | None = None) -> bool:
 
     Without ``digest`` this only shows the bundle is internally consistent: whoever edits the files
     can rewrite ``MANIFEST.json`` as well, so compare against the published digest.
+
+    A sealed release verifies if its commitments hash to the root (the digest) with every inclusion proof, and
+    every revealed opening matches its commitment - and the revealed data files are exactly what the openings say.
     """
     d = Path(release_dir)
     man = Manifest.model_validate_json((d / "MANIFEST.json").read_text())
+    if man.sealed:
+        return _sealed_state(d, man) is not None and (digest is None or man.digest == digest.strip().lower())
     if not set(FILES) <= set(man.files) or not all((d / name).exists() for name in man.files):
         return False
     files = {name: _sha(d / name) for name in man.files}
@@ -367,6 +536,8 @@ def resolve(release_dir: str | Path, truth: Truth, *, out_dir: str | Path | None
         raise ValueError("release files do not match MANIFEST.json" + (" or the published digest" if digest else "")
                          + " - refusing to resolve an altered release")
     man = Manifest.model_validate_json((d / "MANIFEST.json").read_text())
+    if man.sealed and not (d / "items.jsonl").exists():
+        raise ValueError("the sealed release has not been revealed yet (so_arena.release.reveal)")
     items = [TaskItem.model_validate_json(x) for x in (d / "items.jsonl").read_text().splitlines() if x.strip()]
     eps = [Episode.model_validate_json(x) for x in (d / "episodes.jsonl").read_text().splitlines() if x.strip()]
     truths = truth(items) if callable(truth) else truth
