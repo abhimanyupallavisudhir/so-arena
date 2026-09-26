@@ -44,7 +44,7 @@ Python ≥ 3.11. Chess ground truth uses Stockfish (`apt install stockfish`).
 Offline demos (no API keys):
 
 ```bash
-so-arena demo            # writes runs/demos/{asd,optimization,swarm,work,monitoring}/report.html
+so-arena demo            # writes runs/demos/{asd,optimization,swarm,work,monitoring,release}/report.html
 so-arena run configs/asd_synthetic.yaml
 ```
 
@@ -75,12 +75,12 @@ simulated models that prices every call).
 
 | | |
 |---|---|
-| **Mechanisms** | naive judge, propaganda, consultancy, debate (simultaneous/sequential, judge questions, zero-sum), reviewed work (single judge, proposal→critique→rebuttal, dossiers of state changes), work-then-review, monitored work (action / CoT / tool-call / probe monitors, fail-closed scores, defer-to-trusted, simulated fixed-AUROC probes), teams with whistleblowing (partial observation, covert team channels, shared repositories with reverts), market making, prediction markets (LMSR), peer prediction (BTS, multi-task), confessions. Write your own as plain async Python. |
-| **Reward rules** | judge-score transforms, zero-sum, audited proper scores for trainable judges, team reward, whistleblower bounties (with leniency, misprision and collective liability), monitor penalties, random audits (penalty or inverse-probability-weighted), resolution scores, market scoring rules - composable and re-applicable to logged episodes |
-| **Samplers** | instructed arms (ASD), behaviour arms on stateful tasks (paired branches), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary / autoresearch-style ratchet, or GEPA) with honest/deceptive/… directives, PSRO, RL environments |
+| **Mechanisms** | naive judge, propaganda, consultancy, debate (simultaneous/sequential, k debaters, cross-examination, judge questions, zero-sum), comparisons (the RLHF / reward-model signal), prover-verifier games, reviewed work (single judge, proposal→critique→rebuttal, dossiers of state changes), work-then-review, monitored work (action / CoT / tool-call / probe monitors, fail-closed scores, defer-to-trusted, simulated fixed-AUROC probes), teams with whistleblowing (partial observation, covert team channels, shared repositories with reverts), market making, prediction markets (LMSR), forecasts with immediate judge ratings, peer prediction (BTS, multi-task, correlated agreement, DMI), confessions. Write your own as plain async Python. |
+| **Reward rules** | judge-score transforms, zero-sum, preference scores, prover rewards, audited proper scores for trainable judges, team reward, whistleblower bounties (with leniency, misprision and collective liability), monitor penalties, random audits (penalty or inverse-probability-weighted), resolution scores, market scoring rules - composable and re-applicable to logged episodes |
+| **Samplers** | instructed arms (ASD), behaviour arms on stateful tasks (paired branches), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary / autoresearch-style ratchet, or GEPA) with honest/deceptive/… directives, PSRO (Nash, fictitious play or level-k meta-solvers), RL environments |
 | **Metrics** | ASD (any proper score, paired bootstrap), graded ASD, concordance, label efficiency, incentive gap recovered, expected scores, judge accuracy, AUROC/TPR |
 | **Game theory** | empirical games, pure/strict/mixed Nash, zero-sum values, (coarse) correlated equilibria with ground-truth welfare bounds, replicator dynamics, basins, natural and vanilla policy-gradient learning dynamics (exact, or on sampled episodes), an analytic whistleblower model with partial observation, monitor-penalty thresholds (obfuscation vs. deterrence) |
-| **Domains** | synthetic persuasion, team & monitoring worlds, chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY; stateful: repository work with hidden tests, a simulated software company |
+| **Domains** | synthetic persuasion, team, monitoring & forecasting worlds, chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY; stateful: repository work with hidden tests, a simulated software company |
 | **Stateful work** | forkable content-addressed state (files, SQLite, mail, ledgers, hidden environment state), a branch per decision and per best-of-N sample, reviewer dossiers of diffs, read/write access per role (and per decision), trusted tool-call records and agent-editable action logs, paired-branch experiments (work once, review many) |
 | **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, Lean statement structure, Lean typechecking, fact checkers) under per-mechanism budgets and display rules |
 | **Deferred ground truth** | release mechanism results with a SHA-256 commitment; resolve and score when the truth arrives |
@@ -108,8 +108,10 @@ simulated models that prices every call).
 | partial observation: below b_R a bounty buys nothing | the training algorithm selects the equilibrium too |
 | ![access](docs/figures/asd_by_access.png) | ![monitoring](docs/figures/monitoring_misbehaviour.png) |
 | stateful work: which faked successes each level of reviewer access exposes | penalizing an evadable monitor buys obfuscation; a fixed-AUROC probe deters |
+| ![released](docs/figures/release_proxy.png) | ![resolved](docs/figures/release_resolved.png) |
+| released before resolution: a judge's rating rewards extreme forecasts | resolved: the proper log score penalizes them |
 
-Full demo reports (self-contained HTML): [ASD across protocols](docs/reports/asd.html) · [optimization pressure](docs/reports/optimization.html) · [swarms](docs/reports/swarm.html) · [stateful work](docs/reports/work.html) · [monitoring](docs/reports/monitoring.html). The demos use synthetic domains or scripted agents, so they illustrate the machinery, not findings about language models.
+Full demo reports (self-contained HTML): [ASD across protocols](docs/reports/asd.html) · [optimization pressure](docs/reports/optimization.html) · [swarms](docs/reports/swarm.html) · [stateful work](docs/reports/work.html) · [monitoring](docs/reports/monitoring.html) · [release now, resolve later](docs/reports/release.html). The demos use synthetic domains or scripted agents, so they illustrate the machinery, not findings about language models.
 
 ## Tests
 
