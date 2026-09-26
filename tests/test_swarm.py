@@ -370,3 +370,16 @@ def test_line_chart_bands_and_dashed_series():
     assert any("95% CI" in tip for tip in ch.tooltips.values())
     assert [ln.get_linestyle() for ln in ch.fig.axes[0].lines].count("--") == 1
     ch.close()
+
+
+def test_mean_field_opportunity_scales_both_updates():
+    """``opportunity`` is the chance that a task offers one (random) member the chance to violate: both
+    marginal updates scale with it, so the dynamics equal the default's at a proportionally smaller step."""
+    from so_arena.theory.whistleblower import mean_field
+
+    kw = dict(s=0.2, delta=0.3, o=0.8)
+    a = mean_field(0.5, 0.3, 2, steps=50, lr=1.0, opportunity=0.5, **kw)
+    b = mean_field(0.5, 0.3, 2, steps=50, lr=0.5, **kw)
+    assert np.allclose(a[["x", "p"]].to_numpy(), b[["x", "p"]].to_numpy())
+    with pytest.raises(ValueError):
+        mean_field(0.5, 0.3, 2, opportunity=1.5, **kw)

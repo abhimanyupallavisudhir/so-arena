@@ -640,22 +640,25 @@ where nobody violates never tests the threat, and nothing in the training signal
 honest outcome is fragile.
 
 **Proposition 7 (the whole game's learning dynamics are two-dimensional).** Let members be symmetric;
-each holds the opportunity to violate with probability $\pi$ ($\pi = 1/(n+1)$ when one random member of
-the $n + 1$ does) and then violates with probability $x$; a witness reports with probability $p$. A
+with probability $\theta$ a task offers one member of the $n + 1$, chosen at random, the opportunity to
+violate - so each holds it with probability $\pi = \theta/(n+1)$, and a given member's teammate with
+probability $n\pi$ - and it then violates with probability $x$; a witness reports with probability $p$. A
 violation is caught with probability $d(p) = 1 - (1-q)(1-op)^n$, so violating gains the offender
 $$G(p) = \beta + \Delta\,(1 - d(p)) - P\,d(p) - c\,q\,(1-op)^n$$
 (`offender_gain`). Natural policy gradient (Kakade 2001) on a softmax over the four strategies
 (exponential weights, whose mean-field limit is the replicator dynamics) keeps the two decisions
 independent, and the marginals follow
 $$\operatorname{logit} x \mathrel{+}= \eta\,\pi\,G(p), \qquad
-  \operatorname{logit} p \mathrel{+}= \eta\,(1-\pi)\,x\,o\,\bar A(p).$$
+  \operatorname{logit} p \mathrel{+}= \eta\,n\pi\,x\,o\,\bar A(p).$$
 
 *Proof.* A member's payoff is additively separable in its two decisions: the first matters only when it
 holds the opportunity, the second only when a teammate violated and it saw it. So the update multiplies a
 strategy's weight by $e^{\eta(u_V(v) + u_R(r))} = e^{\eta u_V(v)}\,e^{\eta u_R(r)}$, and a product
 distribution stays a product. Summing over the other decision gives the marginal updates, with
 $u_V(\text{violate}) - u_V(\text{honest}) = \pi\,G(p)$ and
-$u_R(\text{report}) - u_R(\text{silent}) = (1-\pi)\,x\,o\,\bar A(p)$. $\square$
+$u_R(\text{report}) - u_R(\text{silent}) = n\pi\,x\,o\,\bar A(p)$ (at $\theta = 1$, $n\pi = 1 - \pi$). A single holder
+per task is what makes the offender unique; with several possible violators the witness's payoff would
+depend on how many violated, and the dynamics would not separate. $\square$
 
 `games.learning.policy_gradient(team_game(n), natural=True)` with shared logits reproduces
 `whistleblower.mean_field` exactly (tested); `basin_of_deterrence` is the share of initial report

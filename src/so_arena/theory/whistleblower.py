@@ -302,22 +302,27 @@ def offender_gain(p: float, n: int, **kw: Any) -> float:
 
 def mean_field(x0: float, p0: float, n: int, *, steps: int = 600, lr: float = 1.0, opportunity: float | None = None,
                natural: bool = True, **kw: Any) -> pd.DataFrame:
-    r"""Learning dynamics of the whole game for symmetric members of a team of ``n + 1``: each holds the
-    opportunity to violate with probability ``opportunity`` (default $1/(n+1)$: one random member per task)
-    and then violates w.p. $x$; a teammate who witnesses a violation reports it w.p. $p$.
+    r"""Learning dynamics of the whole game for symmetric members of a team of ``n + 1``: with probability
+    ``opportunity`` ($\theta$, default 1) a task offers one member, chosen at random, the opportunity to violate
+    - so each holds it w.p. $\pi = \theta/(n+1)$ and at most one member can violate - and it then violates w.p.
+    $x$; a teammate who witnesses a violation reports it w.p. $p$.
 
     Each member's payoff is additively separable in its two decisions, so with ``natural=True``
     (multiplicative weights, i.e. natural policy gradient on the softmax, whose mean-field limit is the
     replicator dynamics) the two decisions stay independent and the marginals obey
     $$\mathrm{logit}\,x \mathrel{+}= \eta\,\pi\,G(p),\qquad
-      \mathrm{logit}\,p \mathrel{+}= \eta\,(1-\pi)\,x\,o\,E_{K\sim\mathrm{Bin}(n-1,\,o p)}[\Delta(K)]$$
-    with $\pi$ the opportunity probability and $G$ = :func:`offender_gain` (Proposition 7). With
+      \mathrm{logit}\,p \mathrel{+}= \eta\,n\pi\,x\,o\,E_{K\sim\mathrm{Bin}(n-1,\,o p)}[\Delta(K)]$$
+    with $n\pi$ the probability that a teammate holds the opportunity and $G$ = :func:`offender_gain`
+    (Proposition 7). With
     ``natural=False`` each decision has its own logit trained by vanilla policy gradient (REINFORCE's
     expected update), which scales each step by $x(1-x)$ resp. $p(1-p)$: the same rest points, but a rare
     behaviour learns slowly. Returns the trajectory (columns ``step, x, p``).
     """
     params(**kw)
-    pi = 1.0 / (n + 1) if opportunity is None else opportunity
+    theta = 1.0 if opportunity is None else float(opportunity)
+    if not 0.0 < theta <= 1.0:
+        raise ValueError("opportunity is the probability that a task offers one member the chance to violate")
+    pi = theta / (n + 1)
     lx, lp = math.log(x0 / (1 - x0)), math.log(p0 / (1 - p0))
     rows = []
     for t in range(steps + 1):
@@ -326,7 +331,7 @@ def mean_field(x0: float, p0: float, n: int, *, steps: int = 600, lr: float = 1.
         if t == steps:
             break
         gx = pi * offender_gain(p, n, **kw)
-        gp = (1 - pi) * x * params(**kw)["o"] * report_gain(p, n, **kw)
+        gp = n * pi * x * params(**kw)["o"] * report_gain(p, n, **kw)
         if not natural:
             gx, gp = x * (1 - x) * gx, p * (1 - p) * gp
         lx = float(np.clip(lx + lr * gx, -50, 50))
