@@ -114,6 +114,40 @@ def test_calc_normalisation_and_unverified_on_parse_error(claim, expected):
     assert verify(CalcVerifier(), claim, VerifyEnv(view=TaskView(id="t", domain="d", question="q"))).verified is expected
 
 
+@pytest.mark.parametrize("claim,expected", [
+    ("((10**100)**100) = 1", None),  # the review's repro: crashed with OverflowError
+    ("((10**100)**100)**100 = 1", None), ("(-1)**0.5 = 1", None), ("1e308*10 = (2**20)**60", None),
+    ("(2**20)**60 = 5", False), ("(2**20)**60 = (2**60)**20", True),  # exact beyond float range
+    ("round(2.345, ndigits=2) = 2.35", None),  # keywords are not silently dropped
+])
+def test_calc_never_crashes_on_huge_or_complex_values(claim, expected):
+    from oversight_arena.domains.math import CalcVerifier
+
+    ev = verify(CalcVerifier(), claim, VerifyEnv(view=TaskView(id="t", domain="d", question="q")))
+    assert ev.verified is expected
+
+
+def test_calc_nested_powers_cost_linear_time():
+    import time
+
+    from oversight_arena.domains.math import safe_eval
+
+    e = "1"
+    for _ in range(60):  # each level used to evaluate its exponent twice: 2**60 evaluations
+        e = f"1**({e})"
+    t = time.perf_counter()
+    assert safe_eval(f"2**({e})") == 2 and time.perf_counter() - t < 1.0
+
+
+def test_importing_the_library_leaves_the_hosts_digit_guard_alone():
+    import subprocess
+    import sys
+
+    code = ("import sys; a = sys.get_int_max_str_digits(); import oversight_arena.domains._exec, "
+            "oversight_arena.domains.code; print(a == sys.get_int_max_str_digits())")
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "True"
+
+
 # N6. parse_scalar maps values onto the scale without inverting them.
 
 @pytest.mark.parametrize("text,lo,hi,expected", [

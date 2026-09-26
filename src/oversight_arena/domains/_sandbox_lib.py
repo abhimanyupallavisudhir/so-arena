@@ -27,10 +27,11 @@ import json
 import os
 import sys
 
-try:  # results such as 10**5000 (HumanEval/83, /139) exceed Python 3.11's 4300-digit int<->str guard
-    sys.set_int_max_str_digits(600_000)  # bounded, but far above any honest grading result
-except AttributeError:
-    pass
+if __name__ == "__main__":  # only in the sandbox's own processes, never in a host that imports this
+    try:  # honest results such as 10**5000 (HumanEval/83, /139) exceed Python's 4300-digit int<->str guard
+        sys.set_int_max_str_digits(600_000)  # bounded, but far above any honest grading result
+    except AttributeError:
+        pass
 
 SYSTEM_READ = (
     "/usr", "/lib", "/lib32", "/lib64", "/bin", "/etc/ld.so.cache", "/etc/localtime", "/etc/timezone",
@@ -839,6 +840,19 @@ def _lib_source():
     return src
 
 
+def tag_big_ints(x):
+    """Integers too long for a decimal JSON literal (the host keeps Python's digit guard) travel
+    as ``{"$oa_int": hex}``; ``_exec.run_isolated`` turns them back into integers."""
+    t = type(x)
+    if t is int and x.bit_length() > 4000:
+        return {"$oa_int": format(x, "x")}
+    if t is list or t is tuple:
+        return [tag_big_ints(v) for v in x]
+    if t is dict:
+        return {k: tag_big_ints(v) for k, v in x.items()}
+    return x
+
+
 def harness_main(code, read, path, budget, mem_mb, main):
     """Epilogue of generated harness scripts: prints ``OA-RESULT <nonce> <json>`` on success."""
     nonce = sys.stdin.readline().strip()
@@ -846,7 +860,7 @@ def harness_main(code, read, path, budget, mem_mb, main):
         with Untrusted(read=read, path=path, budget=budget, mem_mb=mem_mb) as u:
             if code is not None:
                 u.load(code)
-            text = json.dumps(main(u))
+            text = json.dumps(tag_big_ints(main(u)))
     except BaseException as e:
         msg = f"{type(e).__name__}: {e}"
         sys.stdout.write("\nOA-ERROR " + json.dumps(msg[:2000]) + "\n")

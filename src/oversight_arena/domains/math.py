@@ -12,6 +12,8 @@ import json
 import math
 import operator
 import re
+from decimal import Decimal
+from fractions import Fraction
 from typing import Any, ClassVar
 
 from ..channels.evidence import Claim, Verifier, VerifyEnv, perturb_output
@@ -29,27 +31,55 @@ _OPS = {
     ast.UAdd: operator.pos,
 }
 _FUNCS = {"sqrt": math.sqrt, "abs": abs, "round": round, "min": min, "max": max, "floor": math.floor, "ceil": math.ceil}
+_MAX_BITS = 10_000  # integers up to ~3000 digits; larger ones are refused before they are computed
 
 
 def safe_eval(expr: str) -> float:
-    """Evaluate an arithmetic expression safely (numbers, + - * / // % **, a few functions)."""
+    """Evaluate an arithmetic expression safely (numbers, + - * / // % **, a few functions).
+    Results are real numbers of bounded size: exponents above 100, integers beyond ~3000 digits
+    (also through nested powers or products) and complex results raise ``ValueError``."""
 
-    def ev(n: ast.AST) -> float:
+    def big(v: Any) -> bool:
+        return isinstance(v, int) and v.bit_length() > _MAX_BITS
+
+    def ev(n: ast.AST) -> Any:
         if isinstance(n, ast.Expression):
             return ev(n.body)
-        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
-            return n.value
-        if isinstance(n, ast.BinOp) and type(n.op) in _OPS:
-            if isinstance(n.op, ast.Pow) and abs(ev(n.right)) > 100:
-                raise ValueError("exponent too large")
-            return _OPS[type(n.op)](ev(n.left), ev(n.right))
-        if isinstance(n, ast.UnaryOp) and type(n.op) in _OPS:
-            return _OPS[type(n.op)](ev(n.operand))
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in _FUNCS:
-            return _FUNCS[n.func.id](*[ev(a) for a in n.args])
-        raise ValueError(f"unsupported expression: {ast.dump(n)[:60]}")
+        if isinstance(n, ast.Constant) and type(n.value) in (int, float):
+            v = n.value
+        elif isinstance(n, ast.BinOp) and type(n.op) in _OPS:
+            a, b = ev(n.left), ev(n.right)  # each operand once (nested exponents must not double the work)
+            if isinstance(n.op, ast.Pow):
+                if abs(b) > 100:
+                    raise ValueError("exponent too large")
+                if isinstance(a, int) and isinstance(b, int) and b > 0 and a.bit_length() * b > _MAX_BITS:
+                    raise ValueError("number too large")
+            if isinstance(n.op, ast.Mult) and isinstance(a, int) and isinstance(b, int) \
+                    and a.bit_length() + b.bit_length() > _MAX_BITS:
+                raise ValueError("number too large")
+            v = _OPS[type(n.op)](a, b)
+        elif isinstance(n, ast.UnaryOp) and type(n.op) in _OPS:
+            v = _OPS[type(n.op)](ev(n.operand))
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in _FUNCS and not n.keywords:
+            v = _FUNCS[n.func.id](*[ev(a) for a in n.args])
+        else:
+            raise ValueError(f"unsupported expression: {ast.dump(n)[:60]}")
+        if isinstance(v, complex):
+            raise ValueError("not a real number")
+        if big(v):
+            raise ValueError("number too large")
+        return v
 
     return ev(ast.parse(normalize_arithmetic(expr), mode="eval"))
+
+
+def same_number(a: Any, b: Any) -> bool:
+    """Equal up to rounding (relative 1e-6, absolute 1e-9); exact for integers beyond float range."""
+    try:
+        return math.isclose(a, b, rel_tol=1e-6, abs_tol=1e-9)
+    except OverflowError:
+        fa, fb = Fraction(a), Fraction(b)
+        return abs(fa - fb) <= max(Fraction(1, 10**9), Fraction(1, 10**6) * max(abs(fa), abs(fb)))
 
 
 def normalize_arithmetic(expr: str) -> str:
@@ -72,6 +102,8 @@ def fmt_number(v: float) -> str:
     """Numbers as a person would write them: integers without exponent, others to 10 significant digits."""
     if isinstance(v, bool):
         return str(v)
+    if isinstance(v, int) and v.bit_length() > 1000:  # beyond float range
+        return f"{Decimal(v):.10g}"
     if float(v).is_integer() and abs(v) < 1e15:
         return str(int(v))
     return f"{v:.10g}"
@@ -113,7 +145,10 @@ class CalcVerifier(Verifier):
                 val, claimed = safe_eval(lhs), safe_eval(rhs)
             except Exception as e:
                 return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"could not evaluate: {e}", verified=None)
-            ok = math.isclose(val, claimed, rel_tol=1e-6, abs_tol=1e-9)
+            try:
+                ok = same_number(val, claimed)
+            except (ArithmeticError, TypeError, ValueError) as e:  # e.g. infinity against a huge integer
+                return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"could not compare: {e}", verified=None)
             return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"{lhs} = {fmt_number(val)}", verified=ok)
         try:
             return Evidence(verifier=self.name, kind=self.tag, claim=text, result=f"= {fmt_number(safe_eval(text))}", verified=None)
@@ -133,7 +168,7 @@ class CalcVerifier(Verifier):
             return shown.model_copy(update={"result": f"{lhs} = {rhs}"})
         try:  # a true claim reported as wrong: report a nearby wrong value
             v = safe_eval(lhs)
-            wrong = v + 1 if float(v).is_integer() else v * 1.1
+            wrong = v + 1 if isinstance(v, int) or float(v).is_integer() else v * 1.1
             return shown.model_copy(update={"result": f"{lhs} = {fmt_number(wrong)}"})
         except Exception:
             return shown.model_copy(update={"result": "error: could not evaluate"})

@@ -168,6 +168,10 @@ class IsolatedResult:
     error: str = ""
 
 
+def _untag_big_ints(d: dict) -> Any:
+    return int(d["$oa_int"], 16) if len(d) == 1 and isinstance(d.get("$oa_int"), str) else d
+
+
 def run_isolated(harness: str, *, code: str | None = None, path: str | None = None, allow_read: Sequence[str] = (),
                  timeout: float = 20.0, mem_mb: int = 512) -> IsolatedResult:
     """Run trusted ``harness`` code against untrusted code in a separate confined process.
@@ -194,7 +198,7 @@ def run_isolated(harness: str, *, code: str | None = None, path: str | None = No
     head = f"OA-RESULT {nonce} "
     if r.ok and last.startswith(head):
         try:
-            return IsolatedResult(True, json.loads(last[len(head):]))
+            return IsolatedResult(True, json.loads(last[len(head):], object_hook=_untag_big_ints))
         except ValueError:
             return IsolatedResult(False, error="malformed harness result")
     if last.startswith("OA-ERROR "):
