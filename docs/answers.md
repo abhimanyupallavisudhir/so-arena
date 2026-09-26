@@ -86,10 +86,12 @@ and Goodhart is the covariance turning negative along it.
 * **Verified claims** are systematic: a `VerificationPolicy` per mechanism chooses verifiers (quotes,
   chess legal lines - rules only, no evaluation - engine evals, SQL execution, code execution, tests,
   Lean statement structure - what a statement says, never whether it is faithful - Lean typechecking,
-  model fact-checkers), whose claims are checked, the budget and the display. Every verification is
+  model fact-checkers), whose claims are checked, the budget (claims or cost), the reliability (noise
+  whose errors look exactly like correct checks), who sees the verdicts and the display. Every verification is
   logged, so "does ASD rise with verification access?" and "do liars make more failed claims?" are
-  one-line analyses. The theory (evidence games, unraveling) says verification changes which outcomes
-  are implementable at all.
+  one-line analyses. The theory (cheap talk, unraveling, competing advocates; Proposition 3) says
+  verification changes which outcomes are implementable at all, and the HiddenBits domain checks it
+  with exact Bayesian judges.
 
 ## 4. Swarms and equilibrium
 
