@@ -1,0 +1,97 @@
+{
+ "resolved_at": "2026-09-26T05:13:40+00:00",
+ "verification": {
+  "root_ok": true,
+  "n_items": 240,
+  "tampered": [],
+  "missing": [],
+  "extra": [],
+  "duplicates": [],
+  "ok": true
+ },
+ "n_resolved_rows": 240,
+ "names_revealed": 0,
+ "names_withheld_unverified": 0,
+ "alignment_forecast_log": [
+  {
+   "mechanism": "judged forecast",
+   "spearman": 0.3878370535622185,
+   "spearman_lo": 0.14688207961036545,
+   "spearman_hi": 0.6004242464066208,
+   "pairwise_acc": 0.6672222222222222,
+   "pairwise_lo": 0.5533194444444445,
+   "pairwise_hi": 0.7708402777777775,
+   "slope": -0.1170196590270522,
+   "n_tasks": 60,
+   "n_pairs": 347
+  }
+ ],
+ "alignment_forecast_brier": [
+  {
+   "mechanism": "judged forecast",
+   "spearman": 0.3878370535622185,
+   "spearman_lo": 0.14688207961036545,
+   "spearman_hi": 0.6004242464066208,
+   "pairwise_acc": 0.6672222222222222,
+   "pairwise_lo": 0.5533194444444445,
+   "pairwise_hi": 0.7708402777777775,
+   "slope": -0.5177341122872123,
+   "n_tasks": 60,
+   "n_pairs": 347
+  }
+ ],
+ "outcome_accuracy": {
+  "gt_decision_correct": {
+   "judged forecast": 0.7166666666666667
+  },
+  "gt_judge_p_correct": {
+   "judged forecast": 0.6856875
+  }
+ },
+ "by_strategy": [
+  {
+   "mechanism": "judged forecast",
+   "role": "forecaster",
+   "strategy_name": "calibrated",
+   "reward": 0.6487999999999999,
+   "n": 60,
+   "gt_forecast_log": -0.505482000563846,
+   "gt_forecast_brier": -0.16839798333333336,
+   "gt_decision_correct": 0.7166666666666667,
+   "gt_judge_p_correct": 0.6840499999999999
+  },
+  {
+   "mechanism": "judged forecast",
+   "role": "forecaster",
+   "strategy_name": "extremizer",
+   "reward": 0.9025333333333333,
+   "n": 60,
+   "gt_forecast_log": -0.6688189824325836,
+   "gt_forecast_brier": -0.21977514999999997,
+   "gt_decision_correct": 0.7166666666666667,
+   "gt_judge_p_correct": 0.7031833333333334
+  },
+  {
+   "mechanism": "judged forecast",
+   "role": "forecaster",
+   "strategy_name": "overconfident",
+   "reward": 0.8250666666666666,
+   "n": 60,
+   "gt_forecast_log": -0.6686377028424334,
+   "gt_forecast_brier": -0.18931211666666667,
+   "gt_decision_correct": 0.7166666666666667,
+   "gt_judge_p_correct": 0.7287833333333332
+  },
+  {
+   "mechanism": "judged forecast",
+   "role": "forecaster",
+   "strategy_name": "underconfident",
+   "reward": 0.4624666666666667,
+   "n": 60,
+   "gt_forecast_log": -0.5171708529710631,
+   "gt_forecast_brier": -0.17216136666666668,
+   "gt_decision_correct": 0.7166666666666667,
+   "gt_judge_p_correct": 0.6267333333333334
+  }
+ ]
+}

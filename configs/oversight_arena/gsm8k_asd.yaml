@@ -1,0 +1,18 @@
+# The ASD benchmark on GSM8K with LLMs: experts have a calculator (verified <calc> claims), the judge does not.
+# OA_EXPERT_MODEL=openai/gpt-4.1 OA_JUDGE_MODEL=openai/gpt-4.1-nano oversight-arena run configs/oversight_arena/gsm8k_asd.yaml --limit 50
+name: gsm8k-asd
+out: runs/gsm8k-asd
+domain: {type: gsm8k}
+limit: 20
+mechanisms:
+  - {type: naive_judge}
+  - {type: propaganda, evidence: {}}
+  - {type: consultancy, rounds: 2, evidence: {}}
+  - {type: debate, rounds: 2, evidence: {}}
+  - {type: open_debate, rounds: 2, evidence: {}}
+agents:
+  "*": {type: llm, model: "${OA_EXPERT_MODEL:-mockllm/model}", temperature: 0.7}
+  "kind:judge": {type: llm_judge, model: "${OA_JUDGE_MODEL:-mockllm/model}"}
+profiles: {type: stances}
+concurrency: 8
+analysis: {gt: correct}

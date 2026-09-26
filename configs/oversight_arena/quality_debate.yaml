@@ -1,0 +1,13 @@
+# Classic information-asymmetry debate (QuALITY): experts read the story, the judge cannot; quotes are verified.
+name: quality-debate
+out: runs/quality-debate
+domain: {type: quality, hard_only: true}
+limit: 20
+mechanisms:
+  - {type: consultancy, rounds: 3, evidence: {verifiers: [quote_checker]}}
+  - {type: debate, rounds: 3, evidence: {verifiers: [quote_checker]}}
+  - {type: cross_examination, evidence: {verifiers: [quote_checker]}}
+agents:
+  "*": {type: llm, model: "${OA_EXPERT_MODEL:-mockllm/model}"}
+  "kind:judge": {type: llm_judge, model: "${OA_JUDGE_MODEL:-mockllm/model}", elicitation: "${OA_JUDGE_ELICITATION:-verbal}"}
+profiles: {type: stances}

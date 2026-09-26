@@ -1,5 +1,8 @@
 # OversightArena (`so-arena`)
 
+This repository holds two independent implementations of the same brief: `so_arena`, described here,
+and [`oversight_arena`](docs/oversight_arena/README.md).
+
 **A library for measuring what scalable-oversight mechanisms incentivize.**
 
 A scalable-oversight *mechanism* is any oversight workflow (a control protocol, a debate, a review
@@ -116,6 +119,12 @@ pytest                   # offline suite
 pytest -m network        # tests that download data
 pytest -m engine         # tests that need Stockfish
 ```
+
+## The second implementation: `oversight_arena`
+
+[`oversight_arena`](docs/oversight_arena/README.md) (CLI `oversight-arena`) has its own documentation
+(`docs/oversight_arena/`), configs, scripts, demos and tests (`tests/test_oa_*.py`). Both packages
+install together with `pip install -e ".[dev]"`, and `pytest` runs both suites.
 
 ## License
 
