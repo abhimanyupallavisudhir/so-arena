@@ -1,0 +1,374 @@
+{
+ "source": "https://tinker-docs.thinkingmachines.ai/tinker/models.json",
+ "fetched": "2026-09-26",
+ "units": "USD per million tokens; storage $0.10/GB-month",
+ "models": {
+  "thinkingmachines/Inkling": {
+   "prefill": 1.87,
+   "cached_prefill": 0.374,
+   "sample": 4.68,
+   "train": 5.61,
+   "list": {
+    "prefill": 3.74,
+    "cached_prefill": 0.748,
+    "sample": 9.36,
+    "train": 11.22
+   },
+   "note": "Limited-time 50% discount",
+   "context": "64K",
+   "params": 975000000000,
+   "active_params": 41000000000,
+   "type": "Hybrid + Audio + Vision"
+  },
+  "thinkingmachines/Inkling:peft:262144": {
+   "prefill": 3.74,
+   "cached_prefill": 0.748,
+   "sample": 9.36,
+   "train": 11.23,
+   "list": {
+    "prefill": 7.48,
+    "cached_prefill": 1.496,
+    "sample": 18.72,
+    "train": 22.46
+   },
+   "note": "Limited-time 50% discount",
+   "context": "256K",
+   "params": 975000000000,
+   "active_params": 41000000000,
+   "type": "Hybrid + Audio + Vision"
+  },
+  "thinkingmachines/Inkling-Small": {
+   "prefill": 0.58,
+   "cached_prefill": 0.116,
+   "sample": 1.44,
+   "train": 1.73,
+   "list": {
+    "prefill": 1.16,
+    "cached_prefill": 0.232,
+    "sample": 2.88,
+    "train": 3.46
+   },
+   "note": "Limited-time 50% discount",
+   "context": "64K",
+   "params": 276000000000,
+   "active_params": 12000000000,
+   "type": "Hybrid + Audio + Vision"
+  },
+  "thinkingmachines/Inkling-Small:peft:262144": {
+   "prefill": 1.16,
+   "cached_prefill": 0.232,
+   "sample": 2.89,
+   "train": 3.47,
+   "list": {
+    "prefill": 2.32,
+    "cached_prefill": 0.464,
+    "sample": 5.78,
+    "train": 6.94
+   },
+   "note": "Limited-time 50% discount",
+   "context": "256K",
+   "params": 276000000000,
+   "active_params": 12000000000,
+   "type": "Hybrid + Audio + Vision"
+  },
+  "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16": {
+   "prefill": 0.195,
+   "cached_prefill": 0.039,
+   "sample": 0.495,
+   "train": 0.44,
+   "list": {
+    "prefill": 0.39,
+    "cached_prefill": 0.078,
+    "sample": 0.99,
+    "train": 0.88
+   },
+   "note": "Limited-time 50% discount",
+   "context": "64K",
+   "params": 30000000000,
+   "active_params": 3000000000,
+   "type": "Hybrid"
+  },
+  "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16:peft:262144": {
+   "prefill": 0.26,
+   "cached_prefill": 0.052,
+   "sample": 0.66,
+   "train": 0.8,
+   "list": {
+    "prefill": 0.52,
+    "cached_prefill": 0.104,
+    "sample": 1.32,
+    "train": 1.6
+   },
+   "note": "Limited-time 50% discount",
+   "context": "256K",
+   "params": 30000000000,
+   "active_params": 3000000000,
+   "type": "Hybrid"
+  },
+  "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16": {
+   "prefill": 2.49,
+   "cached_prefill": 0.498,
+   "sample": 6.225,
+   "train": 5.478,
+   "list": {
+    "prefill": 4.98,
+    "cached_prefill": 0.996,
+    "sample": 12.45,
+    "train": 10.956
+   },
+   "note": "Limited-time 50% discount",
+   "context": "64K",
+   "params": 550000000000,
+   "active_params": 55000000000,
+   "type": "Hybrid"
+  },
+  "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16:peft:262144": {
+   "prefill": 3.32,
+   "cached_prefill": 0.664,
+   "sample": 8.3,
+   "train": 9.96,
+   "list": {
+    "prefill": 6.64,
+    "cached_prefill": 1.328,
+    "sample": 16.6,
+    "train": 19.92
+   },
+   "note": "Limited-time 50% discount",
+   "context": "256K",
+   "params": 550000000000,
+   "active_params": 55000000000,
+   "type": "Hybrid"
+  },
+  "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16": {
+   "prefill": 0.57,
+   "cached_prefill": 0.114,
+   "sample": 1.44,
+   "train": 1.276,
+   "list": {
+    "prefill": 1.14,
+    "cached_prefill": 0.228,
+    "sample": 2.88,
+    "train": 2.552
+   },
+   "note": "Limited-time 50% discount",
+   "context": "64K",
+   "params": 120000000000,
+   "active_params": 12000000000,
+   "type": "Hybrid"
+  },
+  "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16:peft:262144": {
+   "prefill": 0.76,
+   "cached_prefill": 0.152,
+   "sample": 1.92,
+   "train": 2.32,
+   "list": {
+    "prefill": 1.52,
+    "cached_prefill": 0.304,
+    "sample": 3.84,
+    "train": 4.64
+   },
+   "note": "Limited-time 50% discount",
+   "context": "256K",
+   "params": 120000000000,
+   "active_params": 12000000000,
+   "type": "Hybrid"
+  },
+  "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16": {
+   "prefill": 0.195,
+   "cached_prefill": 0.039,
+   "sample": 0.495,
+   "train": 0.44,
+   "list": {
+    "prefill": 0.39,
+    "cached_prefill": 0.078,
+    "sample": 0.99,
+    "train": 0.88
+   },
+   "note": "Limited-time 50% discount",
+   "context": "64K",
+   "params": 30000000000,
+   "active_params": 3500000000,
+   "type": "Hybrid"
+  },
+  "zai-org/GLM-5.3:peft:262144": {
+   "prefill": 4.86,
+   "cached_prefill": 0.972,
+   "sample": 12.15,
+   "train": 14.58,
+   "context": "256K",
+   "params": 753000000000,
+   "active_params": 40000000000,
+   "type": "Reasoning"
+  },
+  "moonshotai/Kimi-K2.6": {
+   "prefill": 2.205,
+   "cached_prefill": 0.441,
+   "sample": 5.49,
+   "train": 4.84,
+   "context": "32K",
+   "params": 1000000000000,
+   "active_params": 32000000000,
+   "type": "Hybrid + Vision"
+  },
+  "moonshotai/Kimi-K2.6:peft:131072": {
+   "prefill": 5.15,
+   "cached_prefill": 1.03,
+   "sample": 12.81,
+   "train": 15.4,
+   "context": "128K",
+   "params": 1000000000000,
+   "active_params": 32000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3.8-27B": {
+   "prefill": 1.86,
+   "cached_prefill": 0.372,
+   "sample": 5.595,
+   "train": 4.103,
+   "context": "64K",
+   "params": 27000000000,
+   "active_params": 27000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3.8-27B:peft:262144": {
+   "prefill": 2.48,
+   "cached_prefill": 0.496,
+   "sample": 7.46,
+   "train": 7.46,
+   "context": "256K",
+   "params": 27000000000,
+   "active_params": 27000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3.6-35B-A3B": {
+   "prefill": 0.54,
+   "cached_prefill": 0.108,
+   "sample": 1.335,
+   "train": 1.177,
+   "context": "64K",
+   "params": 35000000000,
+   "active_params": 3000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3.6-27B": {
+   "prefill": 1.86,
+   "cached_prefill": 0.372,
+   "sample": 5.595,
+   "train": 4.103,
+   "context": "64K",
+   "params": 27000000000,
+   "active_params": 27000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3.5-397B-A17B": {
+   "prefill": 3.0,
+   "cached_prefill": 0.6,
+   "sample": 7.5,
+   "train": 6.6,
+   "context": "64K",
+   "params": 397000000000,
+   "active_params": 17000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3.5-397B-A17B:peft:262144": {
+   "prefill": 4.0,
+   "cached_prefill": 0.8,
+   "sample": 10.0,
+   "train": 12.0,
+   "context": "256K",
+   "params": 397000000000,
+   "active_params": 17000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3.5-35B-A3B-Base": {
+   "prefill": 0.54,
+   "cached_prefill": 0.108,
+   "sample": 1.335,
+   "train": 1.177,
+   "context": "64K",
+   "params": 35000000000,
+   "active_params": 3000000000,
+   "type": "Base"
+  },
+  "Qwen/Qwen3.5-9B": {
+   "prefill": 0.66,
+   "cached_prefill": 0.132,
+   "sample": 1.995,
+   "train": 1.463,
+   "context": "64K",
+   "params": 9000000000,
+   "active_params": 9000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3.5-9B-Base": {
+   "prefill": 0.66,
+   "cached_prefill": 0.132,
+   "sample": 1.995,
+   "train": 1.463,
+   "context": "64K",
+   "params": 9000000000,
+   "active_params": 9000000000,
+   "type": "Base"
+  },
+  "Qwen/Qwen3.5-4B": {
+   "prefill": 0.33,
+   "cached_prefill": 0.066,
+   "sample": 1.005,
+   "train": 0.737,
+   "context": "64K",
+   "params": 4000000000,
+   "active_params": 4000000000,
+   "type": "Hybrid + Vision"
+  },
+  "Qwen/Qwen3-8B": {
+   "prefill": 0.195,
+   "cached_prefill": 0.039,
+   "sample": 0.6,
+   "train": 0.44,
+   "context": "32K",
+   "params": 8200000000,
+   "active_params": 8200000000,
+   "type": "Hybrid"
+  },
+  "openai/gpt-oss-120b": {
+   "prefill": 0.33,
+   "cached_prefill": 0.066,
+   "sample": 0.84,
+   "train": 0.737,
+   "context": "32K",
+   "params": 117000000000,
+   "active_params": 5100000000,
+   "type": "Reasoning"
+  },
+  "openai/gpt-oss-120b:peft:131072": {
+   "prefill": 0.78,
+   "cached_prefill": 0.156,
+   "sample": 1.94,
+   "train": 2.33,
+   "context": "128K",
+   "params": 117000000000,
+   "active_params": 5100000000,
+   "type": "Reasoning"
+  },
+  "openai/gpt-oss-20b": {
+   "prefill": 0.18,
+   "cached_prefill": 0.036,
+   "sample": 0.45,
+   "train": 0.396,
+   "context": "32K",
+   "params": 21000000000,
+   "active_params": 3600000000,
+   "type": "Reasoning"
+  },
+  "deepseek-ai/DeepSeek-V3.1": {
+   "prefill": 1.695,
+   "cached_prefill": 0.339,
+   "sample": 4.215,
+   "train": 3.718,
+   "context": "32K",
+   "params": 671000000000,
+   "active_params": 37000000000,
+   "type": "Hybrid"
+  }
+ }
+}
