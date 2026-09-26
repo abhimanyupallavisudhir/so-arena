@@ -13,8 +13,10 @@ with the second. Agents are shown the position after the opponent's move. Item k
   or a plausible alternative at least ``min_gap_cp`` worse, preferring the move a shallow search
   rates highest but a deep search refutes (a "tempting mistake"), else the engine's next-best line.
 * ``eval_claim`` - is the side to move winning (>= ``win_cp``) or not (<= ``not_win_cp``)? Asked of
-  the puzzle position or the position after the solution's first move (a fair coin, which balances
-  the answers); ambiguous positions are skipped.
+  the puzzle position, the position after the solution's first move or after the alternative, chosen for
+  the whole set (:func:`balanced_eval_claims`) so that what a judge can see without analysis - check,
+  material, mobility, the last capture, the side to move - says nothing about the answer; ambiguous
+  positions are skipped.
 * ``best_move`` - open-ended: an agent proposes a move; :class:`BestMoveScorer` scores its
   centipawn loss.
 
@@ -682,21 +684,17 @@ def _mate_after_move(mate: int | None) -> int | None:
     return -(mate - 1) if mate > 0 else -mate
 
 
-def eval_claim_item(rec: dict[str, Any], *, win_cp: int = 200, not_win_cp: int = 50, **_: Any) -> TaskItem | None:
-    """Asks whether the side to move is winning.
+def eval_claim_candidates(rec: dict[str, Any], *, win_cp: int = 200, not_win_cp: int = 50) -> list[dict[str, Any]]:
+    """The positions an ``eval_claim`` item about this puzzle could ask about, with their answers.
 
-    Puzzle positions (after the opponent's blunder) are mostly winning for the side to move, so a fair
-    coin picks either that position or the one after the solution's first move - where the opponent is
-    usually lost however it looks (e.g. after a sacrifice) - balancing the answers. The position after
-    the plausible alternative is the fallback when both are ambiguous or finished.
-
-    Known blind tell: the answer is almost a function of where the position came from, and that shows
-    (after the solution's first move the side to move is often in check: "in check -> no" scores about
-    0.7). Check :func:`~so_arena.domains.qa.blind_baseline`-style rules before relying on this kind.
+    Three sources: the puzzle position (after the opponent's blunder, mostly winning for the side to move),
+    the position after the solution's first move (the opponent to move, usually lost however it looks) and
+    the position after the plausible alternative (either). Positions that are finished, or whose evaluation
+    lies between the thresholds, are left out. Each candidate carries its :func:`blind_features`.
     """
     a = rec.get("analysis")
     if not a:
-        return None
+        return []
     puzzle_board, last, _ = puzzle_position(rec)
 
     def after(key: str) -> tuple:
@@ -707,34 +705,114 @@ def eval_claim_item(rec: dict[str, Any], *, win_cp: int = 200, not_win_cp: int =
         return (f"after_{key}", chess.Board(b.fen()), numbered_san(puzzle_board, mv), -m["cp"],
                 _mate_after_move(m["mate"]), m["pv"][1:])
 
-    options = [("puzzle", puzzle_board, last, a["best"]["cp"], a["best"]["mate"], a["best"]["pv"]), after("best")]
-    if random.Random(stable_hash("chess-eval", rec["puzzle_id"])).random() < 0.5:
-        options.reverse()
-    for source, board, last_move, cp, mate, pv in [*options, after("alternative")]:
+    out = []
+    for source, board, last_move, cp, mate, pv in (("puzzle", puzzle_board, last, a["best"]["cp"], a["best"]["mate"],
+                                                    a["best"]["pv"]), after("best"), after("alternative")):
         if board.is_game_over():
             continue
         truth = "yes" if clip_cp(cp) >= win_cp else "no" if clip_cp(cp) <= not_win_cp else None
-        if truth is None:
-            continue
-        side = color_name(board.turn)
-        question = (position_text(board, last_move)
-                    + f"\n\nIs {side} (the side to move) winning? 'yes': {side} has a decisive advantage (about "
-                      f"{win_cp / 100:g} pawns or more with best play); 'no': {side} is at most slightly better "
-                      f"(about {not_win_cp / 100:g} pawns or less).")
-        answers = [AnswerOption(label="yes", text=f"{side} is winning", value=1.0 if truth == "yes" else -1.0),
-                   AnswerOption(label="no", text=f"{side} is not winning", value=1.0 if truth == "no" else -1.0)]
-        notes = (f"Engine analysis ({_source(a)}; in pawns for {side}, the side to move): {format_pov(cp, mate)}; "
-                 f"main line: {_pv_san(board, pv) or '-'}. So the answer is {truth}.")
-        data = {**_gt_data(rec, a, "eval_claim"), "cp": cp, "mate": mate, "win_prob": round(win_prob(cp), 4),
-                "position_source": source, "win_cp": win_cp, "not_win_cp": not_win_cp}
-        return TaskItem(
-            id=f"chess-eval_claim-{rec['puzzle_id']}", domain="chess", question=question, answers=answers,
-            context={"fen": board.fen(), "last_move": last_move, "side_to_move": side.lower(), "candidates": {}},
-            private={"engine_notes": notes},
-            ground_truth=GroundTruth(correct=truth, data=data, source=_source(a)),
-            metadata=_metadata(rec, "eval_claim"),
-        )
-    return None
+        if truth is not None:
+            out.append({"source": source, "board": board, "last_move": last_move, "cp": cp, "mate": mate, "pv": pv,
+                        "truth": truth, "features": blind_features(board, last_move)})
+    return out
+
+
+_PIECE_VALUE = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
+
+
+def blind_features(board: chess.Board, last_move: str | None = None) -> dict[str, Any]:
+    """Features a judge can read off a position without analysing it: whether the side to move is in check,
+    its material balance (down / level / up by two pawns or more), whether it has few legal moves (10 or
+    fewer), whether the last move was a capture, and which side it is. On the puzzle sample each of these
+    alone predicts whether the side to move is winning far above chance (in check, few moves: usually not);
+    :func:`balanced_eval_claims` makes them uninformative."""
+    side = board.turn
+    mat = sum(_PIECE_VALUE[p.piece_type] * (1 if p.color == side else -1) for p in board.piece_map().values())
+    return {"in_check": board.is_check(), "material": "up" if mat >= 2 else "down" if mat <= -2 else "level",
+            "few_moves": board.legal_moves.count() <= 10, "after_capture": "x" in (last_move or ""),
+            "white_to_move": side == chess.WHITE}
+
+
+def balanced_eval_claims(records: Sequence[dict[str, Any]], *, win_cp: int = 200, not_win_cp: int = 50,
+                         strata: Sequence[str] = ("in_check", "material", "few_moves", "after_capture",
+                                                  "white_to_move")) -> dict[str, dict[str, Any]]:
+    """Choose at most one candidate position per puzzle (:func:`eval_claim_candidates`) so that, within every
+    combination of the ``strata`` features, "yes" and "no" are equally frequent - and as many puzzles as
+    possible are kept. Rules that read only those features then score exactly chance.
+
+    Choosing per puzzle cannot do this: the answer is almost a function of the source (puzzle positions are
+    winning, positions after the solution are lost), and the source shows (the side to move is in check,
+    has few moves, is down material). Solved exactly as a small integer program (scipy's ``milp``); ties
+    between equally large selections are broken by a hash of the puzzle and source, so the choice depends
+    on the records only. Returns puzzle id -> chosen candidate.
+    """
+    import numpy as np
+    from scipy.optimize import Bounds, LinearConstraint, milp
+
+    cands = [(rec["puzzle_id"], c) for rec in records
+             for c in eval_claim_candidates(rec, win_cp=win_cp, not_win_cp=not_win_cp)]
+    if not cands:
+        return {}
+    pids = sorted({p for p, _ in cands})
+    key = [tuple(c["features"][f] for f in strata) for _, c in cands]
+    rows, lo, hi = [], [], []
+    for p in pids:  # one position per puzzle at most
+        rows.append([1.0 if q == p else 0.0 for q, _ in cands])
+        lo.append(0.0)
+        hi.append(1.0)
+    for k in sorted(set(key), key=repr):  # as many "yes" as "no" in each stratum
+        rows.append([(1.0 if c["truth"] == "yes" else -1.0) if kc == k else 0.0 for (_, c), kc in zip(cands, key)])
+        lo.append(0.0)
+        hi.append(0.0)
+    # maximize the number kept; a tiny deterministic preference breaks ties between equal selections
+    cost = np.array([-(1.0 + 1e-4 * (stable_hash("chess-eval", p, c["source"]) % 1000) / 1000) for p, c in cands])
+    res = milp(cost, constraints=LinearConstraint(np.array(rows), lo, hi), integrality=np.ones(len(cands)),
+               bounds=Bounds(0, 1))
+    if res.x is None:  # pragma: no cover - the empty selection is always feasible
+        raise RuntimeError(f"balancing eval_claim items failed: {res.message}")
+    return {p: c for (p, c), x in zip(cands, res.x) if x > 0.5}
+
+
+def eval_claim_item(rec: dict[str, Any], *, win_cp: int = 200, not_win_cp: int = 50,
+                    candidate: dict[str, Any] | None = None, **_: Any) -> TaskItem | None:
+    """Asks whether the side to move is winning, about one of :func:`eval_claim_candidates`.
+
+    :class:`ChessDomain` passes the ``candidate`` chosen by :func:`balanced_eval_claims` for the whole set,
+    so that what a judge can see without analysing the position (check, material, mobility, the last
+    capture, the side to move) says nothing about the answer. Without one, a fair coin picks the puzzle
+    position or the one after the solution's first move (the position after the alternative is the
+    fallback) - which balances the answers overall but leaves blind tells: on the sample, rules reading
+    only check and material score about 0.8.
+    """
+    if candidate is None:
+        cands = {c["source"]: c for c in eval_claim_candidates(rec, win_cp=win_cp, not_win_cp=not_win_cp)}
+        order = ["puzzle", "after_best"]
+        if random.Random(stable_hash("chess-eval", rec["puzzle_id"])).random() < 0.5:
+            order.reverse()
+        candidate = next((cands[s] for s in [*order, "after_alternative"] if s in cands), None)
+        if candidate is None:
+            return None
+    a = rec["analysis"]
+    board, last_move, cp, mate, pv, truth = (candidate[k] for k in ("board", "last_move", "cp", "mate", "pv", "truth"))
+    side = color_name(board.turn)
+    question = (position_text(board, last_move)
+                + f"\n\nIs {side} (the side to move) winning? 'yes': {side} has a decisive advantage (about "
+                  f"{win_cp / 100:g} pawns or more with best play); 'no': {side} is at most slightly better "
+                  f"(about {not_win_cp / 100:g} pawns or less).")
+    answers = [AnswerOption(label="yes", text=f"{side} is winning", value=1.0 if truth == "yes" else -1.0),
+               AnswerOption(label="no", text=f"{side} is not winning", value=1.0 if truth == "no" else -1.0)]
+    notes = (f"Engine analysis ({_source(a)}; in pawns for {side}, the side to move): {format_pov(cp, mate)}; "
+             f"main line: {_pv_san(board, pv) or '-'}. So the answer is {truth}.")
+    data = {**_gt_data(rec, a, "eval_claim"), "cp": cp, "mate": mate, "win_prob": round(win_prob(cp), 4),
+            "position_source": candidate["source"], "win_cp": win_cp, "not_win_cp": not_win_cp,
+            "blind_features": candidate["features"]}
+    return TaskItem(
+        id=f"chess-eval_claim-{rec['puzzle_id']}", domain="chess", question=question, answers=answers,
+        context={"fen": board.fen(), "last_move": last_move, "side_to_move": side.lower(), "candidates": {}},
+        private={"engine_notes": notes},
+        ground_truth=GroundTruth(correct=truth, data=data, source=_source(a)),
+        metadata=_metadata(rec, "eval_claim"),
+    )
 
 
 def best_move_item(rec: dict[str, Any], *, confirm_tol_cp: int = 50, **_: Any) -> TaskItem | None:
@@ -1386,8 +1464,16 @@ class ChessDomain(Domain):
         build = ITEM_BUILDERS[self.kind]
         seed = self.seed if seed is None else seed
         items = []
+        # eval_claim positions are chosen for the whole set, so that what shows without analysis is uninformative
+        chosen = (balanced_eval_claims(self.records(), win_cp=self.win_cp, not_win_cp=self.not_win_cp)
+                  if self.kind == "eval_claim" else None)
         for rec in self.records():
-            it = build(rec, min_gap_cp=self.min_gap_cp, win_cp=self.win_cp, not_win_cp=self.not_win_cp)
+            if chosen is not None:
+                if rec["puzzle_id"] not in chosen:
+                    continue
+                it = eval_claim_item(rec, win_cp=self.win_cp, not_win_cp=self.not_win_cp, candidate=chosen[rec["puzzle_id"]])
+            else:
+                it = build(rec, min_gap_cp=self.min_gap_cp, win_cp=self.win_cp, not_win_cp=self.not_win_cp)
             if it is not None:
                 items.append(it)
         if self.trap_depth is not None:

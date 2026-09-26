@@ -105,13 +105,41 @@ def test_eval_claim_and_best_move_items():
         cp = clip_cp(it.ground_truth.data["cp"])
         assert cp >= 200 if it.true_label == "yes" else cp <= 50
         assert it.context["fen"] in it.question and "winning" in it.question
-    assert 0.3 < sum(it.true_label == "yes" for it in ev) / len(ev) < 0.7  # balanced by the position choice
+    assert sum(it.true_label == "yes" for it in ev) == sum(it.true_label == "no" for it in ev)  # balanced by the position choice
     bm = ChessDomain(kind="best_move").load(limit=5)
     assert len(bm) == 5
     for it in bm:
         assert it.answers is None and "Move:" in it.question
         table = it.ground_truth.data["move_evals"]
         assert set(table) == {m.uci() for m in chess.Board(it.context["fen"]).legal_moves}
+
+
+def test_eval_claim_items_carry_no_blind_tell():
+    """What shows without analysis - check, material, mobility, the last capture, the side to move - must not
+    predict the answer: within every combination of those features, as many items say yes as no."""
+    import collections
+
+    from so_arena.domains.chess import balanced_eval_claims
+
+    a, b = ChessDomain(kind="eval_claim").load(), ChessDomain(kind="eval_claim", seed=5).load()
+    assert sorted((it.id, it.context["fen"]) for it in a) == sorted((it.id, it.context["fen"]) for it in b)
+    assert len(a) >= 290  # the balance costs almost no puzzles
+    strata = collections.defaultdict(collections.Counter)
+    for it in a:
+        f = it.ground_truth.data["blind_features"]
+        strata[tuple(sorted(f.items()))][it.true_label] += 1
+    assert all(c["yes"] == c["no"] for c in strata.values())
+    # every position choice was a real candidate of its puzzle, with the answer its evaluation gives
+    chosen = balanced_eval_claims(ChessDomain(kind="eval_claim").records())
+    assert {f"chess-eval_claim-{p}" for p in chosen} == {it.id for it in a}
+    # a lookup rule on any one or two of the features is at chance on held-out items
+    rows = [(it.ground_truth.data["blind_features"], it.true_label) for it in a]
+    for feats in (["in_check"], ["material"], ["few_moves"], ["in_check", "material"], ["few_moves", "after_capture"]):
+        hits = 0.0
+        for i, (f, y) in enumerate(rows):
+            tab = collections.Counter(yy for j, (ff, yy) in enumerate(rows) if j != i and all(ff[k] == f[k] for k in feats))
+            hits += 0.5 if tab["yes"] == tab["no"] else float(tab.most_common(1)[0][0] == y)
+        assert hits / len(rows) < 0.56, feats
 
 
 def test_read_truncated_zst_prefix(tmp_path):

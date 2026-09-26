@@ -53,8 +53,13 @@ Items must not be answerable without reading them. Generated options and mutants
 position and shape carry no signal (GSM8K options are an evenly spaced run with the answer at a random
 place; code and Lean mutations come in pairs that add and remove structure), and blind baselines report
 what rules that never read the question would score (`domains.code.blind_baselines`,
-`domains.qa.blind_baseline`) - compare a judge against them, not only against chance. One tell is known
-and documented: chess `eval_claim` items, whose answer depends on the position's source.
+`domains.qa.blind_baseline`) - compare a judge against them, not only against chance. Chess `eval_claim`
+items choose their positions for the whole set (`domains.chess.balanced_eval_claims`): within every
+combination of check, material, mobility, last capture and side to move there are as many "yes" as "no"
+items, so rules reading those score chance (a logistic model on twenty such board features scores about
+0.58, down from 0.83 when each puzzle's position was chosen on its own). Chess `which_move` keeps a weak
+tell ("pick the move that gives check" scores about 0.59): about 70 puzzles have no suitable quiet
+alternative.
 
 ### Bespoke per domain, or general mechanisms with adapters?
 
