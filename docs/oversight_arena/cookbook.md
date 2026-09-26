@@ -1,8 +1,8 @@
 # Cookbook
 
 Recipes for the main kinds of experiment, from defining a mechanism to publishing results before
-ground truth exists. Runnable versions are in [`examples/`](../examples) and
-[`configs/`](../configs).
+ground truth exists. Runnable versions are in [`examples/`](../../examples) and
+[`configs/oversight_arena/`](../../configs/oversight_arena).
 
 Snippets that use LLM agents take their models from `OA_EXPERT_MODEL` / `OA_JUDGE_MODEL`
 (`oa.llm_agents()`); pass names explicitly to override. Snippets marked *(no LLM)* use programmatic
@@ -219,8 +219,8 @@ so degenerate games are covered), `.outcomes()`, `.regret(g.pure({...}))`, `.coa
 | `MiniF2F(format="faithfulness" \| "proof", checker=LocalLean(...) \| KiminaLean(url))` | "Does the Lean statement mean the English?" (the question the kernel cannot answer), or proofs checked by the kernel against the exact statement. |
 | `ManifoldForecasting(status="resolved" \| "open", resolved_after=...)`, `FileForecasting` | Delayed ground truth (see §12). |
 
-Configs: `configs/chess_engine_vs_llm_judge.yaml`, `sql_private_db.yaml`, `code_hidden_tests.yaml`,
-`lean_faithfulness.yaml`.
+Configs (in `configs/oversight_arena/`): `chess_engine_vs_llm_judge.yaml`, `sql_private_db.yaml`,
+`code_hidden_tests.yaml`, `lean_faithfulness.yaml`.
 
 **Model-written code.** Ground truth must not be gameable by the code it grades, and tools must not
 leak it:

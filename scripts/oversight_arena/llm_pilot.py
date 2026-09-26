@@ -7,7 +7,7 @@
 3. Steered prompt search on consultancy: honest-only vs deceptive frontiers, held-out evaluation.
 
     export OA_EXPERT_MODEL=openai/gpt-4.1-mini OA_JUDGE_MODEL=openai/gpt-4.1-nano   # any Inspect models
-    python scripts/llm_pilot.py --tasks 40 --out reports/llm_pilot
+    python scripts/oversight_arena/llm_pilot.py --tasks 40 --out reports/llm_pilot
 """
 
 from __future__ import annotations

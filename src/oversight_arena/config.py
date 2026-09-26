@@ -1,6 +1,6 @@
 """YAML/JSON experiment configs.
 
-Example (``configs/gsm8k_asd.yaml``)::
+Example (``configs/oversight_arena/gsm8k_asd.yaml``)::
 
     name: gsm8k-asd
     out: runs/gsm8k-asd

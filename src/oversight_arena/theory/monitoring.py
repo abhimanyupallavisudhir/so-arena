@@ -1,4 +1,4 @@
-r"""Monitor-based rewards and obfuscation (docs/theory.md, Proposition 4).
+r"""Monitor-based rewards and obfuscation (docs/oversight_arena/theory.md, Proposition 4).
 
 An actor chooses honest work (measured success $s$), overt misbehaviour ($s+\\Delta$, alarm
 probability $d_o$) or covert misbehaviour ($s+\\Delta-\\kappa$, alarm probability $d_c$); honest work

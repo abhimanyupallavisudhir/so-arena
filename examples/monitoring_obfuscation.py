@@ -4,7 +4,7 @@ The actor solves code tasks and is paid (grader's score) - lambda * alarm. Two m
 chain-of-thought monitor (optimisable) and a simulated probe with a fixed AUROC against ground
 truth (a stand-in for a robust detector). A steered prompt search looks for high-reward actor
 instructions; we track ground-truth misbehaviour (hidden tests) against alarm rates.
-See docs/theory.md, Proposition 4.
+See docs/oversight_arena/theory.md, Proposition 4.
 
     OA_EXPERT_MODEL=... OA_JUDGE_MODEL=... python examples/monitoring_obfuscation.py
 """

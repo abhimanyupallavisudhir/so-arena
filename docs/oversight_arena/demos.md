@@ -4,12 +4,12 @@ Seven built-in experiments run without API keys, using exact programmatic agents
 engine-backed chess players, simulated forecasters and workers):
 
 ```bash
-oversight-arena demo all --out runs/demos          # or one of: hiddenbits chess bon optimize swarm monitoring release
-python scripts/build_gallery.py                    # rebuild docs/gallery/ and docs/figures/
+oversight-arena demo all --out runs/oa_demos       # or one of: hiddenbits chess bon optimize swarm monitoring release
+python scripts/oversight_arena/build_gallery.py    # rebuild docs/oversight_arena/{gallery,figures}/
 ```
 
 Each demo writes an HTML report with tables, figures and a transcript browser. The committed
-gallery is [docs/gallery/index.html](gallery/index.html). The demos also serve as templates for LLM
+gallery is [docs/oversight_arena/gallery/index.html](gallery/index.html). The demos also serve as templates for LLM
 experiments: swap the agents for `oa.llm_agents(...)`.
 
 ## Verified claims (`hiddenbits`)

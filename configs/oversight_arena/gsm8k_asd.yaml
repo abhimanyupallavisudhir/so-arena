@@ -1,5 +1,5 @@
 # The ASD benchmark on GSM8K with LLMs: experts have a calculator (verified <calc> claims), the judge does not.
-# OA_EXPERT_MODEL=openai/gpt-4.1 OA_JUDGE_MODEL=openai/gpt-4.1-nano oversight-arena run configs/gsm8k_asd.yaml --limit 50
+# OA_EXPERT_MODEL=openai/gpt-4.1 OA_JUDGE_MODEL=openai/gpt-4.1-nano oversight-arena run configs/oversight_arena/gsm8k_asd.yaml --limit 50
 name: gsm8k-asd
 out: runs/gsm8k-asd
 domain: {type: gsm8k}

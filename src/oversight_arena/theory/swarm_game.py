@@ -1,4 +1,4 @@
-r"""Analytic model of whistleblowing in agent swarms (see docs/theory.md, §8).
+r"""Analytic model of whistleblowing in agent swarms (see docs/oversight_arena/theory.md, §8).
 
 Setting (one violation has occurred). $n$ workers are paid from a shared score that the
 violation inflated. Each worker's *stake* $g$ is how much its own payoff rises if the violation

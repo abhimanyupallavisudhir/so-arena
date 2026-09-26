@@ -327,7 +327,7 @@ def test_best_of_n_kl_formula_is_an_upper_bound_for_finite_pools():
     assert pool_kl(rng.normal(size=20000), 8) == pytest.approx(bon_kl(8), rel=0.01)  # continuous limit
     assert pool_kl([0.0, 1.0], 10**6) == pytest.approx(np.log(2))  # saturates, while bon_kl grows without bound
     assert pool_kl([1.0, 1.0, 1.0], 50) == pytest.approx(0.0)  # ties: selection stays uniform
-    doc = (Path(__file__).parents[1] / "docs" / "theory.md").read_text()
+    doc = (Path(__file__).parents[1] / "docs" / "oversight_arena" / "theory.md").read_text()
     assert "reports $\\mathrm{KL}(\\mathrm{Bo}(n)\\,\\|\\,\\pi^0) = \\log n - (n-1)/n$" not in doc
     assert "upper\nbound for a finite pool" in doc or "upper bound for a finite pool" in doc
 
@@ -338,7 +338,7 @@ def test_audit_deterrence_condition_matches_forfeiture_model():
     for a, P, G in ((0.2, 1.0, 0.3), (0.2, 1.3, 0.3), (0.5, 0.25, 0.3), (0.5, 0.35, 0.3)):
         p = sg.SwarmParams(n=3, g=G, P=P, a=a, b=0.0, o=0.0)  # nobody can report: audits only
         assert (sg.offender_gain(0.0, p) < 0) == (a * P > (1 - a) * G)
-    doc = (Path(__file__).parents[1] / "docs" / "theory.md").read_text()
+    doc = (Path(__file__).parents[1] / "docs" / "oversight_arena" / "theory.md").read_text()
     assert "$aP \\ge (1-a)G$" in doc
 
 

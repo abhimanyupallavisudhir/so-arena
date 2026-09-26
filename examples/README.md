@@ -21,4 +21,5 @@ Model calls are cached in `.oa_cache/`, so re-runs are free.
 | `control_arena_bridge.py` | ControlArena logs as reward-rule IC analyses; OversightArena mechanisms as micro-protocols | `control-arena` |
 | `rl_trl_grpo.py` | Weight-level RL with TRL GRPO using a mechanism's reward (sketch; needs a GPU) | `trl` |
 
-Configuration-file versions of these experiments are in `../configs/` (`oversight-arena run configs/<file>.yaml`).
+Configuration-file versions of these experiments are in `../configs/oversight_arena/`
+(`oversight-arena run configs/oversight_arena/<file>.yaml`).

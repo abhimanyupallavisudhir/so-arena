@@ -1,8 +1,8 @@
-"""Rebuild the demo gallery in docs/: run every built-in demo (no API keys needed), copy the HTML
-reports to docs/gallery/ and the key figures to docs/figures/, and write docs/gallery/index.html.
+"""Rebuild the demo gallery in docs/oversight_arena/: run every built-in demo (no API keys needed), copy
+the HTML reports to gallery/ and the key figures to figures/ there, and write gallery/index.html.
 
-    python scripts/build_gallery.py                 # ~5 minutes
-    python scripts/build_gallery.py --from runs/demos   # reuse existing demo outputs
+    python scripts/oversight_arena/build_gallery.py                     # ~6 minutes
+    python scripts/oversight_arena/build_gallery.py --from runs/oa_demos   # reuse existing demo outputs
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 # (demo, title, finding, [(figure file, gallery name)], tooltip)
 CARDS = [
@@ -40,7 +40,7 @@ CARDS = [
     ("monitoring", "Monitoring as a reward", "Penalising a real monitor's alarms buys obfuscation; a fixed-accuracy probe deters.",
      [("misbehaviour_vs_penalty.png", "monitoring_misbehaviour.png"), ("alarms_vs_penalty.png", "monitoring_alarms.png")],
      "Actor chooses honest / overt / covert misbehaviour; reward = measured success − λ·alarm; a log-reading monitor vs "
-     "simulated probes with fixed AUROC (docs/theory.md, Proposition 4). Thresholds: means over 6 seeds with 95% CIs."),
+     "simulated probes with fixed AUROC (theory.md, Proposition 4). Thresholds: means over 6 seeds with 95% CIs."),
     ("release", "Release now, resolve later", "A judge's released ranking rewarded overconfident forecasters; resolution favoured calibrated ones.",
      [("released_ranking.png", "release_ranking.png"), ("resolved_scores.png", "release_resolved.png")],
      "Judge-rated forecasts published (hash-committed) before questions resolve, then scored with the proper log score."),
@@ -71,7 +71,7 @@ def main() -> None:
         from oversight_arena import demos
 
         demos.run("all", src)
-    gallery, figures = ROOT / "docs" / "gallery", ROOT / "docs" / "figures"
+    gallery, figures = ROOT / "docs" / "oversight_arena" / "gallery", ROOT / "docs" / "oversight_arena" / "figures"
     shutil.rmtree(gallery, ignore_errors=True)
     gallery.mkdir(parents=True)
     figures.mkdir(parents=True, exist_ok=True)

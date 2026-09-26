@@ -12,6 +12,8 @@ from oversight_arena.domains.base import TaskListDomain  # noqa: E402
 def pytest_collection_modifyitems(config, items):
     net = os.environ.get("OA_NETWORK_TESTS") == "1"
     for item in items:
+        if not item.path.name.startswith("test_oa_"):  # oversight_arena's tests only
+            continue
         if "network" in item.keywords and not net:
             item.add_marker(pytest.mark.skip(reason="set OA_NETWORK_TESTS=1 to run network tests"))
         if "stockfish" in item.keywords and not (shutil.which("stockfish") or os.path.exists("/usr/games/stockfish")):

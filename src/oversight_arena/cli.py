@@ -118,7 +118,7 @@ def release_resolve(release_dir: str, tasks_path: str | None, manifold: bool) ->
 
 @main.group()
 def theory() -> None:
-    """Analytic companions (see docs/theory.md)."""
+    """Analytic companions (see docs/oversight_arena/theory.md)."""
 
 
 @theory.command("swarm")
@@ -150,7 +150,7 @@ def theory_swarm(n: int, g: float, b: float, P: float, a: float, c: float, o: fl
 
 @main.command()
 @click.argument("name", type=click.Choice(["hiddenbits", "chess", "swarm", "bon", "optimize", "monitoring", "release", "all"]))
-@click.option("--out", type=click.Path(), default="runs/demos")
+@click.option("--out", type=click.Path(), default="runs/oa_demos")
 def demo(name: str, out: str) -> None:
     """Run a built-in demo that needs no API keys (figures + HTML reports)."""
     from . import demos
