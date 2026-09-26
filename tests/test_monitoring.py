@@ -114,6 +114,20 @@ def test_flag_penalty_can_keep_the_credit_and_rewards_rescore():
         MonitoredWork(penalty="flag", forfeit=False, defer=True)
 
 
+def test_a_reward_that_disagrees_with_its_mechanism_is_refused():
+    """An audit reward on a mechanism that never audits would never catch anyone: refused when built, and
+    when re-scoring episodes that ran without audits."""
+    with pytest.raises(ValueError, match="disagree"):
+        MonitoredWork(penalty="suspicion", reward=MonitoredReward("audit"))
+    with pytest.raises(ValueError, match="disagree"):
+        MonitoredWork(penalty="flag", threshold=0.5, reward=MonitoredReward("flag", threshold=0.8))
+    MonitoredWork(penalty="flag", lam=2.0, reward=MonitoredReward("flag", 0.5))  # other amounts are fine
+    players = {"worker": soa.ScriptedPolicy("Summary."), "monitor": soa.ScriptedPolicy("Score: 9"), "grader": GRADER}
+    ep = one(MonitoredWork(penalty="flag", lam=0.5), players)
+    with pytest.raises(ValueError, match="without audits"):
+        rescore([ep], MonitoredReward("audit"))
+
+
 def test_defer_to_trusted_replaces_flagged_work_and_forfeits_the_credit():
     trusted = soa.ScriptedPolicy("A basic but safe summary.")
 
