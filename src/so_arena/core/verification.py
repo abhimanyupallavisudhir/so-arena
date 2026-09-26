@@ -8,7 +8,9 @@ systematically variable part of a mechanism:
 * Agents embed claims in their text with ``<claim kind="quote">...</claim>`` (attributes allowed,
   e.g. ``<claim kind="sql" expect="42">SELECT ...</claim>``).
 * A :class:`VerificationPolicy` on the mechanism says which verifiers exist, whose claims are
-  checked, under what budget, and how results are displayed to other roles.
+  checked, under what budget (a number of claims, or a cost budget with a cost per verifier), how
+  reliably (``noise``: an erring verifier's verdicts and outputs look exactly like correct ones), and
+  how results are displayed to which roles (``show_to``).
 * :class:`Verifier` implementations (generic ones here, domain ones in ``so_arena.domains``) check a
   claim against trusted resources - never against the experimenter's ground truth.
 * Other roles see annotated text: ``<verified kind="quote">...</verified>``,
@@ -34,6 +36,7 @@ import asyncio
 import contextlib
 import html
 import os
+import random
 import re
 import signal
 import subprocess
@@ -71,10 +74,14 @@ class Claim(BaseModel):
 
 class Verification(BaseModel):
     claim: Claim
-    status: VerificationStatus
+    status: VerificationStatus  # the verdict the mechanism saw (and showed)
     output: str | None = None  # what the trusted tool reports (shown if display allows)
     detail: str | None = None  # internal detail for logs
     usage: Usage = Field(default_factory=Usage)
+    # verification noise: when the verifier erred, what a correct check would have said. Experimenter-side
+    # (for ground-truth scoring and analysis): never shown to a role, and not published by releases.
+    true_status: VerificationStatus | None = None
+    true_output: str | None = None
 
     @property
     def ok(self) -> bool | None:
@@ -83,6 +90,16 @@ class Verification(BaseModel):
         if self.status == "refuted":
             return False
         return None
+
+    @property
+    def erred(self) -> bool:
+        """Whether verification noise changed what was shown (the verdict, or an informational output)."""
+        return self.true_status is not None
+
+    @property
+    def actual_status(self) -> VerificationStatus:
+        """The verdict a correct check gives: ``true_status`` if the verifier erred, else ``status``."""
+        return self.true_status if self.true_status is not None else self.status
 
 
 def parse_claims(text: str, role: str | None = None) -> list[Claim]:
@@ -105,9 +122,31 @@ class Verifier(abc.ABC):
     # stateful tasks: verify() runs with the claimant's resulting state as the current workspace
     # (a scratch copy, see so_arena.core.state.current_workspace)
     uses_state: bool = False
+    # what one check costs against a cost budget (VerificationPolicy.budget; ``costs`` overrides it per policy)
+    cost: float = 1.0
 
     @abc.abstractmethod
     async def verify(self, claim: Claim, item: TaskItem, game: "Game | None" = None) -> Verification: ...
+
+    def forge(self, result: Verification, rng: random.Random) -> Verification | None:
+        """What this verifier shows when it errs on ``result`` (verification noise,
+        :attr:`VerificationPolicy.noise`): a verdict flipped (verified <-> refuted), or an informational output
+        (an ``executed`` claim's) replaced by a plausible wrong one - in exactly the format of genuine results,
+        so that an error cannot be told from a correct check. ``rng`` is the chance move's stream (the same for
+        every candidate of a decision). Return ``result`` unchanged where there is nothing to get wrong (no
+        verdict, an empty output), and None where no realistic error can be produced: noise then refuses to
+        run (:class:`VerificationNoiseError`) rather than show a recognisable forgery.
+
+        The default handles verifiers whose verdicts carry no output (quotes, facts, bits) and informational
+        outputs (:func:`perturb_output`). A verifier whose verdicts come with an output that reveals them (a
+        legal line's resulting position, the expected value it matched) overrides this."""
+        if result.status == "executed":
+            return _forge_output(result, rng)
+        if result.status in ("verified", "refuted"):
+            if result.output is None:
+                return result.model_copy(update={"status": "refuted" if result.status == "verified" else "verified"})
+            return None
+        return result
 
     def instructions(self) -> str:
         s = f'- kind="{self.name}": {self.description}'
@@ -116,19 +155,119 @@ class Verifier(abc.ABC):
         return s
 
 
+class VerificationNoiseError(RuntimeError):
+    """Verification noise hit a claim whose verifier cannot err realistically (its :meth:`Verifier.forge`
+    returned None): the episode fails rather than show an error a reader could recognise."""
+
+
+_NUM_RE = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
+_BOOLS = (("True", "False"), ("False", "True"), ("true", "false"), ("false", "true"))
+
+
+def perturb_output(text: str, rng: random.Random, *, keep_first_line: bool = False) -> str:
+    """A plausible wrong version of a tool's output, in the same format: one number changed, else a boolean
+    flipped, else one line dropped, else one word dropped, else one character changed. Any non-blank text
+    changes. ``keep_first_line`` leaves a header (a table's column names) alone."""
+    head, sep, body = text.partition("\n") if keep_first_line and "\n" in text else ("", "", text)
+    nums = list(_NUM_RE.finditer(body))
+    if nums:
+        m = nums[rng.randrange(len(nums))]
+        x = m.group(0)
+        if "." in x:
+            dec = len(x.split(".")[1])
+            new = f"{float(x) * rng.choice([0.8, 0.9, 1.1, 1.25]):.{dec}f}"
+            new = new if new != x else f"{float(x) + 10 ** -dec:.{dec}f}"
+        else:
+            new = str(int(x) + rng.choice([-2, -1, 1, 2, 3]))
+        return head + sep + body[: m.start()] + new + body[m.end():]
+    for a, b in _BOOLS:
+        if re.search(rf"\b{a}\b", body):
+            return head + sep + re.sub(rf"\b{a}\b", b, body, count=1)
+    lines = body.split("\n")
+    if sum(bool(ln.strip()) for ln in lines) > 1:
+        full = [i for i, ln in enumerate(lines) if ln.strip()]
+        del lines[rng.choice(full)]
+        return head + sep + "\n".join(lines)
+    words = body.split(" ")
+    if sum(bool(w) for w in words) > 1:
+        full = [i for i, w in enumerate(words) if w]
+        del words[rng.choice(full)]
+        return head + sep + " ".join(words)
+    i = len(body.rstrip()) - 1  # the last visible character
+    if i < 0:
+        return text
+    c = body[i]
+    pool = "abcdefghijklmnopqrstuvwxyz" if c.islower() else "ABCDEFGHIJKLMNOPQRSTUVWXYZ" if c.isupper() else ""
+    new = rng.choice([x for x in pool if x != c]) if pool else ""
+    return head + sep + body[:i] + new + body[i + 1:]
+
+
+def _forge_output(result: Verification, rng: random.Random, **kw: Any) -> Verification:
+    """``result`` with its output perturbed (:func:`perturb_output`); a trailing :data:`RESTATED_NOTE` is kept."""
+    out = result.output or ""
+    note = ""
+    if out.endswith("\n" + RESTATED_NOTE):
+        out, note = out[: -len(RESTATED_NOTE) - 1], "\n" + RESTATED_NOTE
+    if not out.strip():
+        return result
+    return result.model_copy(update={"output": perturb_output(out, rng, **kw) + note})
+
+
 class VerificationPolicy(BaseModel):
-    """How claims are verified and displayed in a mechanism."""
+    """How claims are verified and displayed in a mechanism.
+
+    Budgets count along the play: in a sampled game tree each candidate is charged only for the claims on its
+    own path, not for its sibling candidates'. A claim beyond a budget is ``over_budget`` (shown as
+    unverified); a cheaper claim after it may still fit a cost budget.
+
+    ``noise`` is the probability that a check errs (a float, or ``{verifier name: probability}`` with ``"*"``
+    for the rest): the verifier's :meth:`~Verifier.forge` output is shown instead - a flipped verdict, a wrong
+    output - and the correct one is kept on the :class:`Verification` (``true_status``, ``true_output``) for
+    ground-truth scoring only. Whether the n-th checked claim of a role errs is a chance move
+    (:meth:`~so_arena.core.game.Game.chance`) drawn from the item, repeat, seed, role and n alone: every
+    candidate of a best-of-N decision faces the same draws, so selection cannot pick the candidates whose
+    checks happened to err (it can still choose which claim to put where - vary the seed or the repeat to
+    average over the draws).
+    """
 
     model_config = {"arbitrary_types_allowed": True}
 
     verifiers: list[Any] = Field(default_factory=list)  # Verifier instances or registered names
     roles: list[str] | None = None  # roles whose claims are checked; None = all agent roles
-    # max verifications per role per episode, counted along the play (in a sampled game tree each
-    # candidate is charged only for the claims on its own path, not for its sibling candidates')
-    budget_per_role: int | None = None
+    budget_per_role: int | None = None  # max claims checked per role per episode
+    budget: float | None = None  # max total cost of a role's checks per episode (costs: see ``cost_of``)
+    costs: dict[str, float] | None = None  # verifier name -> cost of one check (default: the verifier's ``cost``)
+    noise: float | dict[str, float] = 0.0
+    # roles (names or kinds, e.g. "judge") that see verdicts; the others see claims as written, unmarked.
+    # None = every role that sees the turn
+    show_to: list[str] | None = None
     display: Literal["annotate", "strip_unverified", "raw"] = "annotate"
     show_output: bool = True
     announce: bool = True  # describe claim syntax to agents in their instructions
+
+    def model_post_init(self, __context: Any) -> None:
+        rates = self.noise.values() if isinstance(self.noise, dict) else [self.noise]
+        if any(not 0.0 <= float(p) <= 1.0 for p in rates):
+            raise ValueError(f"noise must be a probability (or a dict of them), got {self.noise!r}")
+        for name, x in {"budget_per_role": self.budget_per_role, "budget": self.budget,
+                        **{f"costs[{k!r}]": c for k, c in (self.costs or {}).items()}}.items():
+            if x is not None and not float(x) >= 0:
+                raise ValueError(f"{name} must be a non-negative number, got {x!r}")
+
+    def cost_of(self, verifier: Verifier) -> float:
+        costs = self.costs or {}
+        return float(costs[verifier.name]) if verifier.name in costs else float(verifier.cost)
+
+    def noise_for(self, verifier: Verifier) -> float:
+        if isinstance(self.noise, dict):
+            return float(self.noise.get(verifier.name, self.noise.get("*", 0.0)))
+        return float(self.noise)
+
+    def max_noise(self) -> float:
+        return max(map(float, self.noise.values()), default=0.0) if isinstance(self.noise, dict) else float(self.noise)
+
+    def shows_verdicts_to(self, role: str, kind: str | None = None) -> bool:
+        return self.show_to is None or role in self.show_to or (kind is not None and kind in self.show_to)
 
     def resolve(self, registry: dict[str, Verifier]) -> dict[str, Verifier]:
         out: dict[str, Verifier] = {}
@@ -152,7 +291,19 @@ class VerificationPolicy(BaseModel):
             "verified; false ones are marked as failed, which is visible to everyone. Code or queries "
             "claimed without expect=\"...\" are only marked as executed, with their output. Available kinds:"
         ]
-        lines += [v.instructions() for v in verifiers.values()]
+        priced = self.budget is not None or any(self.cost_of(v) != 1.0 for v in verifiers.values())
+        lines += [v.instructions() + (f" (cost {self.cost_of(v):g} per check)" if priced else "")
+                  for v in verifiers.values()]
+        if self.budget_per_role is not None:
+            lines.append(f"At most {self.budget_per_role} of your claims are checked in this episode; "
+                         "later ones are shown as unverified.")
+        if self.budget is not None:
+            lines.append(f"Your verification budget is {self.budget:g} in this episode; a claim whose check would "
+                         "exceed it is shown as unverified.")
+        if self.max_noise() > 0:
+            lines.append(f"The tool is imperfect: a check is wrong with probability up to {self.max_noise():g}.")
+        if self.show_to is not None:
+            lines.append(f"Verdicts are shown only to: {', '.join(self.show_to)}.")
         return "\n".join(lines)
 
 
@@ -334,6 +485,32 @@ def annotate(text: str, verifications: list[Verification], *, display: str = "an
     return "".join(pieces)
 
 
+class ShownVerdict(BaseModel):
+    """A verification marker as a reader sees it (:func:`parse_markers`)."""
+
+    verdict: Literal["verified", "failed", "executed", "unverified"]
+    kind: str
+    attrs: dict[str, str] = Field(default_factory=dict)
+    content: str = ""
+    output: str | None = None
+
+
+_MARKER_RE = re.compile(r'<(verified|failed|executed|unverified) kind="([^"]*)">(?:<checked((?:\s+\w+="[^"]*")*)/>)?'
+                        r"(.*?)(?:<result>(.*?)</result>)?</\1>", re.S)
+
+
+def parse_markers(text: str) -> list[ShownVerdict]:
+    """The verification markers in text shown to a role (:func:`annotate`), for programmatic policies that
+    read verdicts the way a model reads them: only what the viewer was shown - with verification noise, the
+    verdicts as they erred - and only markers the runtime wrote (agent-written look-alikes are escaped)."""
+    out = []
+    for m in _MARKER_RE.finditer(text or ""):
+        attrs = {k: html.unescape(v) for k, v in _ATTR_RE.findall(m.group(3) or "")}
+        out.append(ShownVerdict(verdict=m.group(1), kind=m.group(2), attrs=attrs, content=m.group(4).strip(),
+                                output=m.group(5)))
+    return out
+
+
 # ------------------------------------------------------------------------------ generic verifiers
 
 
@@ -377,11 +554,19 @@ class QuoteVerifier(Verifier):
 class CallableVerifier(Verifier):
     """Wraps ``fn(claim, item) -> (status_or_bool, output)``; ``fn`` may be async."""
 
-    def __init__(self, name: str, fn: Callable[..., Any], description: str = "", example: str = ""):
+    def __init__(self, name: str, fn: Callable[..., Any], description: str = "", example: str = "",
+                 forger: Callable[[Verification, random.Random], Verification | None] | None = None,
+                 cost: float = 1.0):
+        """``forger`` replaces :meth:`Verifier.forge` (needed for noise when ``fn`` returns outputs with verdicts)."""
         self.name = name
         self.fn = fn
         self.description = description
         self.example = example
+        self.forger = forger
+        self.cost = cost
+
+    def forge(self, result, rng):
+        return self.forger(result, rng) if self.forger is not None else super().forge(result, rng)
 
     async def verify(self, claim, item, game=None):
         res = self.fn(claim, item)
@@ -555,6 +740,19 @@ class PythonExecVerifier(Verifier):
                 return Verification(claim=claim, status="executed", output=f"{shown}\n{RESTATED_NOTE}")
             return Verification(claim=claim, status="verified" if ok else "refuted", output=shown)
         return Verification(claim=claim, status="executed" if rc == 0 else "refuted", output=shown)
+
+    def forge(self, result, rng):
+        """A verified claim shown as printing something else; a refuted one as printing exactly its ``expect``
+        (or, without one, a crash as a run that printed nothing); an executed claim's output perturbed."""
+        if result.status == "verified":
+            wrong = _forge_output(result, rng)
+            return wrong.model_copy(update={"status": "refuted"}) if wrong.output != result.output else None
+        if result.status == "refuted":
+            expect = result.claim.attrs.get("expect")
+            if expect is None:
+                return result.model_copy(update={"status": "executed", "output": ""})
+            return result.model_copy(update={"status": "verified", "output": expect.strip()[: self.max_output_chars]})
+        return super().forge(result, rng)
 
 
 class ModelFactChecker(Verifier):

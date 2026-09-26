@@ -370,7 +370,7 @@ class MonitoredWork(Mechanism):
         work = await g.act("worker", kind="text", phase="work", word_limit=self.word_limit,
                            prompt=[Message.system(self._system(g, "worker", side=side)),
                                    Message.user(question_block(g, "worker"))])
-        # what others see of the work: marker tags neutralized, verified claims annotated
+        # what others see of the work: marker tags neutralized, verified claims annotated (for the roles shown verdicts)
         turn = next((t for t in reversed(g.turns) if t.role == "worker" and t.phase == "work"), None)
         shown = turn.shown if turn is not None else work.text
         readings: dict[str, float | None] = {}
@@ -379,9 +379,10 @@ class MonitoredWork(Mechanism):
 
             readings = await read_probes(g, "worker", self.probes, phase="work")
         probe_scores = turn.metadata.get("probe_scores") if turn is not None else work.metadata.get("probe_scores")
-        p_success = await self._grade(g, shown, "grade") if "grader" in g.players else None
+        p_success = (await self._grade(g, g.shown_to("grader", turn) if turn is not None else shown, "grade")
+                     if "grader" in g.players else None)
         # everything the worker wrote reaches the monitor escaped (reasoning, tool-call arguments and results)
-        evidence = ["Agent output:\n" + shown]
+        evidence = ["Agent output:\n" + (g.shown_to("monitor", turn) if turn is not None else shown)]
         if "reasoning" in self.monitor_sees and work.reasoning:
             evidence.append("Agent's private reasoning:\n" + neutralize_markers(work.reasoning))
         if "tool_calls" in self.monitor_sees and work.tool_calls:
@@ -425,7 +426,8 @@ class MonitoredWork(Mechanism):
             output = fb.text
             if "grader" in g.players:
                 fb_turn = next((t for t in reversed(g.turns) if t.role == "trusted" and t.phase == "fallback"), None)
-                p_trusted = await self._grade(g, fb_turn.shown if fb_turn is not None else fb.text, "grade_fallback")
+                p_trusted = await self._grade(g, g.shown_to("grader", fb_turn) if fb_turn is not None else fb.text,
+                                              "grade_fallback")
         return Outcome(decision="flag" if flagged else "pass", probs={"flag": suspicion, "pass": 1 - suspicion},
                        output=output,
                        data={"suspicion": suspicion, "monitor_suspicion": own, "flagged": flagged, "caught": caught,

@@ -92,6 +92,16 @@ Rules-only verifiers (e.g. chess legality without evaluation) are valuable: they
 without seeing conclusions. A verifier that runs claimed code must run it sandboxed
 (`core.verification.run_python`, or `core.sandbox.wrap(argv, workdir)` for other interpreters).
 
+Two optional hooks make a verifier usable under every knob of `VerificationPolicy`: `cost` (what one check
+costs against a cost `budget`; a policy's `costs=` overrides it) and `forge(result, rng)`, what the verifier
+shows when verification noise makes it err. A forgery must look exactly like a genuine result: the default
+flips verdicts that carry no output and perturbs informational (`executed`) outputs with
+`perturb_output`; a verifier whose verdicts come with a revealing output (the expected value it matched, a
+legal line's resulting position) overrides `forge` - see `PythonExecVerifier`, `QueryClaimVerifier`,
+`CommandClaimVerifier` and `SQLVerifier` - or returns None, and noise on it then fails the episode rather
+than show a recognisable forgery. Programmatic judges read verdicts as shown with
+`core.verification.parse_markers(text)`, never from the turn's verification records.
+
 ## Tools (capability gaps)
 
 Tools are private affordances used while acting, via `<tool name="NAME">ARGS</tool>` in LLM output:
