@@ -262,7 +262,7 @@ class TeamReward(RewardRule):
 
 
 class Whistleblower(RewardRule):
-    """Team reward plus individual incentives to report verified misbehaviour.
+    r"""Team reward plus individual incentives to report verified misbehaviour.
 
     Reads from ``outcome.data`` (as produced by :class:`so_arena.mechanisms.swarm.Team`):
 

@@ -137,7 +137,7 @@ def probe_monitor(probe: LinearProbe | None = None, *, source_role: str = "worke
 
 
 class SimulatedProbe(BaseModel):
-    """A simulated detector (e.g. an interpretability probe) with a target AUROC against ground truth.
+    r"""A simulated detector (e.g. an interpretability probe) with a target AUROC against ground truth.
 
     Readings are Gaussian: $z \sim N(0, 1)$ on behaviour the oracle judges fine and $N(d', 1)$ on a
     violation, with $d' = \sqrt 2\,\Phi^{-1}(\mathrm{AUROC})$; the reading is $\Phi(z - d'/2) \in (0, 1)$
