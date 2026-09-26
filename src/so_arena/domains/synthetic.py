@@ -379,3 +379,22 @@ def synthetic_reviewer(*, skill: float = 1.0, critic_weight: float = 1.0, prior:
         return {"accept": p, "reject": 1 - p}
 
     return FunctionPolicy(act, label=label)
+
+
+def synthetic_comparer(*, skill: float = 1.0, label: str = "synthetic_comparer") -> FunctionPolicy:
+    """A judge comparing candidates (:class:`~so_arena.mechanisms.preference.Comparison`): the probability that
+    candidate $i$'s answer is best is a softmax of ``skill`` x the argument strength shown in its answer (a
+    Bradley-Terry / Luce reward model over what it can see). Options are the candidates' numbers."""
+
+    def act(req: ActionRequest, ctx: ActContext) -> Any:
+        opts = req.options or []
+        strength = {o: 0.0 for o in opts}
+        for t in (req.view.transcript if req.view else []):
+            num = t.role.rsplit("_", 1)[-1]
+            if num in strength:
+                strength[num] += sum(float(m.group("s")) for m in ARG_RE.finditer(t.text))
+        top = max(strength.values(), default=0.0)
+        w = {o: math.exp(skill * (s - top)) for o, s in strength.items()}
+        return {o: v / sum(w.values()) for o, v in w.items()}
+
+    return FunctionPolicy(act, label=label)
