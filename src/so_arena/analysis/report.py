@@ -315,8 +315,10 @@ def build_report(episodes: Sequence[Episode], path: str | Path, *, title: str = 
     rep = Report(title, subtitle)
     cost = sum(e.total_usage.cost_usd for e in eps)
     labels = mechanism_labels(eps)
+    # released episodes carry no usage (token counts can measure a directive): no cost figure then, not 0.00
+    has_usage = any(e.usage for e in eps)
     rep.kpis({"Episodes": len(eps), "Items": len({e.item_id for e in eps}),
-              "Mechanisms": len(set(labels.values())), "Cost (USD)": f"{cost:,.2f}",
+              "Mechanisms": len(set(labels.values())), **({"Cost (USD)": f"{cost:,.2f}"} if has_usage else {}),
               **({"Errors": sum(e.error is not None for e in eps)} if any(e.error for e in eps) else {})})
     df = with_parse_status(role_frame(ok), ok)
     if not hide_ground_truth and not df.empty and df["value"].notna().any():

@@ -224,3 +224,14 @@ def test_the_analytic_model_charges_unverified_reporters_like_the_reward_rule():
             # an unverified accusation pays c as silence does: the gain is rho rb^k [(delta + c) q - delta] + s rho
             assert gain == pytest.approx(rho * rb ** k * ((delta + c) * q - delta) + s * rho)
             assert gain > 0  # s + (delta + c) q > delta: reporting is dominant for every rho > 0
+
+
+def test_a_release_viewer_shows_no_cost_rather_than_zero(tmp_path):
+    from so_arena.analysis.report import build_report
+    from so_arena.core.mechanism import Episode
+    from so_arena.core.types import Usage
+
+    released = Episode(id="e", item_id="q", mechanism="m")  # as released: no usage
+    assert "Cost (USD)" not in build_report([released], tmp_path / "r.html", title="t").read_text()
+    run = Episode(id="e", item_id="q", mechanism="m", usage={"agent": Usage(calls=1, cost_usd=0.5)})
+    assert "Cost (USD)" in build_report([run], tmp_path / "s.html", title="t").read_text()
