@@ -192,7 +192,7 @@ def _cmd_demo(a: argparse.Namespace) -> int:
 
     fns = {"asd": demos.demo_asd, "optimization": demos.demo_optimization, "swarm": demos.demo_swarm,
            "work": demos.demo_work, "monitoring": demos.demo_monitoring, "hiddenbits": demos.demo_hiddenbits,
-           "bon_budget": demos.demo_bon_budget}
+           "bon_budget": demos.demo_bon_budget, "release": demos.demo_release}
     names = list(fns) if a.name == "all" else [a.name]
     for n in names:
         out = fns[n](Path(a.out) / n)
@@ -262,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
 
     d = sub.add_parser("demo", help="run offline demos (synthetic domains, no API keys)")
     d.add_argument("name", nargs="?", default="all", choices=["all", "asd", "optimization", "swarm", "work", "monitoring",
-                                                             "hiddenbits", "bon_budget"])
+                                                             "hiddenbits", "bon_budget", "release"])
     d.add_argument("--out", default="runs/demos")
     d.set_defaults(fn=_cmd_demo)
 

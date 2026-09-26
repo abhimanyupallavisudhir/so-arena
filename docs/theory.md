@@ -128,7 +128,13 @@ checkpoints, scripted behaviours - by simulation (*empirical game-theoretic anal
 * **Zero-sum vs. general-sum.** Two-player zero-sum mechanisms (debate with zero-sum rewards) have a
   unique value (minimax theorem), which removes equilibrium-selection ambiguity *for the players'
   payoffs* - though not necessarily for $W$. General-sum mechanisms (teams, markets) typically have
-  several equilibria, some good and some bad.
+  several equilibria, some good and some bad. Log-score debate is not zero-sum: the rewards
+  $(\log p_A, \log p_B)$ with $p_A + p_B = 1$ are strictly competitive over the judge's verdicts but not
+  constant-sum, and their mixed extension is not even strictly competitive (a game is strictly competitive
+  in mixed strategies only if it is an affine transformation of a zero-sum game; Adler, Daskalakis &
+  Papadimitriou 2009), so minimax arguments need `Debate(zero_sum=True)`. With $k > 2$ debaters
+  (`Debate(n_debaters=k)`) the game is general-sum: two debaters can both gain when the judge's probability
+  moves off a third.
 * **Does training reach equilibrium at all?** Simultaneous gradient play need not converge
   (cycling in zero-sum games is generic). PSRO (Lanctot et al. 2017) is a practical approximation:
   grow a population of strategies by best responses to the current meta-equilibrium and report
@@ -149,7 +155,11 @@ the solution is plain backward induction; with them it is the fixed point of fic
 **Optimizers that model each other.** When prompt search (an LLM optimizer) finds strategies for one
 agent, its proposals depend on what it assumes about the others. PSRO makes that assumption explicit:
 the optimizer is told the other roles' meta-strategy (strategies and probabilities) and asked for a
-best response. A naive start followed by $k$ PSRO rounds is the analogue of level-$k$ reasoning.
+best response. A naive start followed by $k$ PSRO rounds is the analogue of level-$k$ reasoning - exactly
+so with `PSRO(meta_solver="last")`, where each round best-responds to the others' newest strategy only
+(iterated best response; Stahl & Wilson 1995; Nagel 1995; Camerer, Ho & Chong 2004). `uniform` best-responds
+to the whole population so far (fictitious play) and `nash` to its equilibrium (double oracle; McMahan,
+Gordon & Blum 2003).
 
 ## 4. Implementation theory: eliciting what agents know
 
@@ -177,6 +187,20 @@ with a proper scoring rule, so a profit-maximizing prover reports the truth; one
 #P questions. With several competing provers (Chen, McCauley & Singh 2016) the class of verifiable
 questions grows further. Rational proofs are incentive compatibility in exactly our sense - soundness
 is replaced by "lying does not pay".
+
+**Prover-verifier games** (Anil et al. 2021; Kirchner et al. 2024) train the checker against an adversary
+built into the protocol. Each episode nature tells the prover to be *helpful* (give the correct answer) or
+*sneaky* (give a wrong answer the verifier accepts); the prover earns $s(p)$, a score of the verifier's
+acceptance probability $p$, when its answer fits its mode and a penalty $m$ when it does not, and a trainable
+verifier earns a proper score of its verdict against audited correctness (`mechanisms.ProverVerifier`). The
+mode binds only if $m < \underline s = \min_{p \in [0, 1]} s(p)$. Then fitting the mode earns at least
+$\underline s > m$ against every verifier, so compliance is strictly dominant. If $m \ge \underline s$, a
+verifier that gives mode-fitting answers the acceptance probability minimizing $s$ - a perfect verifier
+rejecting every wrong answer, $p = 0$ - makes ignoring the mode at least as good: a sneaky prover facing a
+good verifier gives the correct answer, and the verifier never sees a sneaky example, which is the game
+collapsing exactly where it should be hardest. $\underline s$ depends on the transform ($0$ for `prob`, $-2$ for
+`brier`, $\log \varepsilon$ for `log`, finite only because probabilities are clipped at $\varepsilon$);
+`ProverReward` refuses $m \ge \underline s$ and defaults to $\underline s - 1$.
 
 ## 5. Verified claims: mechanism design with evidence
 
@@ -397,7 +421,17 @@ $0.472$).
   prior-free for large populations, and the *surprisingly popular* answer (Prelec, Seung & McCoy 2017)
   aggregates without ground truth. **Multi-task** peer prediction (Dasgupta & Ghosh 2013; Shnayder et
   al. 2016) pays agreement on the same task minus agreement across tasks, so uninformative coordination
-  earns nothing (`mechanisms.PeerPrediction`).
+  earns nothing (`mechanisms.PeerPrediction`). **Correlated agreement** (Shnayder et al. 2016;
+  `rule="ca"`) scores a pair of answers by the sign of $\Delta = P(a, b) - P(a)P(b)$, estimated from the
+  reports: constant reports make $\Delta = 0$ and earn exactly nothing, and truth-telling is informed-truthful.
+  **Determinant mutual information** (Kong 2020; `rule="dmi"`) pays $\det M^{(1)} \det M^{(2)}$ for the tables
+  $M^{(h)}$ counting two reporters' answer pairs on two halves of a bundle. Its expectation is proportional to
+  $(\det J)^2$, $J$ the joint distribution of the reports, and a strategy that garbles one's signal by a
+  row-stochastic matrix $G$ multiplies $\det J$ by $\det G$, with $|\det G| \le 1$ (Hadamard): truth-telling
+  is *dominant*, whatever the others do - a reporter who answers truthfully only 70% of the time (else at
+  random) keeps a factor $0.7^2$ with two answers. The payment is divided by $(n_1/C)^C(n_2/C)^C$, the largest
+  value for $C$ answers - a constant of the bundle, since a normaliser computed from the population would
+  make one reporter's pay depend on how informative the others were.
 * For AI "peers" the key assumption fails in a measurable way: models from one family share errors,
   so coordinated wrong answers can be equilibria. The library can quantify how much.
 * **Markets.** Market scoring rules (Hanson 2003, 2007) are sequential proper scoring rules: myopic
@@ -406,6 +440,37 @@ $0.472$).
   (`mechanisms.MarketMaking`, `mechanisms.PredictionMarket`). Market rewards can be *deferred* until
   resolution; the release workflow publishes mechanism outputs now, with a commitment digest, and
   scores them when truth arrives (`so_arena.release`).
+* **Immediate proxies.** Resolution pays late, so training - and any ranking published before resolution -
+  uses what can be computed now: a judge's rating of a forecast, or its agreement with the judge. These are
+  not proper scoring rules for the outcome.
+
+**Proposition 7 (immediate proxies are proper for the judge, not for the outcome).** A forecaster believes
+$P(y = 1) = q$ and reports $p$.
+
+1. Paid $S(p, y)$ at resolution with $S$ strictly proper, its unique best report is $p = q$.
+2. Paid $R(p, J)$ before resolution, where $J$ is what the judge knows and does, its expected pay
+   $\mathbb E_{J \sim \mu}[R(p, J)]$ depends on its beliefs only through its belief $\mu$ about the judge. If
+   $R(p, J) = S(p, \pi_J)$ scores agreement with the judge's probability $\pi_J$ by a proper score affine in
+   the outcome distribution (log, Brier), the best report is $p = \mathbb E_\mu[\pi_J]$: the forecaster's
+   forecast *of the judge*, which is $q$ only when it expects the judge to agree with it.
+3. A rating that increases in decisiveness $|2p - 1|$ is maximized at the most extreme report allowed,
+   whatever $q$ is.
+
+*Proof.* (1) is the definition of strict properness: $\mathbb E_{y \sim q} S(p, y)$ is uniquely maximized at
+$p = q$. For (2), $y$ does not enter $R$; with $S(p, \pi) = \pi S(p, 1) + (1 - \pi) S(p, 0)$,
+$\mathbb E_\mu S(p, \pi_J) = S(p, \mathbb E_\mu \pi_J)$, maximized at $p = \mathbb E_\mu \pi_J$ by (1).
+(3) is immediate. $\square$
+
+So a mechanism paid by an immediate proxy trains forecasters to predict - or please - the judge; the
+release workflow makes the gap measurable: publish the proxy's rankings now, resolve later, compare.
+`demos.demo_release` does it on the synthetic forecasting world (`domains.synthetic_forecasting`), with
+forecasters that distort the same calibrated probability and a judge who rates decisiveness (weight 0.7) and
+agreement with its own noisy view (`mechanisms.Forecast`, `rating_reward` vs. `ResolutionScore`).
+On 400 questions the released ranking puts the extremizing forecaster first (its rating $0.163$ above the
+calibrated one's, 95% CI $0.151$-$0.174$) and the calibrated one third; after resolution the calibrated
+forecaster is first and the extremizing one loses $0.119$ in log score per question ($0.074$-$0.165$), as
+properness predicts.
+
 * **Consistency checks** (Paleka et al. 2025) score forecasters by the logical coherence of their
   predictions before resolution - a ground-truth-free signal usable as a reward, necessary but not
   sufficient for accuracy.
@@ -608,6 +673,8 @@ useful mechanism also needs:
 
 ## References
 
+Adler, Daskalakis & Papadimitriou (2009), A note on strictly competitive games, *WINE*.
+Anil, Zhang, Wu & Grosse (2021), Learning to give checkable answers with prover-verifier games.
 Angelopoulos, Bates, Fannjiang, Jordan & Zrnic (2023), Prediction-powered inference, *Science*.
 Azar & Micali (2012), Rational proofs, *STOC*.
 Baker et al. (2025), Monitoring reasoning models for misbehavior and the risks of promoting obfuscation.
@@ -620,6 +687,7 @@ Bergemann & Morris (2005), Robust mechanism design, *Econometrica*.
 Brown-Cohen, Irving & Piliouras (2023), Scalable AI safety via doubly-efficient debate.
 Brown-Cohen et al. (2025), Avoiding obfuscation with prover-estimator debate.
 Bull & Watson (2007), Hard evidence and mechanism design, *GEB*.
+Camerer, Ho & Chong (2004), A cognitive hierarchy model of games, *QJE*.
 Carlsson & van Damme (1993), Global games and equilibrium selection, *Econometrica*.
 Chen, McCauley & Singh (2016), Rational proofs with multiple provers, *ITCS*.
 Chen, Dimitrov, Sami, Reeves, Pennock, Hanson, Fortnow & Gonen (2010), Gaming prediction markets, *Algorithmica*.
@@ -644,11 +712,14 @@ Hubinger (2020), AI safety via market making, *AI Alignment Forum*.
 Irving, Christiano & Amodei (2018), AI safety via debate.
 Kakade (2001), A natural policy gradient, *NeurIPS*.
 Kamenica & Gentzkow (2011), Bayesian persuasion, *AER*.
+Kirchner, Chen, Edwards, Leike, McAleese & Burda (2024), Prover-verifier games improve legibility of LLM outputs.
+Kong (2020), Dominantly truthful multi-task peer prediction with a constant number of tasks, *SODA*.
 Laffont & Martimort (1997), Collusion under asymmetric information, *Econometrica*.
 Lanctot et al. (2017), A unified game-theoretic approach to multiagent reinforcement learning, *NeurIPS*.
 Manheim & Garrabrant (2018), Categorizing variants of Goodhart's law.
 Maskin (1999), Nash equilibrium and welfare optimality, *RES*.
 McKelvey & Palfrey (1998), Quantal response equilibria for extensive form games, *Experimental Economics*.
+McMahan, Gordon & Blum (2003), Planning in the presence of cost functions controlled by an adversary, *ICML*.
 Milgrom & Roberts (1986), Relying on the information of interested parties, *RAND J. Econ.*
 Milgrom (1981), Good news and bad news: representation theorems and applications, *Bell J. Econ.*
 Miller, Resnick & Zeckhauser (2005), Eliciting informative feedback: the peer-prediction method, *Management Science*.
@@ -656,6 +727,7 @@ Mookherjee & Png (1989), Optimal auditing, insurance, and redistribution, *QJE*.
 Moore & Repullo (1988), Subgame perfect implementation, *Econometrica*.
 Morris & Shin (2003), Global games: theory and applications, in *Advances in Economics and Econometrics*.
 Motta & Polo (2003), Leniency programs and cartel prosecution, *IJIO*.
+Nagel (1995), Unraveling in guessing games: an experimental study, *AER*.
 Paleka, Pallavi Sudhir et al. (2025), Consistency checks for language model forecasters, *ICLR*.
 Pallavi Sudhir, Kaunismaa & Panickssery (2025), A benchmark for scalable oversight mechanisms (ASD), arXiv:2504.03731.
 Prelec (2004), A Bayesian truth serum for subjective data, *Science*.
@@ -664,6 +736,7 @@ Selten (1975), Reexamination of the perfectness concept for equilibrium points i
 Shin (1998), Adversarial and inquisitorial procedures in arbitration, *RAND J. Econ.*
 Shnayder, Agarwal, Frongillo & Parkes (2016), Informed truthfulness in multi-task peer prediction, *EC*.
 Spagnolo (2004), Divide et impera: optimal leniency programmes.
+Stahl & Wilson (1995), On players' models of other players: theory and experimental evidence, *GEB*.
 Tirole (1986), Hierarchies and bureaucracies: on the role of collusion in organizations, *JLEO*.
 Townsend (1979), Optimal contracts and competitive markets with costly state verification, *JET*.
 Wellman (2006), Methods for empirical game-theoretic analysis, *AAAI*.

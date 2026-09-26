@@ -60,6 +60,20 @@ proper score of its verdict against a costly audit run on a random fraction `p` 
 together with `Debate(trainable={"judge": True}, reward=JudgeScore("log") + JudgeAuditScore(truth_oracle(items), p=0.2))`
 (`truth_oracle` simulates a perfect audit from the experimenter's ground truth).
 
+More built-in game forms: `Debate(n_debaters=3)` (distinct positions while answers last),
+`Debate(cross_examination=True)` (each debater questions each opponent after the opening speeches);
+`Comparison(n_candidates=k)`, the RLHF signal - a judge's probability that each candidate's answer is best,
+scored per candidate (`aggregate=True` pools candidates with the same answer), which best-of-N studies like
+any other mechanism (`OptimizationExperiment(Comparison(), items, profile, pool_sizes={"candidate_1": 16})`);
+and prover-verifier games, where nature makes the prover helpful or sneaky each episode:
+
+```python
+from so_arena.mechanisms import ProverVerifier
+pv = ProverVerifier(oracle=truth_oracle(items), sneaky_rate=0.5, trainable={"verifier": True})
+# prover: s(P(accept)) if its answer fits its mode, else a penalty below every such score;
+# verifier: JudgeAuditScore(verdict_oracle(oracle)) - a proper score against audited correctness
+```
+
 ## 2. Agent score difference (instructed arms) - *offline with synthetic policies*
 
 ```python
@@ -185,6 +199,10 @@ psro = PSRO(Debate(zero_sum=True), items[:20], roles=["debater_a", "debater_b"],
             stances={"debater_a": "true", "debater_b": "false"}, iterations=3)
 history = psro.run()   # meta-strategies, NashConv of the previous meta-strategy, ground truth under it
 ```
+
+`meta_solver` sets what the optimizers assume about each other: `"nash"` (PSRO / double oracle),
+`"uniform"` (fictitious play: best responses to the whole population) or `"last"` (iterated best response:
+level $k$ best-responds to level $k-1$).
 
 ## 6. Reinforcement learning
 
@@ -411,7 +429,27 @@ resolve("releases/2026-09", fc.resolve, reward_rule=MarketScoringReward())   # s
 ```
 
 CLI: `so-arena release runs/x releases/x`, `so-arena verify releases/x --digest <published digest>`,
-`so-arena resolve releases/x --domain forecasting --market`. Releases also suit results that will only
+`so-arena resolve releases/x --domain forecasting --market`.
+
+Immediate proxies can be released and then checked against resolution (`so-arena demo release`, Proposition 7):
+
+```python
+from so_arena.domains.synthetic_forecasting import SyntheticForecasting, rating_judge, synthetic_forecaster
+from so_arena.mechanisms import Forecast, rating_reward
+from so_arena.core.rewards import ResolutionScore
+
+dom = SyntheticForecasting(n_items=400)                               # offline; outcomes pending
+mech = Forecast(judge=True, reward=rating_reward(), affordances={"forecaster": ["forecast_info"], "judge": ["judge_info"]})
+profiles = [Profile(name=s, players={"forecaster": synthetic_forecaster(s), "judge": rating_judge(0.7)})
+            for s in ("calibrated", "overconfident", "underconfident", "extremizing")]
+eps = soa.run_sync(soa.run_episodes(mech, dom.load(), profiles))    # paid the rating now
+man = release(eps, dom.load(), "releases/judged", public_labels=True)
+resolve("releases/judged", dom.resolve, reward_rule=ResolutionScore("log"), ground_truth=dom.ground_truth_scorers())
+```
+
+The judge's rating ranks the extremizing forecaster first; the log score at resolution ranks the calibrated
+one first. Swap in `LLMPolicy` forecasters and judges and `get_domain("forecasting")` for the real thing.
+Releases also suit results that will only
 ever be judged in public: the bundle shows what each mechanism rewarded, without claiming who was right.
 A release never publishes the items' private information (`--keep-private KEY` opts a key in) or anything
 that names an arm defined relative to the truth - profile names, tags and behaviour labels become keyed
@@ -421,7 +459,8 @@ from reward details, but an audited reward is computed from its finding: runs wh
 simulated from the experimenter's ground truth (`truth_oracle`) are not ground-truth-free, and `release`
 warns about audited episodes. `verify` prints the digest and, given the published one, checks the
 bundle against it.
-Ground-truth-free mechanisms: `PeerPrediction(rule="bts" | "multitask")`, `MarketMaking`.
+Ground-truth-free mechanisms: `PeerPrediction(rule="bts" | "multitask" | "ca" | "dmi")` (the multi-task rules
+on bundles, `item.context["subitems"]`; DMI is dominantly truthful), `MarketMaking`.
 
 ## 11. Monitoring, chain of thought, and ControlArena - *offline demo*
 

@@ -18,6 +18,9 @@ same experiments for real (see ``configs/`` and ``docs/experiments.md``).
   credulous and sceptical Bayesian judges, in propaganda and debate, against Proposition 3.
 * :func:`demo_bon_budget` - best-of-N on a lying debater under a verification budget: selection moves its
   lies beyond what is checked.
+* :func:`demo_release` - release now, resolve later: forecasts rewarded by a judge's immediate rating are
+  released before the questions resolve, then resolved; the rating proxy is not a proper score
+  (Proposition 7): extremizing forecasters top the released ranking and trail after resolution.
 """
 
 from __future__ import annotations
@@ -792,8 +795,118 @@ def demo_bon_budget(out: str | Path = "runs/demo_bon_budget", n_items: int = 60,
     return out
 
 
+def demo_release(out: str | Path = "runs/demo_release", n_items: int = 400, confidence: float = 0.7) -> Path:
+    """Release now, resolve later (``docs/theory.md``, Proposition 7).
+
+    Four scripted forecasters - calibrated, overconfident, underconfident and extremizing distortions of the
+    same calibrated information - forecast ``n_items`` synthetic questions whose outcomes are still pending. A
+    judge who does not know the outcomes rates each forecast at once (weight ``confidence`` on decisiveness, the
+    rest on agreement with its own noisy view), and the forecasters are paid the rating. The results are
+    released (a SHA-256 commitment, no ground truth), the questions resolve, and the release is resolved with
+    the log score against the outcomes. Differences from the calibrated forecaster are paired by question,
+    with 95% bootstrap CIs over questions.
+    """
+    import json
+
+    from so_arena.analysis.metrics import bootstrap_mean_ci
+    from so_arena.core.rewards import ResolutionScore, rescore
+    from so_arena.core.runner import run_episodes, run_sync
+    from so_arena.domains.synthetic_forecasting import STYLES, SyntheticForecasting, rating_judge, synthetic_forecaster
+    from so_arena.mechanisms import Forecast, rating_reward
+    from so_arena.release import release, resolve, verify
+
+    out = Path(out)
+    figs = _figures(out)
+    dom = SyntheticForecasting(n_items=n_items, seed=0)
+    items = dom.load()  # outcomes pending
+    mech = Forecast(judge=True, reward=rating_reward(), name="forecast(judge rating)",
+                    affordances={"forecaster": ["forecast_info"], "judge": ["judge_info"]})
+    profiles = [Profile(name=s, players={"forecaster": synthetic_forecaster(s), "judge": rating_judge(confidence)})
+                for s in STYLES]
+    eps = run_sync(run_episodes(mech, items, profiles, ground_truth=dom.ground_truth_scorers()))
+    if any(e.error for e in eps):
+        raise RuntimeError(next(e.error for e in eps if e.error))
+    assert all(e.gt_status == "pending" for e in eps)
+    # 1. release before resolution: what each forecaster was paid, no ground truth (the styles are not defined
+    #    relative to the truth, so their names can be published)
+    rel = out / "release"
+    man = release(eps, items, rel, title="Judged forecasts (unresolved)", public_labels=True,
+                  notes="A judge's immediate ratings of forecasts, published before the questions resolve.")
+    board = json.loads((rel / "rankings.json").read_text())["leaderboard"]
+    released_rank = [r["behaviour"] for r in board if r["role"] == "forecaster"]
+    # 2. the questions resolve: score the release against the outcomes with the proper (log) resolution score
+    res = resolve(rel, dom.resolve, reward_rule=ResolutionScore("log"), ground_truth=dom.ground_truth_scorers(),
+                  digest=man.digest)
+    resolved = [soa.Episode.model_validate_json(x) for x in (rel / "resolved" / "episodes.jsonl").read_text().splitlines()]
+    brier = {e.id: e.rewards["forecaster"] for e in rescore(resolved, ResolutionScore("brier"))}
+    latent = {it.id: it.private["forecast_info"]["p_yes"] for it in items}  # experimenter side: the true probability
+    rows = []
+    for e in resolved:
+        q, pi = e.outcome.data["forecasts"]["forecaster"], latent[e.item_id]
+        rows.append({"style": e.profile, "item": e.item_id, "rating": e.outcome.data["ratings"]["forecaster"],
+                     "log_score": e.rewards["forecaster"], "brier": brier[e.id],
+                     "expected_log": pi * math.log(q) + (1 - pi) * math.log(1 - q)})
+    df = pd.DataFrame(rows)
+    wide = {k: df.pivot(index="item", columns="style", values=k) for k in ("rating", "log_score", "brier", "expected_log")}
+    table, gains = [], []
+    for s in STYLES:
+        row: dict = {"forecaster": s}
+        for k, name in (("rating", "judge rating (released)"), ("log_score", "log score (resolved)"),
+                        ("brier", "Brier score (resolved)")):
+            v = wide[k][s].to_numpy()
+            lo, hi = bootstrap_mean_ci(v)
+            row[name], row[f"{name} CI"] = float(v.mean()), f"{lo:.3f} to {hi:.3f}"
+        row["expected log score (latent)"] = float(wide["expected_log"][s].mean())
+        table.append(row)
+        if s != "calibrated":
+            for k, what in (("rating", "rating"), ("log_score", "log")):
+                d = (wide[k][s] - wide[k]["calibrated"]).to_numpy()
+                lo, hi = bootstrap_mean_ci(d)
+                gains.append({"what": what, "forecaster": s, "gain": float(d.mean()), "ci_low": lo, "ci_high": hi})
+    table = pd.DataFrame(table)
+    table.insert(1, "released rank", [released_rank.index(s) + 1 for s in STYLES])
+    table.insert(2, "resolved rank", table["log score (resolved)"].rank(ascending=False).astype(int).to_numpy())
+    gains = pd.DataFrame(gains)
+    table.to_csv(out / "forecasters.csv", index=False)
+    gains.to_csv(out / "gains_vs_calibrated.csv", index=False)
+    kw_proxy = dict(value="gain", label="forecaster", title="Released: the judge's rating rewards distortion",
+                    subtitle=f"mean rating minus the calibrated forecaster's, paired over {n_items} questions; whiskers: 95% CI",
+                    xlabel="rating − calibrated forecaster's rating (0-1 scale)")
+    kw_res = dict(value="gain", label="forecaster", title="Resolved: the log score penalizes it",
+                  subtitle=f"mean log score minus the calibrated forecaster's, paired over {n_items} questions; whiskers: 95% CI",
+                  xlabel="log score − calibrated forecaster's log score")
+    proxy, resolved_gain = gains[gains.what == "rating"], gains[gains.what == "log"]
+    plots.asd_bars(proxy, **kw_proxy).save(figs / "release_proxy.png")
+    plots.asd_bars(resolved_gain, **kw_res).save(figs / "release_resolved.png")
+
+    rep = Report("Release now, resolve later",
+                 "synthetic forecasting questions, scripted forecasters and judge; ratings released before resolution (demo)")
+    rep.kpis({"questions": n_items, "forecasters": len(STYLES), "episodes": len(eps), "resolved": res.n_resolved,
+              "release digest": man.digest[:16] + "…", "release verified": str(verify(rel, man.digest))})
+    rep.section("What the release showed", charts=plots.dual_mode(plots.asd_bars, proxy, **kw_proxy),
+                info="Before any question resolved, each forecaster was paid the judge's rating of its forecast. The "
+                     "judge weighs how decisive a forecast is and how well it agrees with its own noisy view; it never "
+                     "sees an outcome. Every distortion of the calibrated forecast that moves toward certainty is "
+                     "rated higher.")
+    rep.section("What resolution showed", charts=plots.dual_mode(plots.asd_bars, resolved_gain, **kw_res),
+                info="After resolution the same forecasts are scored with the log score against the outcomes - a proper "
+                     "scoring rule, maximized in expectation by the calibrated forecast. Every distortion loses.")
+    rep.section("Forecasters: released vs. resolved", table=table,
+                note="Released rank: the leaderboard published in the release (by mean rating). Resolved rank: by mean "
+                     "log score. CIs: 95% bootstrap over questions. The expected log score uses each question's latent "
+                     "probability (experimenter side, no outcome noise): the calibrated forecaster is best in "
+                     "expectation, as properness says.")
+    rep.raw(f"<p>The release bundle (<code>release/</code>, next to this report) holds censored items without the forecasters' or "
+            f"the judge's private information, the episodes and the rankings, committed to by digest "
+            f"<code>{man.digest}</code>; <code>resolve</code> refuses a bundle that no longer matches it. All agents "
+            f"are scripted: the forecasters are fixed distortions of a calibrated probability and the judge a "
+            f"formula. The demo checks the machinery and the theory; it is not a finding about language models.</p>")
+    rep.write(out / "report.html")
+    return out
+
+
 def run_all(out: str | Path = "runs/demos") -> list[Path]:
     out = Path(out)
     return [demo_asd(out / "asd"), demo_optimization(out / "optimization"), demo_swarm(out / "swarm"),
             demo_work(out / "work"), demo_monitoring(out / "monitoring"), demo_hiddenbits(out / "hiddenbits"),
-            demo_bon_budget(out / "bon_budget")]
+            demo_bon_budget(out / "bon_budget"), demo_release(out / "release")]

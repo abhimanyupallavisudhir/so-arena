@@ -42,7 +42,7 @@ attacking.
 
 A `Domain` supplies items plus the domain's **verifiers** (trusted claim checks), **tools** (private
 capabilities that create capability gaps) and **ground-truth scorers**. Built in: synthetic persuasion,
-team and monitoring worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool),
+team, monitoring and forecasting worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool),
 text-to-SQL over a private database, code with hidden tests (including a hackable team task), Lean
 statement faithfulness (miniF2F formalizations vs. single-edit mutants; a rules-only structure verifier),
 forecasting (Manifold; pending resolutions), QA sets (GSM8K, MMLU, TruthfulQA, GPQA, QuALITY with
@@ -172,18 +172,21 @@ configuration of a mechanism separately (`debate(transform="prob")`) whenever a 
 `"all"`.
 
 Built-in mechanisms: `DirectJudge` (naive judge), `Propaganda`, `Consultancy`, `Debate`
-(simultaneous/sequential, judge questions, zero-sum option), `ReviewedWork` (worker -> critique ->
+(simultaneous/sequential, $k$ debaters, cross-examination, judge questions, zero-sum option), `Comparison`
+($k$ candidates and a judge's preference: the RLHF / reward-model signal), `ProverVerifier` (helpful or sneaky
+provers drawn by chance, a trainable verifier), `ReviewedWork` (worker -> critique ->
 rebuttal -> reviewer: single-judge RLAIF, the proposal/critique/rebuttal protocol of best-of-N
 self-play debate, and realistic work review with a dossier of state changes), `Work` (the work stage
 alone, for reviewing each result under many protocols), `MonitoredWork` (action/CoT/tool-call/probe monitors
 with suspicion penalties, flags or audits, missing scores failing closed, defer-to-trusted, simulated
 fixed-AUROC probes), `Team` (swarms with private reporting, auditing, belief
 elicitation, partial observation of teammates' work, self-reports, team channels that overseers may or may not read, shared stateful workspaces whose violators'
-changes can be reverted), `MarketMaking`, `PredictionMarket` (LMSR, deferred resolution), `PeerPrediction`
-(output agreement, BTS, multi-task) and `Confession` (a separately rewarded honesty channel).
+changes can be reverted), `MarketMaking`, `PredictionMarket` (LMSR, deferred resolution), `Forecast` (forecasters, an optional
+immediate judge rating, resolution scores), `PeerPrediction`
+(output agreement, BTS, multi-task, correlated agreement, DMI) and `Confession` (a separately rewarded honesty channel).
 
 Reward rules compose (`JudgeScore("log") + 0.5 * MonitorPenalty()`, `ZeroSum`, `RandomAudit`,
-`TeamReward`, `Whistleblower`, `ResolutionScore`, `MarketScoringReward`) and most can be re-applied to
+`TeamReward`, `Whistleblower`, `ResolutionScore`, `MarketScoringReward`, `PreferenceScore`, `ProverReward`) and most can be re-applied to
 logged episodes (`rescore`) to study counterfactual reward rules without new model calls.
 
 ## Layer 3: behaviour samplers
