@@ -73,7 +73,7 @@ Optimization pressure from sampled pools: best-of-N and KL-regularized (tilted) 
 Plots for incentive-compatibility analyses.
 
 - **`Chart`** - A rendered figure plus per-mark tooltips (gid -> text) and a table view of its data.
-- `asd_bars(table: pd.DataFrame, *, value: str = 'asd', label: str = 'mechanism', lo: str = 'ci_low', hi: str = 'ci_h...)` - Signed metric per category with CI whiskers; blue when positive (honesty pays), red when negative.
+- `asd_bars(table: pd.DataFrame, *, value: str = 'asd', label: str = 'mechanism', lo: str = 'ci_low', hi: str = 'ci_h...)` - Signed metric per category with CI whiskers; blue when positive (honesty pays), red when negative - or the other way round with ``positive_is_good=False`` (e.g. a distortion's...
 - `diverging_color(v: float, span: float, t: dict, steps: int = 6) -> str` - Diverging encoding: the neutral midpoint at 0, blue (positive) and red (negative) poles at ``+-span``, interpolated in OKLab in ``steps`` equal steps per arm (monotone...
 - `dual_mode(fn, *args, **kwargs) -> dict[str, Chart]` - Render a chart for both surfaces (the HTML report shows the one matching the viewer's theme).
 - `figure_svg(fig: plt.Figure, tooltips: dict[str, str]) -> str` - SVG text of a figure with a native ``<title>`` tooltip on every mark that has a gid.
@@ -247,8 +247,10 @@ Filesystem isolation for agent-controlled commands and untrusted code.
 - **`SandboxUnavailable`** - Agent code would run without filesystem isolation, and the experimenter has not allowed it.
 - `allow_unsandboxed(allow: bool | None = True) -> None` - Run agent code without isolation where no sandbox is available (None: back to the environment variable).
 - `available() -> bool`
-- `backend() -> str | None` - The sandbox backend this machine supports (``"bwrap"`` or ``"unshare"``), or None.
+- `backend() -> str | None` - The sandbox backend this machine supports (``"bwrap"``, ``"unshare"`` or ``"landlock"``), or None.
 - `hide(path: str | os.PathLike[str]) -> None` - Keep a directory out of sandboxed commands' view (state stores and run directories call this).
+- `landlock_abi() -> int` - The Landlock ABI version of the running kernel (0: unavailable).
+- `layers() -> list[str]` - The isolation layers agent commands run under, e.g. ``["unshare", "landlock"]`` (empty: none).
 - `unhide(path: str | os.PathLike[str]) -> None`
 - `wrap(argv: Sequence[str], workdir: str | os.PathLike[str], *, network: bool = False, visible: Sequence[str | o...)` - ``argv`` as a command that runs sandboxed, in ``workdir`` (visible at its own path, writable).
 
@@ -367,23 +369,35 @@ Chess: the flagship "smart generalist judge, narrow expert" setting.
 - **`EngineTool`** - The expert's private engine; its strength (``nodes``/``depth``) is the capability-gap dial.
 - **`EngineUnavailable`**
 - **`LineError`** - A claimed line is malformed (``illegal=False``) or contains an illegal move (``illegal=True``).
+- `advocate_line(board: chess.Board, first: chess.Move, *, depth: int, plies: int = 6, bend_ply: int | None = None, top_k:...)` - A line of ``plies`` moves starting with ``first``, continued by the engine's principal variation at ``depth``.
 - `analyse_puzzle(puzzle: dict[str, Any], engine: Engine | None = None, *, deep_nodes: int = 1000000, shallow_depth: int = ...)` - Engine data for one puzzle: what the bundled sample stores under ``"analysis"``.
 - `ascii_board(board: chess.Board) -> str`
+- `balance_surface(items: Sequence[TaskItem]) -> list[TaskItem]` - The largest subset of ``which_move`` items in which the surface of the moves says nothing: for every two patterns $P \ne Q$ of (gives check, captures), as many items pair a...
+- `balanced_eval_claims(records: Sequence[dict[str, Any]], *, win_cp: int = 200, not_win_cp: int = 50, strata: Sequence[str] = ('...)` - Choose at most one candidate position per puzzle (:func:`eval_claim_candidates`) so that, within every combination of the ``strata`` features, "yes" and "no" are equally...
 - `best_move_item(rec: dict[str, Any], *, confirm_tol_cp: int = 50, **_: Any) -> TaskItem | None` - Open-ended; skipped when the move table (the scoring reference) disagrees with the solution.
+- `blind_baselines(items: Sequence[TaskItem]) -> dict[str, float]` - Accuracy of rules that never analyse the position, on ``which_move`` items (pick the move that gives check, that captures, that does either) and on ``eval_claim`` items (the...
+- `blind_features(board: chess.Board, last_move: str | None = None) -> dict[str, Any]` - Features a judge can read off a position without analysing it: whether the side to move is in check, its material balance (down / level / up by two pawns or more), whether it...
 - `board_from_args(args: str, item: TaskItem) -> chess.Board` - Tool arguments -> board: a FEN (optionally followed by ``moves ...``) or a line from the item's position.
 - `clip_cp(cp: float) -> float`
 - `color_name(color: bool) -> str`
 - `describe_limit(limit: chess.engine.Limit) -> str`
-- `eval_claim_item(rec: dict[str, Any], *, win_cp: int = 200, not_win_cp: int = 50, **_: Any) -> TaskItem | None` - Asks whether the side to move is winning.
+- `engine_advocate(*, style: str = 'honest', depth: int = 10, plies: int = 6, top_k: int = 4, claim: str = 'chess_line', eng...)` - An engine-backed expert arguing for its assigned move of a ``which_move`` item with ``chess_line`` claims.
+- `engine_judge(*, depth: int = 1, temperature_cp: float = 150.0, self_check: bool = False, use_evals: bool = False, engi...)` - A weak judge that computes: minimax over the lines it was shown, with a shallow search at the leaves.
+- `eval_claim_candidates(rec: dict[str, Any], *, win_cp: int = 200, not_win_cp: int = 50) -> list[dict[str, Any]]` - The positions an ``eval_claim`` item about this puzzle could ask about, with their answers.
+- `eval_claim_item(rec: dict[str, Any], *, win_cp: int = 200, not_win_cp: int = 50, candidate: dict[str, Any] | None = None,...)` - Asks whether the side to move is winning, about one of :func:`eval_claim_candidates`.
 - `fetch_lichess_puzzles(n: int | None = 1000, max_bytes: int = 1048576, *, url: str = 'https://database.lichess.org/lichess_db_pu...)` - Download only a ``max_bytes`` prefix of the (~300 MB) Lichess puzzle database; parse up to ``n``.
 - `find_stockfish(path: str | None = None) -> str | None` - ``path`` if executable; else ``$SO_ARENA_STOCKFISH``, ``stockfish`` on PATH or common locations.
 - `format_eval(board: chess.Board, line: dict[str, Any]) -> str` - An engine line's evaluation in pawns from White's perspective (``+1.25``, ``White mates in 3``).
 - `format_pov(cp: int, mate: int | None) -> str` - An evaluation from the mover's perspective (``+3.21``, ``mate in 2``, ``gets mated in 3``).
+- `judge_leaf_value(board: chess.Board, mover: bool, depth: int, engine_path: str | None = None) -> int` - How an engine judge of search depth ``depth`` values a position for ``mover`` (centipawns): the rules for a finished game, pure material at depth 0, else a fresh...
+- `judge_move_values(item: TaskItem, depth: int, *, lines: Sequence[Sequence[chess.Move]] = (), evals: dict[str, int] | None =...)` - The weak judge's value (centipawns, side to move's perspective) of each candidate move of a ``which_move`` item.
 - `line_tokens(text: str) -> list[str]` - Move tokens of a line such as ``1.
 - `matched_alternative(board: chess.Board, a: dict[str, Any], *, min_gap_cp: int = 150) -> dict[str, Any]` - The worse move of a ``which_move`` item: the analysed alternative if it looks like the best move (both checks or both not, both captures or both not), else the most tempting...
+- `material_cp(board: chess.Board, color: bool) -> int` - Material balance in centipawns for ``color`` (pawn 100, minor 300, rook 500, queen 900).
 - `material_text(board: chess.Board) -> str` - One-line material count, e.g. ``Material: White Q 2R B 2N 7P (32), Black ...``.
 - `normalize_puzzle(row: dict[str, Any]) -> dict[str, Any]` - Accept raw Lichess rows (CamelCase columns) as well as records in this module's format.
 - `numbered_san(board: chess.Board, move: chess.Move) -> str` - SAN with its move number as python-chess writes lines, e.g. ``23.
+- `parse_eval_output(text: str) -> int | None` - White's evaluation in centipawns from a ``chess_eval`` verifier output as shown (:func:`format_eval`), or None.
 - `parse_expectation(expect: str)` - ``white_better``/``black_better`` (sign), ``equal`` (within 0.5), ``white_winning``/``black_winning`` (2 pawns), or a threshold such as ``>+1.0`` - all in pawns from White's...
 - `parse_move(board: chess.Board, token: str) -> chess.Move` - A move in SAN or UCI that is legal in ``board``; raises :class:`LineError` otherwise.
 - `parse_puzzle_row(row: dict[str, str]) -> dict[str, Any]` - A Lichess CSV row -> the puzzle record used throughout this module (snake_case keys).
@@ -393,6 +407,7 @@ Chess: the flagship "smart generalist judge, narrow expert" setting.
 - `puzzle_position(puzzle: dict[str, Any]) -> tuple[chess.Board, str, chess.Move]` - The position shown to agents (after the opponent's first move), that move in SAN, and the solution.
 - `read_puzzle_csv_zst(path: str | Path, n: int | None = None) -> list[dict[str, Any]]` - Parse a (possibly truncated) zstd-compressed Lichess puzzle CSV.
 - `shared_engine(path: str | None = None) -> Engine` - The process-wide engine for ``path`` (default: the first Stockfish found); started on first use.
+- `shown_lines(view: Any) -> tuple[list[list[chess.Move]], dict[str, int]]` - The verified ``chess_line`` claims (from the item's position) and ``chess_eval`` outputs a role was shown.
 - `start_board(item: TaskItem, fen: str | None = None) -> chess.Board` - The item's position, or ``fen`` (``"start"`` for the initial position).
 - `status_text(board: chess.Board) -> str`
 - `terminal_line(board: chess.Board) -> dict[str, Any] | None` - Rules-based "evaluation" of a finished game (no engine needed), else None.
@@ -638,12 +653,21 @@ A synthetic persuasion world: fast, free, fully controllable - for tests, demos 
 - `fact_verifier() -> Verifier` - Checks ``<claim kind="fact">X is correct</claim>`` against the private answer key: verified only if every assertion in the claim holds (:func:`fact_assertions`), so "A is...
 - `failed_claims(texts: list[str]) -> dict[str, int]` - Failed fact claims per option they argued for: "B is correct" or "A is wrong" (with two options) counts against B - whatever letter the claim happens to start with.
 - `synthetic_arguer(*, honest_mean: float = 1.0, dishonest_mean: float = 0.0, sd: float = 1.0, sophistry_rate: float = 0.0, s...)` - A scripted expert.
+- `synthetic_comparer(*, skill: float = 1.0, label: str = 'synthetic_comparer') -> FunctionPolicy` - A judge comparing candidates (:class:`~so_arena.mechanisms.preference.Comparison`): the probability that candidate $i$'s answer is best is a softmax of ``skill`` x the argument...
 - `synthetic_critic(*, flaw_mean: float = 2.0, no_flaw_mean: float = 0.3, sd: float = 0.7, label: str | None = None) -> Funct...)` - A critic that finds real flaws in wrong submissions far more easily than in right ones.
 - `synthetic_judge(*, skill: float = 1.0, prior_weight: float = 1.0, verify_weight: float = 2.0, label: str = 'synthetic_jud...)` - A parametric judge: logit P(A) = prior_weight*hint + skill*(S_A - S_B) - verify_weight*(F_A - F_B).
 - `synthetic_reviewer(*, skill: float = 1.0, critic_weight: float = 1.0, prior: float = 0.0, label: str = 'synthetic_reviewer')...)` - logit P(accept) = prior + skill*S_worker - critic_weight*S_critic (strengths as shown to it).
 - `synthetic_worker(*, honest_choice_rate: float = 0.6, honest_mean: float = 1.0, dishonest_mean: float = 0.0, sd: float = 1....)` - A worker that picks an answer (the truth with probability ``honest_choice_rate``, unless a stance is assigned) and argues for it; wrong answers sometimes come with sophistry...
 - `team_worker(*, work: str = 'honest', report: str = 'silent', label: str | None = None) -> FunctionPolicy` - Scripted worker.
 - `violation_oracle(g, accused: str) -> bool`
+
+## `so_arena.domains.synthetic_forecasting`
+
+A synthetic forecasting world: questions whose outcomes are drawn from known probabilities, resolved later.
+
+- **`SyntheticForecasting`** - Yes/no questions with known latent probabilities and delayed outcomes; see the module docstring.
+- `rating_judge(confidence: float = 1.0, *, label: str | None = None) -> FunctionPolicy` - A judge who rates a forecast $q$ (0-10) as $10\,[c\,|2q - 1| + (1 - c)(1 - |q - h|)]$: decisiveness with weight $c$ = ``confidence``, agreement with its own view $h$...
+- `synthetic_forecaster(style: str = 'calibrated', *, temper: float | None = None, shade: float | None = None, label: str | None ...)` - A forecaster that distorts the probability its ``forecast_info`` gives (0.5 without it).
 
 ## `so_arena.games.egta`
 
@@ -751,17 +775,30 @@ Elicitation without (immediate) ground truth, and honesty channels.
 
 Market mechanisms.
 
+- **`Forecast`** - Forecasters each give a probability distribution over the item's outcomes, with a short rationale.
 - **`MarketMaking`**
 - **`MarketScoringReward`** - LMSR / market-scoring-rule payments: each trade from p to q pays S(q, y) - S(p, y) (log score).
 - **`PredictionMarket`**
 - `market_outcome(y: Any, labels: list[str]) -> str` - The market outcome a resolution names: one of ``labels`` (matched case-insensitively if that is unambiguous), or - for a two-outcome market - a binary resolution (1/0,...
+- `rating_reward() -> FromOutcome` - Pay each forecaster of :class:`Forecast` the judge's rating of its forecast, in [0, 1] - an immediate proxy.
+
+## `so_arena.mechanisms.preference`
+
+Preference- and verifier-based training signals.
+
+- **`Comparison`** - ``k`` candidates answer independently; a judge states how likely each answer is to be the best.
+- **`PreferenceScore`** - Each candidate earns $s(P(\text{the judge prefers it}))$ for a score transform $s$.
+- **`ProverReward`** - The prover's pay in :class:`ProverVerifier`: $s(P(\text{accept}))$ when its answer fits its mode - correct when helpful, wrong when sneaky - and ``misaligned`` otherwise (also...
+- **`ProverVerifier`** - A prover-verifier game on tasks with answer options (see the module docstring).
+- `verdict_oracle(oracle: Callable[..., Any], role: str = 'prover') -> Callable[[Episode], Any]` - Turn an answer audit ``oracle(ep) -> correct label`` (e.g. :func:`~so_arena.core.rewards.truth_oracle`) into a verdict audit: ``"accept"`` if ``role``'s answer is the correct...
+- `worst_score(transform: str, eps: float = 0.0001) -> float` - The lowest score an accepted-probability can earn under ``transform`` (at $P(\text{accept}) = 0$).
 
 ## `so_arena.mechanisms.qa`
 
 Classic question-answering oversight protocols: naive judge, propaganda, consultancy, debate.
 
 - **`Consultancy`** - A consultant argues for one answer over several rounds; the judge may ask questions.
-- **`Debate`** - Two debaters argue for different answers over several rounds; the judge decides.
+- **`Debate`** - Debaters argue for different answers over several rounds; the judge decides.
 - **`DirectJudge`** - The judge answers alone.
 - **`Propaganda`** - One agent argues for one answer; the judge reads the single argument (the analogue of RLHF).
 
@@ -872,13 +909,27 @@ Releasing mechanism results before ground truth exists, and resolving them later
 
 - **`Manifest`**
 - **`Resolution`**
+- `inclusion_proof(release_dir: str | Path, item_id: str) -> dict[str, Any]` - What a third party needs to check one revealed item against the published digest alone: its opening, its inclusion proof and the root...
 - `rankings(episodes: Sequence[Episode]) -> dict[str, Any]` - Mechanism-only summaries: per item outcomes, and behaviours ranked by mean reward - per configuration of a mechanism (labelled as in...
 - `release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str | Path, *, title: str = 'Release', n...)` - Write a ground-truth-free release bundle and return its manifest (``manifest.digest`` is the commitment).
 - `release_digest(release_dir: str | Path) -> str` - Digest of the manifest's files as they are now (equal to ``MANIFEST.json``'s if nothing changed).
 - `release_run(run_dir: str | Path, out_dir: str | Path, **kwargs: Any) -> Manifest`
 - `resolve(release_dir: str | Path, truth: Truth, *, out_dir: str | Path | None = None, ground_truth: Sequence[Groun...)` - Resolve a release with ground truth (labels, value dicts, GroundTruth objects, or a callable).
+- `reveal(release_dir: str | Path, private_dir: str | Path | None = None, *, items: Sequence[str] | None = None) ->...)` - Open a sealed release: publish the openings of ``items`` (item ids; default: everything, the summary included) from the private directory into the bundle, with the data files...
 - `uncovered_files(release_dir: str | Path) -> list[str]` - Release files present in the directory but not covered by its manifest (e.g. the viewer of a bundle made before the manifest covered it): nothing vouches for them.
 - `verify(release_dir: str | Path, digest: str | None = None) -> bool` - True iff the files match the manifest, and - given the ``digest`` published at release time - the manifest is the one committed to.
+
+## `so_arena.release.commit`
+
+Hash commitments for sealed releases: salted per-item commitments, a Merkle root and inclusion proofs.
+
+- `canonical(content: Any) -> bytes` - The bytes a commitment covers: JSON with sorted keys and no insignificant whitespace (no NaN).
+- `commitment(content: Any, salt: str) -> str`
+- `merkle_proof(leaves: list[str], index: int) -> list[list[str]]` - The inclusion proof of ``leaves[index]``: ``[sibling, side]`` pairs from the leaf up, ``side`` being where the sibling sits (``"L"`` or ``"R"``).
+- `merkle_root(leaves: list[str]) -> str` - The root over ``leaves`` (hex digests) in the given order; SHA-256 of nothing for no leaves.
+- `new_salt() -> str`
+- `verify_opening(opening: dict[str, Any], proof: list[list[str]], root: str) -> bool` - Whether a revealed leaf (``{"salt", "content", "commitment"}``) matches its commitment and the commitment is included under ``root`` - all a third party needs besides the...
+- `verify_proof(leaf: str, proof: list[list[str]], root: str) -> bool`
 
 ## `so_arena.samplers.arms`
 
@@ -939,7 +990,7 @@ Policy-Space Response Oracles (Lanctot et al., 2017) with prompt search as the b
 
 - **`PSRO`** - PSRO over strategies for several roles.
 - **`PSROIteration`** - One PSRO iteration.
-- `solve_meta(game: NormalFormGame, solver: str = 'nash', symmetric: Sequence[str] | None = None, *, tol: float = 0.000...)` - Meta-strategy for PSRO: ``nash``, ``replicator`` (from uniform), ``fictitious`` or ``uniform``.
+- `solve_meta(game: NormalFormGame, solver: str = 'nash', symmetric: Sequence[str] | None = None, *, tol: float = 0.000...)` - Meta-strategy for PSRO: ``nash``, ``replicator`` (from uniform), ``fictitious``, ``uniform`` or ``last``.
 
 ## `so_arena.samplers.sweeps`
 
