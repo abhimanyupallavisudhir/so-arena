@@ -230,13 +230,39 @@ ASDExperiment([DirectJudge(), debate, legal], chess.load(limit=60), agent=expert
 ```
 
 Verification is a systematic experimental axis - vary the verifier set, whose claims are checked
-(`roles=`), the budget (`budget_per_role=`), and display (`display="strip_unverified"`, `show_output=`).
+(`roles=`), the budget (`budget_per_role=` claims, or `budget=` with per-verifier `costs=`), its reliability
+(`noise=0.1`, or per verifier `noise={"sql": 0.1}`: an erring check looks exactly like a correct one, and
+`Verification.true_status` keeps the truth for analysis), who sees the verdicts (`show_to=["judge"]`), and
+display (`display="strip_unverified"`, `show_output=`). Noise is a chance move drawn from the item, seed,
+role and claim index, so best-of-N never selects on it.
 Other gap settings: `get_domain("sql")` (private database: `affordances={"agents": ["db"]}`,
 `tools={"agents": ["sql"]}`, verifier `sql`), `get_domain("code")` (hidden tests; verifiers `python` and
 `tests`), `get_domain("quality")` (hidden passage; verifier `quote`), `get_domain("lean")` (statement
 faithfulness; kinds `"faithful?"` and `"which_formalization"`; verifiers `lean_parse` (rules-only structure)
 and `lean` (typechecks when a Lean toolchain with Mathlib is installed); split results by
 `metadata["mutation"]`, and set the mutant mix - the difficulty dial - with `operator_weights=`).
+
+**Disclosure theory as a testbed** (*offline demo*). `get_domain("hidden_bits")` hides $L$ bits behind a
+majority question, with a `bit` verifier, scripted advocates (`bit_advocate(claims=, lie_rate=, lie_first=,
+markup=, sample=)`) and exact Bayesian judges (`bayesian_bit_judge(trust=, sceptical=, disclosure_limit=)`)
+that read only the verdicts they are shown - so every knob above can be checked against
+`theory.disclosure` (Proposition 3) before spending on models:
+
+```python
+from so_arena.domains.hidden_bits import HiddenBits, bayesian_bit_judge, bit_advocate
+
+dom = HiddenBits(n_items=150)
+vp = soa.VerificationPolicy(verifiers=["bit"], budget_per_role=4)   # also: noise=, show_to=, budget=/costs=
+ASDExperiment([Propaganda(affordances={"agents": ["bits"]}, verification=vp)], dom.load(),
+              agent=bit_advocate(claims=8, lie_rate=0.5),
+              fixtures={"judge": bayesian_bit_judge(sceptical=True, disclosure_limit=4)},
+              ctx=dom.context(), ground_truth=dom.ground_truth_scorers()).run()
+```
+
+`so-arena demo hiddenbits` sweeps the budget for naive, credulous and sceptical judges in propaganda and debate;
+`so-arena demo bon_budget` runs `OptimizationExperiment` on a lying debater's diverse base policy and shows
+best-of-n moving its lies beyond the budget (`BitClaims` ground truth: `lies_checked_<role>`,
+`lies_unchecked_<role>`, `honesty_<role>`).
 
 ## 8. Stateful work: the paired-branch design - *offline with scripted workers*
 

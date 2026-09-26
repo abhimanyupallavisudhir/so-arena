@@ -80,9 +80,9 @@ simulated models that prices every call).
 | **Samplers** | instructed arms (ASD), behaviour arms on stateful tasks (paired branches), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary / autoresearch-style ratchet, or GEPA) with honest/deceptive/… directives, PSRO, RL environments |
 | **Metrics** | ASD (any proper score, paired bootstrap), graded ASD, concordance, label efficiency, incentive gap recovered, expected scores, judge accuracy, AUROC/TPR |
 | **Game theory** | empirical games, pure/strict/mixed Nash, zero-sum values, (coarse) correlated equilibria with ground-truth welfare bounds, replicator dynamics, basins, natural and vanilla policy-gradient learning dynamics (exact, or on sampled episodes), an analytic whistleblower model with partial observation, monitor-penalty thresholds (obfuscation vs. deterrence) |
-| **Domains** | synthetic persuasion, team & monitoring worlds, chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY; stateful: repository work with hidden tests, a simulated software company |
+| **Domains** | synthetic persuasion, team & monitoring worlds, HiddenBits disclosure (exact Bayesian judges), chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY; stateful: repository work with hidden tests, a simulated software company |
 | **Stateful work** | forkable content-addressed state (files, SQLite, mail, ledgers, hidden environment state), a branch per decision and per best-of-N sample, reviewer dossiers of diffs, read/write access per role (and per decision), trusted tool-call records and agent-editable action logs, paired-branch experiments (work once, review many) |
-| **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, Lean statement structure, Lean typechecking, fact checkers) under per-mechanism budgets and display rules |
+| **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, Lean statement structure, Lean typechecking, fact checkers, hidden bits) under per-mechanism claim or cost budgets, verification noise (forged-but-realistic errors), and rules for who sees verdicts and how |
 | **Deferred ground truth** | release mechanism results with a SHA-256 commitment; resolve and score when the truth arrives |
 | **Infrastructure** | Inspect backend (all providers), response cache, dry-run cost simulation, model registry, resumable run stores, YAML specs, CLI, self-contained HTML reports, a browser rating interface for human judges with time budgets, a filesystem sandbox that keeps agent code away from hidden state and hidden tests, Inspect task export, ControlArena bridge, GEPA backend for prompt search |
 
@@ -108,8 +108,10 @@ simulated models that prices every call).
 | partial observation: below b_R a bounty buys nothing | the training algorithm selects the equilibrium too |
 | ![access](docs/figures/asd_by_access.png) | ![monitoring](docs/figures/monitoring_misbehaviour.png) |
 | stateful work: which faked successes each level of reviewer access exposes | penalizing an evadable monitor buys obfuscation; a fixed-AUROC probe deters |
+| ![disclosure](docs/figures/hiddenbits_propaganda.png) | ![bon budget](docs/figures/bon_budget_lies.png) |
+| verified claims: only a sceptical judge makes a lone advocate's disclosure unravel | best-of-N moves a liar's lies beyond the verification budget |
 
-Full demo reports (self-contained HTML): [ASD across protocols](docs/reports/asd.html) · [optimization pressure](docs/reports/optimization.html) · [swarms](docs/reports/swarm.html) · [stateful work](docs/reports/work.html) · [monitoring](docs/reports/monitoring.html). The demos use synthetic domains or scripted agents, so they illustrate the machinery, not findings about language models.
+Full demo reports (self-contained HTML): [ASD across protocols](docs/reports/asd.html) · [optimization pressure](docs/reports/optimization.html) · [swarms](docs/reports/swarm.html) · [stateful work](docs/reports/work.html) · [monitoring](docs/reports/monitoring.html) · [verified claims](docs/reports/hiddenbits.html) · [best-of-N vs. a verification budget](docs/reports/bon_budget.html). The demos use synthetic domains or scripted agents, so they illustrate the machinery, not findings about language models.
 
 ## Tests
 

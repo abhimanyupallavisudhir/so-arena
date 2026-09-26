@@ -182,9 +182,70 @@ is replaced by "lying does not pay".
 
 The ability to make *verified* claims changes which outcomes are implementable. In mechanism design
 with hard evidence (Green & Laffont 1986; Bull & Watson 2007; Hart, Kremer & Perry 2017;
-Ben-Porath, Dekel & Lipman 2019), agents can present evidence that rules out some lies; with verifiable
-disclosure and a skeptical receiver, the unraveling argument (Grossman 1981; Milgrom 1981) gives full
-revelation in equilibrium. Predictions the library is built to test:
+Ben-Porath, Dekel & Lipman 2019), agents can present evidence that rules out some lies. Information
+economics gives a precise account of what verification buys an oversight protocol:
+
+* **Cheap talk.** A sender whose preferred answer does not depend on the truth - an agent assigned a side,
+  or trained to win - conveys nothing with unverifiable claims to a rational receiver: only babbling
+  equilibria exist (Crawford & Sobel 1982, in the limit of maximal bias). A consultant arguing an assigned
+  side with unverifiable claims cannot move a rational judge, so its ASD is 0; it does move a *credulous*
+  judge, which is exactly what it can exploit.
+* **Unraveling.** If evidence is verifiable, the receiver knows what could have been shown, and it is
+  sceptical - it reads withheld evidence as bad news - then full disclosure is the unique equilibrium
+  (Grossman 1981; Milgrom 1981). The argument fails if the sender may genuinely lack evidence (Dye 1985),
+  and it fails if the receiver is naive: a selected sample of true facts, read as a random one, misleads.
+* **Competing advocates.** With two opposed interested parties and verifiable information, even an
+  *unsophisticated* decision-maker reaches the full-information decision (Milgrom & Roberts 1986; see also
+  Shin 1998; Dewatripont & Tirole 1999): each side discloses what the other withholds, so competition
+  substitutes for scepticism. This is the economic core of debate.
+* **Limited verification.** When the receiver can check only part of the evidence, which parts to check is
+  itself a design problem (Glazer & Rubinstein 2004, 2006); the revelation principle can fail under partial
+  verifiability (Green & Laffont 1986), and costly verification becomes a budget-allocation problem
+  (Ben-Porath, Dekel & Lipman 2014). A sender who can commit to how information is generated faces
+  Bayesian persuasion instead (Kamenica & Gentzkow 2011).
+
+**Proposition 3 (disclosure in HiddenBits).** $L$ odd, i.i.d. fair hidden bits; the question is whether
+at least $m = (L+1)/2$ are 1. An advocate for an answer can make claims about single bits, of which its
+first $k$ are checked by a truthful verifier. The true side has $s \ge m$ favourable bits, the false side
+$L - s \le m - 1$. Write $o$ and $z$ for the numbers of verified ones and zeros shown. A *naive* judge treats
+them as a random sample: $P(\text{yes}) = P(\mathrm{Bin}(L-o-z, \tfrac12) \ge m - o)$. A *sceptical* judge
+knows they were selected: if an advocate reveals a uniformly random subset of its favourable bits, the
+likelihood of the revealed set given $n$ ones is $\binom{n}{o}^{-1}$ on the $\binom{L-o}{n-o}$ configurations
+containing it, and $\binom{L-o}{n-o}/\binom{n}{o} \propto \binom{L}{n}$, so only the bounds matter:
+$$P(\text{yes}) = \frac{\sum_{n=\max(\ell, m)}^{h} \binom{L}{n}}{\sum_{n=\ell}^{h} \binom{L}{n}},
+\qquad \ell = o,\; h = L - z,$$
+with $h = o$ if the yes-advocate showed fewer than $k$ ones and $\ell = L - z$ if the no-advocate showed
+fewer than $k$ zeros ("no more exist"). Then, with rewards the log score of the judge's probability on the
+advocate's answer:
+
+1. *Debate, any judge that treats verified bits as facts.* If $k \ge m$, the truthful debater establishes
+   the answer with certainty whatever the other does: ASD is the log score's full range (clipped at
+   $\varepsilon$: $\log\frac{1-\varepsilon}{\varepsilon}$).
+2. *One advocate, sceptical judge.* If $k \ge m$ the judge learns the truth from either advocate: the liar's
+   disclosure unravels, and ASD is again the full range.
+3. *One advocate, naive judge.* Selective disclosure misleads: for $L = 15$, $k = 8$ the expected ASD is
+   $0.037$.
+4. *No verification.* A rational judge ($k = 0$, unverified claims ignored) learns nothing: ASD is exactly 0
+   in every protocol.
+
+*Proof.* (1) $m$ verified ones (or zeros) decide the question, and a false claim cannot be verified. (2) The
+liar can show at most $L - s < m \le k$ favourable bits; showing fewer than $k$ pins its count to a
+minority, while the truthful advocate shows $m$. (3) Direct computation over the prior
+(`theory.disclosure.asd_table`). (4) The judge's posterior is its prior, $\tfrac12$ for odd $L$, whichever
+side argues. $\square$
+
+The domain `hidden_bits` implements this setting with scripted advocates and exact Bayesian judges
+(naive, credulous with a `trust` in cheap talk, sceptical) that read only the verdicts they are shown;
+the tests check their posteriors against the formulas episode by episode, and `demo_hiddenbits` traces
+ASD against the budget (between the budget's extremes the scripted liars, who lie once their favourable
+bits run out and are refuted within the budget, hand the judge extra bits). `demo_bon_budget` adds
+optimization: best-of-$n$ on a lying debater under a 3-claim budget almost removes its lies from the
+checked claims and moves them beyond the budget, where a credulous judge still believes them - a
+checked-first-$k$ rule tells the optimizer where lies are safe (checking a random subset would not). With
+every claim checked, selection removes most lies, yet a naive judge is still misled by the liar's
+selected true bits: verification bounds what can be said, not what is left out.
+
+Predictions the library is built to test:
 
 * ASD should rise with verification access when lying requires unverifiable claims, and not when
   deception works through selective true claims (evidence can be withheld).
@@ -211,8 +272,13 @@ revelation in equilibrium. Predictions the library is built to test:
   is *verified* only when a trusted checker confirms what it states; one that merely ran is marked
   *executed* - cheap talk with a stamp on it, which a weak judge would otherwise read as proof.
 
-Verification is therefore a first-class experimental axis: which verifiers exist, whose claims are
-checked, the budget, and how results are displayed (`core.verification`).
+Verification is therefore a first-class experimental axis (`core.verification`): *what* can be verified
+(the verifiers), *whose* claims (`roles`), *how much* (a claim budget, or a cost budget with a cost per
+verifier), *how reliably* (`noise`: an erring verifier shows a flipped verdict or a wrong output in exactly
+the genuine format; ground truth keeps the correct one), *who sees the verdicts* (`show_to`) and how they
+are displayed - and, in the judges, credulity towards unverified claims and scepticism about selective
+disclosure. Noise draws are chance moves shared by every candidate of a decision, so best-of-$N$ never
+selects the candidates whose checks happened to err.
 
 ## 6. Costly verification and audits: mechanisms as control variates
 
@@ -548,6 +614,7 @@ Baker et al. (2025), Monitoring reasoning models for misbehavior and the risks o
 Barnes & Christiano (2020), Debate update: obfuscated arguments problem, *AI Alignment Forum*.
 Becker (1968), Crime and punishment: an economic approach, *JPE*.
 Beirami et al. (2024), Theoretical guarantees on the best-of-n alignment policy.
+Ben-Porath, Dekel & Lipman (2014), Optimal allocation with costly verification, *AER*.
 Ben-Porath, Dekel & Lipman (2019), Mechanisms with evidence: commitment and robustness, *Econometrica*.
 Bergemann & Morris (2005), Robust mechanism design, *Econometrica*.
 Brown-Cohen, Irving & Piliouras (2023), Scalable AI safety via doubly-efficient debate.
@@ -556,9 +623,13 @@ Bull & Watson (2007), Hard evidence and mechanism design, *GEB*.
 Carlsson & van Damme (1993), Global games and equilibrium selection, *Econometrica*.
 Chen, McCauley & Singh (2016), Rational proofs with multiple provers, *ITCS*.
 Chen, Dimitrov, Sami, Reeves, Pennock, Hanson, Fortnow & Gonen (2010), Gaming prediction markets, *Algorithmica*.
+Crawford & Sobel (1982), Strategic information transmission, *Econometrica*.
 Dasgupta & Ghosh (2013), Crowdsourced judgement elicitation with endogenous proficiency, *WWW*.
+Dewatripont & Tirole (1999), Advocates, *JPE*.
+Dye (1985), Disclosure of nonproprietary information, *J. Accounting Research*.
 Frankel & Kartik (2019), Muddled information, *JPE*.
 Gao, Schulman & Hilton (2023), Scaling laws for reward model overoptimization, *ICML*.
+Glazer & Rubinstein (2004), On optimal rules of persuasion, *Econometrica*; (2006) A study in the pragmatics of persuasion, *Theoretical Economics*.
 Green & Laffont (1986), Partially verifiable information and mechanism design, *RES*.
 Greenblatt, Shlegeris, Sachan & Roger (2024), AI control: improving safety despite intentional subversion, *ICML*.
 Grossman (1981), The informational role of warranties and private disclosure, *JLE*.
@@ -572,11 +643,13 @@ Holmström & Milgrom (1991), Multitask principal-agent analyses, *JLEO*.
 Hubinger (2020), AI safety via market making, *AI Alignment Forum*.
 Irving, Christiano & Amodei (2018), AI safety via debate.
 Kakade (2001), A natural policy gradient, *NeurIPS*.
+Kamenica & Gentzkow (2011), Bayesian persuasion, *AER*.
 Laffont & Martimort (1997), Collusion under asymmetric information, *Econometrica*.
 Lanctot et al. (2017), A unified game-theoretic approach to multiagent reinforcement learning, *NeurIPS*.
 Manheim & Garrabrant (2018), Categorizing variants of Goodhart's law.
 Maskin (1999), Nash equilibrium and welfare optimality, *RES*.
 McKelvey & Palfrey (1998), Quantal response equilibria for extensive form games, *Experimental Economics*.
+Milgrom & Roberts (1986), Relying on the information of interested parties, *RAND J. Econ.*
 Milgrom (1981), Good news and bad news: representation theorems and applications, *Bell J. Econ.*
 Miller, Resnick & Zeckhauser (2005), Eliciting informative feedback: the peer-prediction method, *Management Science*.
 Mookherjee & Png (1989), Optimal auditing, insurance, and redistribution, *QJE*.
@@ -588,6 +661,7 @@ Pallavi Sudhir, Kaunismaa & Panickssery (2025), A benchmark for scalable oversig
 Prelec (2004), A Bayesian truth serum for subjective data, *Science*.
 Prelec, Seung & McCoy (2017), A solution to the single-question crowd wisdom problem, *Nature*.
 Selten (1975), Reexamination of the perfectness concept for equilibrium points in extensive games, *IJGT*.
+Shin (1998), Adversarial and inquisitorial procedures in arbitration, *RAND J. Econ.*
 Shnayder, Agarwal, Frongillo & Parkes (2016), Informed truthfulness in multi-task peer prediction, *EC*.
 Spagnolo (2004), Divide et impera: optimal leniency programmes.
 Tirole (1986), Hierarchies and bureaucracies: on the role of collusion in organizations, *JLEO*.

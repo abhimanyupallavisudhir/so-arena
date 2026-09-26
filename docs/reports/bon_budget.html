@@ -1,0 +1,1385 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Best-of-N against a verification budget</title><style>
+.so-root{--surface:#fcfcfb;--page:#f9f9f7;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;
+--ring:rgba(11,11,11,.10);--good:#006300;--bad:#d03b3b;--warn:#8a6100;--chip:#f0efec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])) .so-root{--surface:#1a1a19;--page:#0d0d0d;
+--ink:#fff;--ink2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--ring:rgba(255,255,255,.10);--good:#0ca30c;--bad:#e66767;
+--warn:#fab219;--chip:#2c2c2a;color-scheme:dark}}
+:root[data-theme="dark"] .so-root{--surface:#1a1a19;--page:#0d0d0d;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+--grid:#2c2c2a;--ring:rgba(255,255,255,.10);--good:#0ca30c;--bad:#e66767;--warn:#fab219;--chip:#2c2c2a;color-scheme:dark}
+body{margin:0;background:var(--page)}
+.so-root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--page);
+max-width:1080px;margin:0 auto;padding:20px 16px 48px;font-size:14px;line-height:1.45}
+h1{font-size:20px;margin:0 0 2px;font-weight:650}h2{font-size:15px;margin:28px 0 10px;font-weight:650}
+.sub{color:var(--ink2);font-size:13px}
+.kpis{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 4px}
+.kpi{background:var(--surface);border:1px solid var(--ring);border-radius:10px;padding:10px 14px;min-width:120px}
+.kpi .l{color:var(--ink2);font-size:12px}.kpi .v{font-size:20px;font-weight:600}
+.card{background:var(--surface);border:1px solid var(--ring);border-radius:12px;padding:14px 14px 10px;margin:10px 0}
+.fig svg{max-width:min(100%,760px);height:auto;display:block}
+.fig .fig-dark{display:none}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])) .fig .fig-dark{display:block}
+:root:where(:not([data-theme="light"])) .fig .fig-light{display:none}}
+:root[data-theme="dark"] .fig .fig-dark{display:block}:root[data-theme="dark"] .fig .fig-light{display:none}
+:root[data-theme="light"] .fig .fig-dark{display:none}:root[data-theme="light"] .fig .fig-light{display:block}
+.mark:hover,.mark:focus{opacity:.8;outline:none}
+details>summary{cursor:pointer;color:var(--ink2);font-size:13px;list-style:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary:before{content:"▸ ";color:var(--muted)}details[open]>summary:before{content:"▾ "}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th{color:var(--ink2);font-weight:600;white-space:nowrap}td.n{font-variant-numeric:tabular-nums;text-align:right}
+th.n{text-align:right}
+.tip{position:relative;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+border-radius:50%;border:1px solid var(--muted);color:var(--muted);font-size:10px;margin-left:4px;cursor:help;
+font-weight:600;vertical-align:1px}
+.tip:hover:after,.tip:focus:after{content:attr(data-tip);position:absolute;z-index:9;top:20px;left:-8px;width:240px;
+background:var(--ink);color:var(--surface);padding:8px 10px;border-radius:8px;font-size:12px;font-weight:400;
+line-height:1.35;white-space:normal;text-align:left}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+.filters select,.filters input{font:inherit;font-size:13px;padding:5px 8px;border-radius:8px;border:1px solid var(--ring);
+background:var(--surface);color:var(--ink)}
+.ep{background:var(--surface);border:1px solid var(--ring);border-radius:10px;margin:6px 0;padding:8px 12px}
+.ep>summary{color:var(--ink);font-size:13px}
+.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:0 6px;font-size:12px;color:var(--ink2);margin-right:4px}
+.turn{margin:8px 0;padding-left:10px;border-left:2px solid var(--grid)}
+.turn .who{font-size:12px;color:var(--ink2);font-weight:600}
+.turn .txt{white-space:pre-wrap;word-wrap:break-word}
+.v{font-size:12px;border-radius:5px;padding:0 4px;margin-right:2px;font-weight:600}
+.v.ok{color:var(--good)}.v.bad{color:var(--bad)}.v.unk{color:var(--warn)}
+.gt{margin-top:8px;font-size:12px;color:var(--ink2)}
+.muted{color:var(--muted)}
+.theme{float:right;font:inherit;font-size:12px;border:1px solid var(--ring);background:var(--surface);color:var(--ink2);
+border-radius:8px;padding:3px 8px;cursor:pointer}
+</style></head><body><div class="so-root"><button class="theme" id="theme" title="Switch light/dark">◐</button><h1>Best-of-N against a verification budget</h1><div class="sub">HiddenBits debate, scripted base policy, exact best-of-n (demo) · generated 2026-09-26 05:37</div><div class="kpis"><div class="kpi"><div class="l">items</div><div class="v">60</div></div><div class="kpi"><div class="l">candidates per item</div><div class="v">16</div></div><div class="kpi"><div class="l">verification budget</div><div class="v">3</div></div><div class="kpi"><div class="l">hidden bits</div><div class="v">15</div></div></div><h2>Where selection puts the lies<span class="tip" tabindex="0" data-tip="Best-of-n by the mechanism&#x27;s reward almost eliminates lies in checked claims - a refuted claim costs the liar - and raises the lies told after the budget is spent, which the credulous judge still believes. Optimization does not remove deception; it moves it to where verification does not reach.">?</span></h2><div class="card"><div class="fig"><div class="fig-light"><svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns2="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 460.8 259.2" version="1.1" role="img">
+ <metadata>
+  <rdf:RDF>
+   <ns2:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+    <dc:date>2026-09-26T05:37:51.806146</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <ns2:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </ns2:Agent>
+    </dc:creator>
+   </ns2:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 259.2  L 460.8 259.2  L 460.8 0  L 0 0  z " style="fill: #fcfcfb" />
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 33.562109 222.397891  L 433.4175 222.397891  L 433.4175 49.697539  L 33.562109 49.697539  z " style="fill: #fcfcfb" />
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 75.971014 222.397891  L 75.971014 49.697539  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_2" />
+     <g id="text_1">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="75.971014" y="233.235781" transform="rotate(-0 75.971014 233.235781)">2</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 124.438335 222.397891  L 124.438335 49.697539  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_4" />
+     <g id="text_2">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="124.438335" y="233.235781" transform="rotate(-0 124.438335 233.235781)">4</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 172.905655 222.397891  L 172.905655 49.697539  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_6" />
+     <g id="text_3">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="172.905655" y="233.235781" transform="rotate(-0 172.905655 233.235781)">6</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 221.372975 222.397891  L 221.372975 49.697539  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_8" />
+     <g id="text_4">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="221.372975" y="233.235781" transform="rotate(-0 221.372975 233.235781)">8</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 269.840295 222.397891  L 269.840295 49.697539  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_10" />
+     <g id="text_5">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="269.840295" y="233.235781" transform="rotate(-0 269.840295 233.235781)">10</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 318.307615 222.397891  L 318.307615 49.697539  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_12" />
+     <g id="text_6">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="318.307615" y="233.235781" transform="rotate(-0 318.307615 233.235781)">12</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 366.774935 222.397891  L 366.774935 49.697539  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_14" />
+     <g id="text_7">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="366.774935" y="233.235781" transform="rotate(-0 366.774935 233.235781)">14</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 415.242255 222.397891  L 415.242255 49.697539  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_16" />
+     <g id="text_8">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="415.242255" y="233.235781" transform="rotate(-0 415.242255 233.235781)">16</text>
+     </g>
+    </g>
+    <g id="text_9">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="233.489805" y="246.236484" transform="rotate(-0 233.489805 246.236484)">best-of-n (debater A)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_17">
+      <path d="M 33.562109 214.547875  L 433.4175 214.547875  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_18" />
+     <g id="text_10">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="217.96682" transform="rotate(-0 29.562109 217.96682)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_19">
+      <path d="M 33.562109 176.647025  L 433.4175 176.647025  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_20" />
+     <g id="text_11">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="180.065971" transform="rotate(-0 29.562109 180.065971)">1</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_21">
+      <path d="M 33.562109 138.746176  L 433.4175 138.746176  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_22" />
+     <g id="text_12">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="142.165122" transform="rotate(-0 29.562109 142.165122)">2</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_23">
+      <path d="M 33.562109 100.845327  L 433.4175 100.845327  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_24" />
+     <g id="text_13">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="104.264273" transform="rotate(-0 29.562109 104.264273)">3</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_25">
+      <path d="M 33.562109 62.944478  L 433.4175 62.944478  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_26" />
+     <g id="text_14">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="66.363423" transform="rotate(-0 29.562109 66.363423)">4</text>
+     </g>
+    </g>
+    <g id="text_15">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="17.67375" y="136.047715" transform="rotate(-90 17.67375 136.047715)">false claims per debate</text>
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_1">
+    <defs>
+     <path id="mebfe36778a" d="M 51.737354 -78.902057  L 51.737354 -72.938595  L 75.971014 -53.458282  L 124.438335 -45.817522  L 221.372975 -44.676465  L 415.242255 -44.652125  L 415.242255 -46.652448  L 415.242255 -46.652448  L 221.372975 -46.69095  L 124.438335 -48.350852  L 75.971014 -57.865309  L 51.737354 -78.902057  z " />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#mebfe36778a" x="0" y="259.2" style="fill: #2a78d6; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_2">
+    <defs>
+     <path id="m15f6872afb" d="M 51.737354 -114.456804  L 51.737354 -102.82302  L 75.971014 -96.019159  L 124.438335 -109.395353  L 221.372975 -136.927687  L 415.242255 -166.458611  L 415.242255 -201.652445  L 415.242255 -201.652445  L 221.372975 -165.756374  L 124.438335 -129.940455  L 75.971014 -109.929034  L 51.737354 -114.456804  z " />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m15f6872afb" x="0" y="259.2" style="fill: #eb6834; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="line2d_27">
+    <path d="M 51.737354 183.319154  L 75.971014 203.696125  L 124.438335 212.240157  L 221.372975 213.738797  L 415.242255 213.810914  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l0_0" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.824 (95% CI 0.746 to 0.904) at n=1</title><defs>
+     <path id="m1b7d370010" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #1f77b4; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m1b7d370010" x="51.737354" y="183.319154" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_1" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.286 (95% CI 0.232 to 0.349) at n=2</title><defs>
+     <path id="m281cb7c500" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #ff7f0e; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m281cb7c500" x="75.971014" y="203.696125" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_2" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.061 (95% CI 0.031 to 0.098) at n=4</title><defs>
+     <path id="m78df544297" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #2ca02c; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m78df544297" x="124.438335" y="212.240157" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_3" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.021 (95% CI 0.001 to 0.054) at n=8</title><defs>
+     <path id="mf188d37552" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #d62728; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#mf188d37552" x="221.372975" y="213.738797" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_4" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.019 (95% CI 0.000 to 0.053) at n=16</title><defs>
+     <path id="mf3b9bb5aaf" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #9467bd; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#mf3b9bb5aaf" x="415.242255" y="213.810914" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_28">
+    <defs>
+     <path id="mce87d03f1f" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#mce87d03f1f" x="415.242255" y="213.810914" style="fill: #2a78d6; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_29">
+    <path d="M 51.737354 151.103432  L 75.971014 156.796456  L 124.438335 140.234618  L 221.372975 108.488564  L 415.242255 75.788655  " clip-path="url(#p2ba0fb4530)" style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l1_0" class="mark" tabindex="0">
+    <title>lies beyond the budget: 1.674 (95% CI 1.535 to 1.842) at n=1</title><defs>
+     <path id="m7e55d61a36" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #8c564b; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m7e55d61a36" x="51.737354" y="151.103432" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_1" class="mark" tabindex="0">
+    <title>lies beyond the budget: 1.524 (95% CI 1.355 to 1.722) at n=2</title><defs>
+     <path id="m2bf499f09f" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #e377c2; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m2bf499f09f" x="75.971014" y="156.796456" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_2" class="mark" tabindex="0">
+    <title>lies beyond the budget: 1.961 (95% CI 1.708 to 2.250) at n=4</title><defs>
+     <path id="mba64b1ae15" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #7f7f7f; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#mba64b1ae15" x="124.438335" y="140.234618" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_3" class="mark" tabindex="0">
+    <title>lies beyond the budget: 2.798 (95% CI 2.435 to 3.195) at n=8</title><defs>
+     <path id="m7c1c0eef26" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #bcbd22; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m7c1c0eef26" x="221.372975" y="108.488564" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_4" class="mark" tabindex="0">
+    <title>lies beyond the budget: 3.661 (95% CI 3.214 to 4.142) at n=16</title><defs>
+     <path id="m20c2bf0f48" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #17becf; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m20c2bf0f48" x="415.242255" y="75.788655" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_30">
+    <defs>
+     <path id="m146aa82cc4" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p2ba0fb4530)">
+     <use xlink:href="#m146aa82cc4" x="415.242255" y="75.788655" style="fill: #eb6834; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 33.562109 222.397891  L 33.562109 49.697539  " style="fill: none; stroke: #c3c2b7; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="patch_4">
+    <path d="M 33.562109 222.397891  L 433.4175 222.397891  " style="fill: none; stroke: #c3c2b7; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="text_16">
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; fill: #52514e" transform="translate(33.562109 32.014001)">budget 3, credulous judge; debater A argues the false answer; bands: 95% CI over 60</text>
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; fill: #52514e" transform="translate(33.562109 43.887438)">items</text>
+   </g>
+   <g id="text_17">
+    <text style="font-weight: 700; font-size: 10.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #0b0b0b" x="33.562109" y="17.697539" transform="rotate(-0 33.562109 17.697539)">Selection moves lies beyond the verification budget</text>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_31">
+     <path d="M 40.762109 60.176289  L 48.762109 60.176289  L 56.762109 60.176289  " style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_18">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="62.976289" transform="rotate(-0 63.162109 62.976289)">lies in checked claims</text>
+    </g>
+    <g id="line2d_32">
+     <path d="M 40.762109 72.176914  L 48.762109 72.176914  L 56.762109 72.176914  " style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="74.976914" transform="rotate(-0 63.162109 74.976914)">lies beyond the budget</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p2ba0fb4530">
+   <rect x="33.562109" y="49.697539" width="399.855391" height="172.700352" />
+  </clipPath>
+ </defs>
+</svg></div><div class="fig-dark"><svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns2="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 460.8 259.2" version="1.1" role="img">
+ <metadata>
+  <rdf:RDF>
+   <ns2:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+    <dc:date>2026-09-26T05:37:51.863861</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <ns2:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </ns2:Agent>
+    </dc:creator>
+   </ns2:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 259.2  L 460.8 259.2  L 460.8 0  L 0 0  z " style="fill: #1a1a19" />
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 33.562109 222.397891  L 433.4175 222.397891  L 433.4175 49.697539  L 33.562109 49.697539  z " style="fill: #1a1a19" />
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 75.971014 222.397891  L 75.971014 49.697539  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_2" />
+     <g id="text_1">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="75.971014" y="233.235781" transform="rotate(-0 75.971014 233.235781)">2</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 124.438335 222.397891  L 124.438335 49.697539  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_4" />
+     <g id="text_2">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="124.438335" y="233.235781" transform="rotate(-0 124.438335 233.235781)">4</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 172.905655 222.397891  L 172.905655 49.697539  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_6" />
+     <g id="text_3">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="172.905655" y="233.235781" transform="rotate(-0 172.905655 233.235781)">6</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 221.372975 222.397891  L 221.372975 49.697539  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_8" />
+     <g id="text_4">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="221.372975" y="233.235781" transform="rotate(-0 221.372975 233.235781)">8</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 269.840295 222.397891  L 269.840295 49.697539  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_10" />
+     <g id="text_5">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="269.840295" y="233.235781" transform="rotate(-0 269.840295 233.235781)">10</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 318.307615 222.397891  L 318.307615 49.697539  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_12" />
+     <g id="text_6">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="318.307615" y="233.235781" transform="rotate(-0 318.307615 233.235781)">12</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 366.774935 222.397891  L 366.774935 49.697539  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_14" />
+     <g id="text_7">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="366.774935" y="233.235781" transform="rotate(-0 366.774935 233.235781)">14</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 415.242255 222.397891  L 415.242255 49.697539  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_16" />
+     <g id="text_8">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="415.242255" y="233.235781" transform="rotate(-0 415.242255 233.235781)">16</text>
+     </g>
+    </g>
+    <g id="text_9">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="233.489805" y="246.236484" transform="rotate(-0 233.489805 246.236484)">best-of-n (debater A)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_17">
+      <path d="M 33.562109 214.547875  L 433.4175 214.547875  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_18" />
+     <g id="text_10">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="217.96682" transform="rotate(-0 29.562109 217.96682)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_19">
+      <path d="M 33.562109 176.647025  L 433.4175 176.647025  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_20" />
+     <g id="text_11">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="180.065971" transform="rotate(-0 29.562109 180.065971)">1</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_21">
+      <path d="M 33.562109 138.746176  L 433.4175 138.746176  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_22" />
+     <g id="text_12">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="142.165122" transform="rotate(-0 29.562109 142.165122)">2</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_23">
+      <path d="M 33.562109 100.845327  L 433.4175 100.845327  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_24" />
+     <g id="text_13">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="104.264273" transform="rotate(-0 29.562109 104.264273)">3</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_25">
+      <path d="M 33.562109 62.944478  L 433.4175 62.944478  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_26" />
+     <g id="text_14">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="66.363423" transform="rotate(-0 29.562109 66.363423)">4</text>
+     </g>
+    </g>
+    <g id="text_15">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="17.67375" y="136.047715" transform="rotate(-90 17.67375 136.047715)">false claims per debate</text>
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_1">
+    <defs>
+     <path id="m81ccdf2f95" d="M 51.737354 -78.902057  L 51.737354 -72.938595  L 75.971014 -53.458282  L 124.438335 -45.817522  L 221.372975 -44.676465  L 415.242255 -44.652125  L 415.242255 -46.652448  L 415.242255 -46.652448  L 221.372975 -46.69095  L 124.438335 -48.350852  L 75.971014 -57.865309  L 51.737354 -78.902057  z " />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m81ccdf2f95" x="0" y="259.2" style="fill: #3987e5; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_2">
+    <defs>
+     <path id="m97e335d947" d="M 51.737354 -114.456804  L 51.737354 -102.82302  L 75.971014 -96.019159  L 124.438335 -109.395353  L 221.372975 -136.927687  L 415.242255 -166.458611  L 415.242255 -201.652445  L 415.242255 -201.652445  L 221.372975 -165.756374  L 124.438335 -129.940455  L 75.971014 -109.929034  L 51.737354 -114.456804  z " />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m97e335d947" x="0" y="259.2" style="fill: #d95926; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="line2d_27">
+    <path d="M 51.737354 183.319154  L 75.971014 203.696125  L 124.438335 212.240157  L 221.372975 213.738797  L 415.242255 213.810914  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #3987e5; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l0_0" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.824 (95% CI 0.746 to 0.904) at n=1</title><defs>
+     <path id="m90c6e2dc02" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #1f77b4; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m90c6e2dc02" x="51.737354" y="183.319154" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_1" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.286 (95% CI 0.232 to 0.349) at n=2</title><defs>
+     <path id="m38fa9f9ca9" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #ff7f0e; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m38fa9f9ca9" x="75.971014" y="203.696125" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_2" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.061 (95% CI 0.031 to 0.098) at n=4</title><defs>
+     <path id="m014c11aa29" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #2ca02c; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m014c11aa29" x="124.438335" y="212.240157" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_3" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.021 (95% CI 0.001 to 0.054) at n=8</title><defs>
+     <path id="mf8715a1b1e" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #d62728; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#mf8715a1b1e" x="221.372975" y="213.738797" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_4" class="mark" tabindex="0">
+    <title>lies in checked claims: 0.019 (95% CI 0.000 to 0.053) at n=16</title><defs>
+     <path id="m9e10f31961" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #9467bd; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m9e10f31961" x="415.242255" y="213.810914" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_28">
+    <defs>
+     <path id="ma7601edc2c" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#ma7601edc2c" x="415.242255" y="213.810914" style="fill: #3987e5; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_29">
+    <path d="M 51.737354 151.103432  L 75.971014 156.796456  L 124.438335 140.234618  L 221.372975 108.488564  L 415.242255 75.788655  " clip-path="url(#p458d5f8c56)" style="fill: none; stroke: #d95926; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l1_0" class="mark" tabindex="0">
+    <title>lies beyond the budget: 1.674 (95% CI 1.535 to 1.842) at n=1</title><defs>
+     <path id="m276dcf127a" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #8c564b; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m276dcf127a" x="51.737354" y="151.103432" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_1" class="mark" tabindex="0">
+    <title>lies beyond the budget: 1.524 (95% CI 1.355 to 1.722) at n=2</title><defs>
+     <path id="m32aaf9444e" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #e377c2; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m32aaf9444e" x="75.971014" y="156.796456" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_2" class="mark" tabindex="0">
+    <title>lies beyond the budget: 1.961 (95% CI 1.708 to 2.250) at n=4</title><defs>
+     <path id="m95ee9529ba" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #7f7f7f; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m95ee9529ba" x="124.438335" y="140.234618" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_3" class="mark" tabindex="0">
+    <title>lies beyond the budget: 2.798 (95% CI 2.435 to 3.195) at n=8</title><defs>
+     <path id="m74dc5195e2" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #bcbd22; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m74dc5195e2" x="221.372975" y="108.488564" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_4" class="mark" tabindex="0">
+    <title>lies beyond the budget: 3.661 (95% CI 3.214 to 4.142) at n=16</title><defs>
+     <path id="m7718722686" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #17becf; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m7718722686" x="415.242255" y="75.788655" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_30">
+    <defs>
+     <path id="m3770035895" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p458d5f8c56)">
+     <use xlink:href="#m3770035895" x="415.242255" y="75.788655" style="fill: #d95926; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 33.562109 222.397891  L 33.562109 49.697539  " style="fill: none; stroke: #383835; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="patch_4">
+    <path d="M 33.562109 222.397891  L 433.4175 222.397891  " style="fill: none; stroke: #383835; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="text_16">
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; fill: #c3c2b7" transform="translate(33.562109 32.014001)">budget 3, credulous judge; debater A argues the false answer; bands: 95% CI over 60</text>
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; fill: #c3c2b7" transform="translate(33.562109 43.887438)">items</text>
+   </g>
+   <g id="text_17">
+    <text style="font-weight: 700; font-size: 10.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #ffffff" x="33.562109" y="17.697539" transform="rotate(-0 33.562109 17.697539)">Selection moves lies beyond the verification budget</text>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_31">
+     <path d="M 40.762109 60.176289  L 48.762109 60.176289  L 56.762109 60.176289  " style="fill: none; stroke: #3987e5; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_18">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="62.976289" transform="rotate(-0 63.162109 62.976289)">lies in checked claims</text>
+    </g>
+    <g id="line2d_32">
+     <path d="M 40.762109 72.176914  L 48.762109 72.176914  L 56.762109 72.176914  " style="fill: none; stroke: #d95926; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="74.976914" transform="rotate(-0 63.162109 74.976914)">lies beyond the budget</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p458d5f8c56">
+   <rect x="33.562109" y="49.697539" width="399.855391" height="172.700352" />
+  </clipPath>
+ </defs>
+</svg></div></div><details><summary>Table</summary><table><thead><tr><th class="n">n</th><th class="n">lies in checked claims</th><th class="n">lies beyond the budget</th><th class="n">lies in checked claims lo</th><th class="n">lies in checked claims hi</th><th class="n">lies beyond the budget lo</th><th class="n">lies beyond the budget hi</th></tr></thead><tbody><tr><td class="n">1.000</td><td class="n">0.824</td><td class="n">1.674</td><td class="n">0.746</td><td class="n">0.904</td><td class="n">1.535</td><td class="n">1.842</td></tr><tr><td class="n">2.000</td><td class="n">0.286</td><td class="n">1.524</td><td class="n">0.232</td><td class="n">0.349</td><td class="n">1.355</td><td class="n">1.722</td></tr><tr><td class="n">4.000</td><td class="n">0.061</td><td class="n">1.961</td><td class="n">0.031</td><td class="n">0.098</td><td class="n">1.708</td><td class="n">2.250</td></tr><tr><td class="n">8.000</td><td class="n">0.021</td><td class="n">2.798</td><td class="n">0.001</td><td class="n">0.054</td><td class="n">2.435</td><td class="n">3.195</td></tr><tr><td class="n">16.000</td><td class="n">0.019</td><td class="n">3.661</td><td class="n">0.000</td><td class="n">0.053</td><td class="n">3.214</td><td class="n">4.142</td></tr></tbody></table></details></div><h2>It depends on who believes unchecked claims<span class="tip" tabindex="0" data-tip="A rational judge ignores unverified claims, so lies beyond the budget earn nothing and selection does not favour them. With every claim checked there is nowhere left to hide a lie and selection removes most of them - yet the naive judge is still misled (judge_correct in the table): debater A shows more favourable true bits than its honest opponent, and a naive judge reads a selected sample as a random one (Proposition 3). Verification bounds what can be said, not what is left out.">?</span></h2><div class="card"><div class="fig"><div class="fig-light"><svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns2="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 460.8 259.2" version="1.1" role="img">
+ <metadata>
+  <rdf:RDF>
+   <ns2:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+    <dc:date>2026-09-26T05:37:52.038749</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <ns2:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </ns2:Agent>
+    </dc:creator>
+   </ns2:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 259.2  L 460.8 259.2  L 460.8 0  L 0 0  z " style="fill: #fcfcfb" />
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  L 451.08 37.697539  L 33.562109 37.697539  z " style="fill: #fcfcfb" />
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 77.84431 222.397891  L 77.84431 37.697539  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_2" />
+     <g id="text_1">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="77.84431" y="233.235781" transform="rotate(-0 77.84431 233.235781)">2</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 128.452539 222.397891  L 128.452539 37.697539  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_4" />
+     <g id="text_2">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="128.452539" y="233.235781" transform="rotate(-0 128.452539 233.235781)">4</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 179.060768 222.397891  L 179.060768 37.697539  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_6" />
+     <g id="text_3">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="179.060768" y="233.235781" transform="rotate(-0 179.060768 233.235781)">6</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 229.668997 222.397891  L 229.668997 37.697539  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_8" />
+     <g id="text_4">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="229.668997" y="233.235781" transform="rotate(-0 229.668997 233.235781)">8</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 280.277227 222.397891  L 280.277227 37.697539  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_10" />
+     <g id="text_5">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="280.277227" y="233.235781" transform="rotate(-0 280.277227 233.235781)">10</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 330.885456 222.397891  L 330.885456 37.697539  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_12" />
+     <g id="text_6">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="330.885456" y="233.235781" transform="rotate(-0 330.885456 233.235781)">12</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 381.493685 222.397891  L 381.493685 37.697539  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_14" />
+     <g id="text_7">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="381.493685" y="233.235781" transform="rotate(-0 381.493685 233.235781)">14</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 432.101914 222.397891  L 432.101914 37.697539  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_16" />
+     <g id="text_8">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="432.101914" y="233.235781" transform="rotate(-0 432.101914 233.235781)">16</text>
+     </g>
+    </g>
+    <g id="text_9">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="242.321055" y="246.236484" transform="rotate(-0 242.321055 246.236484)">best-of-n (debater A)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_17">
+      <path d="M 33.562109 214.00242  L 451.08 214.00242  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_18" />
+     <g id="text_10">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="217.421365" transform="rotate(-0 29.562109 217.421365)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_19">
+      <path d="M 33.562109 173.468049  L 451.08 173.468049  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_20" />
+     <g id="text_11">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="176.886994" transform="rotate(-0 29.562109 176.886994)">1</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_21">
+      <path d="M 33.562109 132.933678  L 451.08 132.933678  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_22" />
+     <g id="text_12">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="136.352623" transform="rotate(-0 29.562109 136.352623)">2</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_23">
+      <path d="M 33.562109 92.399306  L 451.08 92.399306  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_24" />
+     <g id="text_13">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="95.818252" transform="rotate(-0 29.562109 95.818252)">3</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_25">
+      <path d="M 33.562109 51.864935  L 451.08 51.864935  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_26" />
+     <g id="text_14">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="55.28388" transform="rotate(-0 29.562109 55.28388)">4</text>
+     </g>
+    </g>
+    <g id="text_15">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="17.67375" y="130.047715" transform="rotate(-90 17.67375 130.047715)">unchecked false claims per debate</text>
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_1">
+    <defs>
+     <path id="m3fed5ff8a2" d="M 52.540195 -119.852603  L 52.540195 -107.410451  L 77.84431 -100.133827  L 128.452539 -114.439459  L 229.668997 -143.884864  L 432.101914 -175.46773  L 432.101914 -213.10699  L 432.101914 -213.10699  L 229.668997 -174.716698  L 128.452539 -136.412127  L 77.84431 -115.010223  L 52.540195 -119.852603  z " />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m3fed5ff8a2" x="0" y="259.2" style="fill: #2a78d6; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_2">
+    <defs>
+     <path id="m38d13924a6" d="M 52.540195 -119.852603  L 52.540195 -107.410451  L 77.84431 -92.1228  L 128.452539 -87.407057  L 229.668997 -85.881793  L 432.101914 -85.761604  L 432.101914 -99.781774  L 432.101914 -99.781774  L 229.668997 -99.895182  L 128.452539 -100.697384  L 77.84431 -105.284226  L 52.540195 -119.852603  z " />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m38d13924a6" x="0" y="259.2" style="fill: #eb6834; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_3">
+    <defs>
+     <path id="m7281e071e1" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 77.84431 -45.19758  L 128.452539 -45.19758  L 229.668997 -45.19758  L 432.101914 -45.19758  L 432.101914 -45.19758  L 432.101914 -45.19758  L 229.668997 -45.19758  L 128.452539 -45.19758  L 77.84431 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m7281e071e1" x="0" y="259.2" style="fill: #1baf7a; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="line2d_27">
+    <path d="M 52.540195 146.149572  L 77.84431 152.238172  L 128.452539 134.525543  L 229.668997 100.573629  L 432.101914 65.601583  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l0_0" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 1.674 (95% CI 1.535 to 1.842) at n=1</title><defs>
+     <path id="m8d50400624" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #1f77b4; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m8d50400624" x="52.540195" y="146.149572" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_1" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 1.524 (95% CI 1.355 to 1.722) at n=2</title><defs>
+     <path id="m9ddf906de0" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #ff7f0e; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m9ddf906de0" x="77.84431" y="152.238172" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_2" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 1.961 (95% CI 1.708 to 2.250) at n=4</title><defs>
+     <path id="m4163b6bd4f" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #2ca02c; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m4163b6bd4f" x="128.452539" y="134.525543" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_3" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 2.798 (95% CI 2.435 to 3.195) at n=8</title><defs>
+     <path id="m6e1bcd0bb8" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #d62728; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m6e1bcd0bb8" x="229.668997" y="100.573629" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_4" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 3.661 (95% CI 3.214 to 4.142) at n=16</title><defs>
+     <path id="m601b000968" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #9467bd; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m601b000968" x="432.101914" y="65.601583" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_28">
+    <defs>
+     <path id="mbb4db184bf" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#mbb4db184bf" x="432.101914" y="65.601583" style="fill: #2a78d6; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_29">
+    <path d="M 52.540195 146.149572  L 77.84431 161.166993  L 128.452539 165.942897  L 229.668997 166.878758  L 432.101914 167.006201  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l1_0" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.674 (95% CI 1.535 to 1.842) at n=1</title><defs>
+     <path id="mf33707d4bb" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #8c564b; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#mf33707d4bb" x="52.540195" y="146.149572" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_1" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.303 (95% CI 1.158 to 1.482) at n=2</title><defs>
+     <path id="m650d8a79ad" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #e377c2; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m650d8a79ad" x="77.84431" y="161.166993" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_2" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.186 (95% CI 1.041 to 1.369) at n=4</title><defs>
+     <path id="m9b24772469" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #7f7f7f; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m9b24772469" x="128.452539" y="165.942897" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_3" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.163 (95% CI 1.004 to 1.349) at n=8</title><defs>
+     <path id="m7b4be853fc" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #bcbd22; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m7b4be853fc" x="229.668997" y="166.878758" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_4" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.159 (95% CI 1.001 to 1.347) at n=16</title><defs>
+     <path id="m78b07b7d7f" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #17becf; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m78b07b7d7f" x="432.101914" y="167.006201" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_30">
+    <defs>
+     <path id="mef580ec58b" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#mef580ec58b" x="432.101914" y="167.006201" style="fill: #eb6834; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_31">
+    <path d="M 52.540195 214.00242  L 77.84431 214.00242  L 128.452539 214.00242  L 229.668997 214.00242  L 432.101914 214.00242  " clip-path="url(#pd8d9d5a813)" style="fill: none; stroke: #1baf7a; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l2_0" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=1</title><g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m8d50400624" x="52.540195" y="214.00242" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_1" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=2</title><g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m9ddf906de0" x="77.84431" y="214.00242" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_2" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=4</title><g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m4163b6bd4f" x="128.452539" y="214.00242" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_3" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=8</title><g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m6e1bcd0bb8" x="229.668997" y="214.00242" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_4" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=16</title><g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m601b000968" x="432.101914" y="214.00242" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_32">
+    <defs>
+     <path id="m1bc5acbf53" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pd8d9d5a813)">
+     <use xlink:href="#m1bc5acbf53" x="432.101914" y="214.00242" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 33.562109 222.397891  L 33.562109 37.697539  " style="fill: none; stroke: #c3c2b7; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="patch_4">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  " style="fill: none; stroke: #c3c2b7; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="text_16">
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="33.562109" y="30.824001" transform="rotate(-0 33.562109 30.824001)">lies beyond the budget under selection, by condition; bands: 95% CI over items</text>
+   </g>
+   <g id="text_17">
+    <text style="font-weight: 700; font-size: 10.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #0b0b0b" x="33.562109" y="17.697539" transform="rotate(-0 33.562109 17.697539)">...only where unchecked claims are believed</text>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_33">
+     <path d="M 40.762109 48.176289  L 48.762109 48.176289  L 56.762109 48.176289  " style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_18">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="50.976289" transform="rotate(-0 63.162109 50.976289)">budget 3, credulous judge</text>
+    </g>
+    <g id="line2d_34">
+     <path d="M 40.762109 60.176914  L 48.762109 60.176914  L 56.762109 60.176914  " style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="62.976914" transform="rotate(-0 63.162109 62.976914)">budget 3, rational judge</text>
+    </g>
+    <g id="line2d_35">
+     <path d="M 40.762109 72.177539  L 48.762109 72.177539  L 56.762109 72.177539  " style="fill: none; stroke: #1baf7a; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_20">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="74.977539" transform="rotate(-0 63.162109 74.977539)">every claim checked, credulous judge</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pd8d9d5a813">
+   <rect x="33.562109" y="37.697539" width="417.517891" height="184.700352" />
+  </clipPath>
+ </defs>
+</svg></div><div class="fig-dark"><svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns2="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 460.8 259.2" version="1.1" role="img">
+ <metadata>
+  <rdf:RDF>
+   <ns2:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+    <dc:date>2026-09-26T05:37:52.102422</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <ns2:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </ns2:Agent>
+    </dc:creator>
+   </ns2:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 259.2  L 460.8 259.2  L 460.8 0  L 0 0  z " style="fill: #1a1a19" />
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  L 451.08 37.697539  L 33.562109 37.697539  z " style="fill: #1a1a19" />
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 77.84431 222.397891  L 77.84431 37.697539  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_2" />
+     <g id="text_1">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="77.84431" y="233.235781" transform="rotate(-0 77.84431 233.235781)">2</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 128.452539 222.397891  L 128.452539 37.697539  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_4" />
+     <g id="text_2">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="128.452539" y="233.235781" transform="rotate(-0 128.452539 233.235781)">4</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 179.060768 222.397891  L 179.060768 37.697539  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_6" />
+     <g id="text_3">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="179.060768" y="233.235781" transform="rotate(-0 179.060768 233.235781)">6</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 229.668997 222.397891  L 229.668997 37.697539  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_8" />
+     <g id="text_4">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="229.668997" y="233.235781" transform="rotate(-0 229.668997 233.235781)">8</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 280.277227 222.397891  L 280.277227 37.697539  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_10" />
+     <g id="text_5">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="280.277227" y="233.235781" transform="rotate(-0 280.277227 233.235781)">10</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 330.885456 222.397891  L 330.885456 37.697539  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_12" />
+     <g id="text_6">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="330.885456" y="233.235781" transform="rotate(-0 330.885456 233.235781)">12</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 381.493685 222.397891  L 381.493685 37.697539  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_14" />
+     <g id="text_7">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="381.493685" y="233.235781" transform="rotate(-0 381.493685 233.235781)">14</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 432.101914 222.397891  L 432.101914 37.697539  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_16" />
+     <g id="text_8">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="432.101914" y="233.235781" transform="rotate(-0 432.101914 233.235781)">16</text>
+     </g>
+    </g>
+    <g id="text_9">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="242.321055" y="246.236484" transform="rotate(-0 242.321055 246.236484)">best-of-n (debater A)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_17">
+      <path d="M 33.562109 214.00242  L 451.08 214.00242  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_18" />
+     <g id="text_10">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="217.421365" transform="rotate(-0 29.562109 217.421365)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_19">
+      <path d="M 33.562109 173.468049  L 451.08 173.468049  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_20" />
+     <g id="text_11">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="176.886994" transform="rotate(-0 29.562109 176.886994)">1</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_21">
+      <path d="M 33.562109 132.933678  L 451.08 132.933678  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_22" />
+     <g id="text_12">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="136.352623" transform="rotate(-0 29.562109 136.352623)">2</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_23">
+      <path d="M 33.562109 92.399306  L 451.08 92.399306  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_24" />
+     <g id="text_13">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="95.818252" transform="rotate(-0 29.562109 95.818252)">3</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_25">
+      <path d="M 33.562109 51.864935  L 451.08 51.864935  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_26" />
+     <g id="text_14">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="55.28388" transform="rotate(-0 29.562109 55.28388)">4</text>
+     </g>
+    </g>
+    <g id="text_15">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="17.67375" y="130.047715" transform="rotate(-90 17.67375 130.047715)">unchecked false claims per debate</text>
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_1">
+    <defs>
+     <path id="m81edb05271" d="M 52.540195 -119.852603  L 52.540195 -107.410451  L 77.84431 -100.133827  L 128.452539 -114.439459  L 229.668997 -143.884864  L 432.101914 -175.46773  L 432.101914 -213.10699  L 432.101914 -213.10699  L 229.668997 -174.716698  L 128.452539 -136.412127  L 77.84431 -115.010223  L 52.540195 -119.852603  z " />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m81edb05271" x="0" y="259.2" style="fill: #3987e5; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_2">
+    <defs>
+     <path id="med60953b31" d="M 52.540195 -119.852603  L 52.540195 -107.410451  L 77.84431 -92.1228  L 128.452539 -87.407057  L 229.668997 -85.881793  L 432.101914 -85.761604  L 432.101914 -99.781774  L 432.101914 -99.781774  L 229.668997 -99.895182  L 128.452539 -100.697384  L 77.84431 -105.284226  L 52.540195 -119.852603  z " />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#med60953b31" x="0" y="259.2" style="fill: #d95926; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_3">
+    <defs>
+     <path id="m3fec3d72a4" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 77.84431 -45.19758  L 128.452539 -45.19758  L 229.668997 -45.19758  L 432.101914 -45.19758  L 432.101914 -45.19758  L 432.101914 -45.19758  L 229.668997 -45.19758  L 128.452539 -45.19758  L 77.84431 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m3fec3d72a4" x="0" y="259.2" style="fill: #199e70; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="line2d_27">
+    <path d="M 52.540195 146.149572  L 77.84431 152.238172  L 128.452539 134.525543  L 229.668997 100.573629  L 432.101914 65.601583  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #3987e5; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l0_0" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 1.674 (95% CI 1.535 to 1.842) at n=1</title><defs>
+     <path id="ma5f76b0c5d" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #1f77b4; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#ma5f76b0c5d" x="52.540195" y="146.149572" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_1" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 1.524 (95% CI 1.355 to 1.722) at n=2</title><defs>
+     <path id="m6ea720cd69" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #ff7f0e; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m6ea720cd69" x="77.84431" y="152.238172" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_2" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 1.961 (95% CI 1.708 to 2.250) at n=4</title><defs>
+     <path id="m386ff43b6c" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #2ca02c; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m386ff43b6c" x="128.452539" y="134.525543" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_3" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 2.798 (95% CI 2.435 to 3.195) at n=8</title><defs>
+     <path id="meae5f4bce6" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #d62728; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#meae5f4bce6" x="229.668997" y="100.573629" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_4" class="mark" tabindex="0">
+    <title>budget 3, credulous judge: 3.661 (95% CI 3.214 to 4.142) at n=16</title><defs>
+     <path id="mb29eccb584" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #9467bd; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#mb29eccb584" x="432.101914" y="65.601583" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_28">
+    <defs>
+     <path id="mda23f21c2a" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#mda23f21c2a" x="432.101914" y="65.601583" style="fill: #3987e5; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_29">
+    <path d="M 52.540195 146.149572  L 77.84431 161.166993  L 128.452539 165.942897  L 229.668997 166.878758  L 432.101914 167.006201  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #d95926; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l1_0" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.674 (95% CI 1.535 to 1.842) at n=1</title><defs>
+     <path id="m87a8443291" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #8c564b; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m87a8443291" x="52.540195" y="146.149572" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_1" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.303 (95% CI 1.158 to 1.482) at n=2</title><defs>
+     <path id="m3ebf984eed" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #e377c2; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m3ebf984eed" x="77.84431" y="161.166993" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_2" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.186 (95% CI 1.041 to 1.369) at n=4</title><defs>
+     <path id="m74702144b3" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #7f7f7f; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m74702144b3" x="128.452539" y="165.942897" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_3" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.163 (95% CI 1.004 to 1.349) at n=8</title><defs>
+     <path id="m23cc557aaf" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #bcbd22; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m23cc557aaf" x="229.668997" y="166.878758" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_4" class="mark" tabindex="0">
+    <title>budget 3, rational judge: 1.159 (95% CI 1.001 to 1.347) at n=16</title><defs>
+     <path id="me425364803" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #17becf; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#me425364803" x="432.101914" y="167.006201" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_30">
+    <defs>
+     <path id="m66ce9f5755" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m66ce9f5755" x="432.101914" y="167.006201" style="fill: #d95926; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_31">
+    <path d="M 52.540195 214.00242  L 77.84431 214.00242  L 128.452539 214.00242  L 229.668997 214.00242  L 432.101914 214.00242  " clip-path="url(#pe89a6a0554)" style="fill: none; stroke: #199e70; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l2_0" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=1</title><g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#ma5f76b0c5d" x="52.540195" y="214.00242" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_1" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=2</title><g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m6ea720cd69" x="77.84431" y="214.00242" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_2" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=4</title><g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#m386ff43b6c" x="128.452539" y="214.00242" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_3" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=8</title><g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#meae5f4bce6" x="229.668997" y="214.00242" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_4" class="mark" tabindex="0">
+    <title>every claim checked, credulous judge: 0.000 (95% CI 0.000 to 0.000) at n=16</title><g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#mb29eccb584" x="432.101914" y="214.00242" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_32">
+    <defs>
+     <path id="mc243d3e4fa" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pe89a6a0554)">
+     <use xlink:href="#mc243d3e4fa" x="432.101914" y="214.00242" style="fill: #199e70; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 33.562109 222.397891  L 33.562109 37.697539  " style="fill: none; stroke: #383835; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="patch_4">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  " style="fill: none; stroke: #383835; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="text_16">
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="33.562109" y="30.824001" transform="rotate(-0 33.562109 30.824001)">lies beyond the budget under selection, by condition; bands: 95% CI over items</text>
+   </g>
+   <g id="text_17">
+    <text style="font-weight: 700; font-size: 10.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #ffffff" x="33.562109" y="17.697539" transform="rotate(-0 33.562109 17.697539)">...only where unchecked claims are believed</text>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_33">
+     <path d="M 40.762109 48.176289  L 48.762109 48.176289  L 56.762109 48.176289  " style="fill: none; stroke: #3987e5; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_18">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="50.976289" transform="rotate(-0 63.162109 50.976289)">budget 3, credulous judge</text>
+    </g>
+    <g id="line2d_34">
+     <path d="M 40.762109 60.176914  L 48.762109 60.176914  L 56.762109 60.176914  " style="fill: none; stroke: #d95926; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="62.976914" transform="rotate(-0 63.162109 62.976914)">budget 3, rational judge</text>
+    </g>
+    <g id="line2d_35">
+     <path d="M 40.762109 72.177539  L 48.762109 72.177539  L 56.762109 72.177539  " style="fill: none; stroke: #199e70; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_20">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="74.977539" transform="rotate(-0 63.162109 74.977539)">every claim checked, credulous judge</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pe89a6a0554">
+   <rect x="33.562109" y="37.697539" width="417.517891" height="184.700352" />
+  </clipPath>
+ </defs>
+</svg></div></div><details><summary>Table</summary><table><thead><tr><th class="">condition</th><th class="n">n</th><th class="n">reward_debater_a</th><th class="n">lies_checked_debater_a</th><th class="n">lies_checked_debater_a_ci_low</th><th class="n">lies_checked_debater_a_ci_high</th><th class="n">lies_unchecked_debater_a</th><th class="n">lies_unchecked_debater_a_ci_low</th><th class="n">lies_unchecked_debater_a_ci_high</th><th class="n">honesty_debater_a</th><th class="n">judge_correct</th></tr></thead><tbody><tr><td class="">budget 3, credulous judge</td><td class="n">1</td><td class="n">-1.119</td><td class="n">0.824</td><td class="n">0.746</td><td class="n">0.904</td><td class="n">1.674</td><td class="n">1.535</td><td class="n">1.842</td><td class="n">0.654</td><td class="n">0.505</td></tr><tr><td class="">budget 3, credulous judge</td><td class="n">2</td><td class="n">-0.588</td><td class="n">0.286</td><td class="n">0.232</td><td class="n">0.349</td><td class="n">1.524</td><td class="n">1.355</td><td class="n">1.722</td><td class="n">0.767</td><td class="n">0.270</td></tr><tr><td class="">budget 3, credulous judge</td><td class="n">4</td><td class="n">-0.321</td><td class="n">0.061</td><td class="n">0.031</td><td class="n">0.098</td><td class="n">1.961</td><td class="n">1.708</td><td class="n">2.250</td><td class="n">0.766</td><td class="n">0.097</td></tr><tr><td class="">budget 3, credulous judge</td><td class="n">8</td><td class="n">-0.208</td><td class="n">0.021</td><td class="n">0.001</td><td class="n">0.054</td><td class="n">2.798</td><td class="n">2.435</td><td class="n">3.195</td><td class="n">0.695</td><td class="n">0.040</td></tr><tr><td class="">budget 3, credulous judge</td><td class="n">16</td><td class="n">-0.159</td><td class="n">0.019</td><td class="n">0.000</td><td class="n">0.053</td><td class="n">3.661</td><td class="n">3.214</td><td class="n">4.142</td><td class="n">0.624</td><td class="n">0.033</td></tr><tr><td class="">budget 3, rational judge</td><td class="n">1</td><td class="n">-1.303</td><td class="n">0.824</td><td class="n">0.746</td><td class="n">0.904</td><td class="n">1.674</td><td class="n">1.535</td><td class="n">1.842</td><td class="n">0.654</td><td class="n">0.737</td></tr><tr><td class="">budget 3, rational judge</td><td class="n">2</td><td class="n">-0.884</td><td class="n">0.286</td><td class="n">0.232</td><td class="n">0.349</td><td class="n">1.303</td><td class="n">1.158</td><td class="n">1.482</td><td class="n">0.790</td><td class="n">0.619</td></tr><tr><td class="">budget 3, rational judge</td><td class="n">4</td><td class="n">-0.735</td><td class="n">0.061</td><td class="n">0.031</td><td class="n">0.098</td><td class="n">1.186</td><td class="n">1.041</td><td class="n">1.369</td><td class="n">0.846</td><td class="n">0.540</td></tr><tr><td class="">budget 3, rational judge</td><td class="n">8</td><td class="n">-0.709</td><td class="n">0.021</td><td class="n">0.001</td><td class="n">0.054</td><td class="n">1.163</td><td class="n">1.004</td><td class="n">1.349</td><td class="n">0.856</td><td class="n">0.518</td></tr><tr><td class="">budget 3, rational judge</td><td class="n">16</td><td class="n">-0.708</td><td class="n">0.019</td><td class="n">0.000</td><td class="n">0.053</td><td class="n">1.159</td><td class="n">1.001</td><td class="n">1.347</td><td class="n">0.857</td><td class="n">0.517</td></tr><tr><td class="">every claim checked, credulous judge</td><td class="n">1</td><td class="n">-1.929</td><td class="n">2.498</td><td class="n">2.328</td><td class="n">2.679</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.662</td><td class="n">0.527</td></tr><tr><td class="">every claim checked, credulous judge</td><td class="n">2</td><td class="n">-0.727</td><td class="n">1.330</td><td class="n">1.202</td><td class="n">1.484</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.810</td><td class="n">0.309</td></tr><tr><td class="">every claim checked, credulous judge</td><td class="n">4</td><td class="n">-0.351</td><td class="n">0.776</td><td class="n">0.670</td><td class="n">0.893</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.892</td><td class="n">0.152</td></tr><tr><td class="">every claim checked, credulous judge</td><td class="n">8</td><td class="n">-0.250</td><td class="n">0.428</td><td class="n">0.341</td><td class="n">0.528</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.940</td><td class="n">0.083</td></tr><tr><td class="">every claim checked, credulous judge</td><td class="n">16</td><td class="n">-0.214</td><td class="n">0.242</td><td class="n">0.151</td><td class="n">0.347</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.965</td><td class="n">0.050</td></tr></tbody></table></details></div><p>All agents here are scripted: debater A's base policy samples claim counts, lie rates and lie placement, and judges compute exact posteriors. Best-of-n is computed exactly from the sampled pools (samplers.pools.OptimizationExperiment). The demo illustrates the machinery, not LLM behaviour.</p></div><script>
+(function(){
+  const root=document.documentElement, b=document.getElementById('theme');
+  if(b){b.addEventListener('click',()=>{const d=root.getAttribute('data-theme');
+    const dark=d? d==='light' : !window.matchMedia('(prefers-color-scheme: dark)').matches;
+    root.setAttribute('data-theme', dark?'dark':'light');});}
+  const m=document.getElementById('f-mech'), p=document.getElementById('f-prof'), q=document.getElementById('f-q'),
+        n=document.getElementById('f-n');
+  function apply(){let shown=0;document.querySelectorAll('.ep').forEach(e=>{
+    const ok=(!m||!m.value||e.dataset.mech===m.value)&&(!p||!p.value||e.dataset.prof===p.value)&&
+      (!q||!q.value||e.textContent.toLowerCase().includes(q.value.toLowerCase()));
+    e.style.display=ok?'':'none'; if(ok) shown++;}); if(n) n.textContent=shown+' shown';}
+  [m,p,q].forEach(x=>x&&x.addEventListener('input',apply)); apply();
+})();
+</script></body></html>

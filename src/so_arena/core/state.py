@@ -62,7 +62,7 @@ from pydantic import BaseModel
 
 from so_arena.core.items import TaskItem
 from so_arena.core.tools import Tool, ToolResult
-from so_arena.core.verification import Verification, Verifier, neutralize_markers
+from so_arena.core.verification import Verification, Verifier, neutralize_markers, perturb_output
 
 if TYPE_CHECKING:
     from so_arena.core.game import Game
@@ -1795,6 +1795,24 @@ class CommandClaimVerifier(Verifier):
             status = "verified"
         return Verification(claim=claim, status=status, output=output)
 
+    def forge(self, result, rng):
+        """An erring executor (verification noise), in its own output format - the command's output, then
+        ``[exit code N]``: a verified claim shown printing something else, a refuted one printing exactly its
+        ``expect`` (without one, a failing command shown as a silent success), an executed one's output perturbed."""
+        body, sep, code = (result.output or "").rpartition("\n[exit code ")
+        if not sep:
+            body, code = "", (result.output or "").removeprefix("[exit code ")
+        if result.status == "refuted":
+            expect = result.claim.attrs.get("expect")
+            if expect is None:
+                return result.model_copy(update={"status": "executed", "output": "[exit code 0]"})
+            return result.model_copy(update={"status": "verified", "output": f"{expect.strip()}\n[exit code 0]"})
+        if result.status in ("verified", "executed") and body.strip() and code:
+            wrong = perturb_output(body, rng)
+            return result.model_copy(update={"status": "refuted" if result.status == "verified" else "executed",
+                                             "output": f"{wrong}\n[exit code {code}"})
+        return None if result.status == "verified" else result
+
 
 def _restore(ws: Workspace, src: Path, rel: str) -> None:
     """Make entry ``rel`` of the working copy what it is in the tree ``src`` (removed if absent there)."""
@@ -1910,6 +1928,22 @@ class QueryClaimVerifier(Verifier):
         if restates_expect(claim.content, claim.attrs["expect"]):
             return Verification(claim=claim, status="executed", output=f"{shown}\n{RESTATED_NOTE}")
         return Verification(claim=claim, status="verified", output=shown)
+
+    def forge(self, result, rng):
+        """An erring query executor (verification noise): a verified result shown as a different one, a refuted
+        claim's result shown as exactly its ``expect`` (a failed query, as returning no rows), an executed
+        result perturbed. An empty result is not got wrong."""
+        if result.output == "(no rows)":
+            return result
+        if result.status == "verified":
+            wrong = Verifier.forge(self, result.model_copy(update={"status": "executed"}), rng)
+            return wrong.model_copy(update={"status": "refuted"}) if wrong.output != result.output else None
+        if result.status == "refuted":
+            expect = result.claim.attrs.get("expect")
+            if expect is None:
+                return result.model_copy(update={"status": "executed", "output": "(no rows)"})
+            return result.model_copy(update={"status": "verified", "output": expect.strip()})
+        return super().forge(result, rng)
 
 
 # ============================================================================== ground truth helpers

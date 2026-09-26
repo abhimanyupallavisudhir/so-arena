@@ -143,8 +143,9 @@ The protocol is ordinary async Python calling `g.act(role, kind=..., prompt=...,
   claimant's own - so printing "B passes all hidden tests" proves nothing. The markers are reserved: the
   same tags typed by an agent, in files it changed, its reasoning or tool calls - also as look-alike
   brackets or letters, HTML entities or escapes - are neutralized everywhere they are shown, so only a
-  verifier can produce them. Budgets (`budget_per_role`) count a role's verifications along the current
-  path, so best-of-N siblings never share a budget;
+  verifier can produce them. Budgets (`budget_per_role`, or a cost `budget`) count a role's verifications
+  along the current path, so best-of-N siblings never share a budget; verification noise is a chance move
+  shared by siblings, its errors indistinguishable from correct checks; `show_to` limits who sees verdicts;
 * supports **simultaneous moves** (`g.simultaneous`) so that no mover sees the others' current actions;
 * can **branch**: with a `BranchController`, every decision becomes a node with a pool of $K$ sampled
   candidates; replaying the protocol under different plans (with memoized prefixes) expands any

@@ -71,7 +71,8 @@ PUBLIC_REWARD_DETAILS = ("audited",)
 # its default until it is listed here. Not ``usage``: input tokens count the prompt, whose directive (the arm's
 # instructions) is not shown - arms whose directives differ in length would be told apart by it; likewise the
 # usage of a turn's verifications and of the episode (the manifest keeps the release's total)
-PUBLIC_TURN_FIELDS = ("index", "slot", "role", "phase", "kind", "text", "shown", "reasoning", "visible_to", "choice",
+PUBLIC_TURN_FIELDS = ("index", "slot", "role", "phase", "kind", "text", "shown", "verdicts_to", "unmarked", "reasoning",
+                      "visible_to", "choice",
                       "probs", "score", "data", "verifications", "tool_calls", "parse_ok", "node",
                       "candidate", "group", "state")
 # Turn metadata holds the policies' annotations, among them the experimenter's account of how behaviour was
@@ -113,7 +114,9 @@ def _public_config(ep: Episode, salt: str) -> dict[str, Any]:
 def _public_turn(t: Turn, *, public_labels: bool) -> Turn:
     keep = PUBLIC_TURN_METADATA + (LABEL_TURN_METADATA if public_labels else ())
     fields = {f: getattr(t, f) for f in PUBLIC_TURN_FIELDS}
-    fields["verifications"] = [v.model_copy(update={"usage": Usage()}) for v in t.verifications]
+    # with verification noise, what a correct check would have said is the experimenter's: withheld
+    fields["verifications"] = [v.model_copy(update={"usage": Usage(), "true_status": None, "true_output": None})
+                               for v in t.verifications]
     return Turn(**fields, metadata={k: v for k, v in t.metadata.items() if k in keep})
 
 
