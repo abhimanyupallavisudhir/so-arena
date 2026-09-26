@@ -41,7 +41,13 @@ class LeanChecker(ABC):
 
 
 class LocalLean(LeanChecker):
-    """Run ``lake env lean`` on a temp file inside a Lean project that has Mathlib."""
+    """Run ``lake env lean`` on a temp file inside a Lean project that has Mathlib.
+
+    This runs Lean on the host. Untrusted proofs are screened first (:func:`kernel_check` rejects
+    ``#eval``, ``run_cmd`` and other metaprogramming that would execute at elaboration time), but
+    Lean is a large program with its own file access; for untrusted proofs at scale run it inside a
+    container (or use :class:`KiminaLean`, a separate server). Always reach Lean through
+    :func:`kernel_check` / :class:`LeanProofGT`, never by calling :meth:`check` on raw model text."""
 
     def __init__(self, project_dir: str):
         self.project_dir = project_dir
@@ -179,9 +185,17 @@ def perturb_statement(stmt: str, seed: int) -> tuple[str, str] | None:
 FORBIDDEN = re.compile(
     r"\b(sorry|sorryAx|admit|axiom|axioms|unsafe|implemented_by|extern|native_decide|ofReduceBool|ofReduceNat"
     r"|opaque|run_cmd|run_elab|run_meta|elab|elab_rules|macro|macro_rules|syntax|initialize|builtin_initialize"
-    r"|addDecl|skipKernelTC)\b|#exit|@\[\s*(implemented_by|extern|csimp)")
+    r"|addDecl\w*|compileDecl\w*|setEnv|modifyEnv|getEnv|skipKernelTC|IO\b|System\.|Lean\.Meta|Lean\.Elab)\b"
+    r"|#eval!?|#exit|@\[\s*(implemented_by|extern|csimp)")
 STANDARD_AXIOMS = frozenset({"propext", "Classical.choice", "Quot.sound"})
 _DECL = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)?(?:(?:private|protected|noncomputable)\s+)*(?:theorem|lemma)\s+([^\s:({\[]+)", re.M)
+_LEAN_COMMENT = re.compile(r"/-.*?-/|--[^\n]*", re.S)  # block and line comments
+
+
+def strip_lean_comments(code: str) -> str:
+    """Blank out Lean comments (keeping line breaks) so that a ``theorem`` in a comment is not read
+    as a declaration and a forbidden keyword in a comment is not a false positive."""
+    return _LEAN_COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), code)
 
 
 def nonstandard_axioms(msg: str) -> set[str]:
@@ -196,10 +210,11 @@ def kernel_check(checker: LeanChecker, header: str, code: str, before: str = "",
     """Static screen (:data:`FORBIDDEN`) of the untrusted ``code``, then the kernel on
     ``header + before + code + after`` (``before``/``after``: trusted checks), then an axiom audit:
     every theorem the code declares must depend only on the standard axioms (``#print axioms``)."""
-    bad = FORBIDDEN.search(code)
+    screened = strip_lean_comments(code)  # comments cannot execute or declare; ignore them
+    bad = FORBIDDEN.search(screened)
     if bad:
         return False, f"uses {bad.group(0)!r}, which is not allowed"
-    names = _DECL.findall(code)
+    names = _DECL.findall(screened)
     audit = "".join(f"\n#print axioms {n}" for n in names)
     parts = [header, before, code, after]
     ok, msg = checker.check("\n\n".join(x.strip() for x in parts if x.strip()) + "\n" + audit)
@@ -255,12 +270,14 @@ def proves_statement(code: str, stmt: str) -> tuple[bool, str]:
     metaprogramming, ...) and the given theorem is declared. That the declared theorem has the
     given statement is then checked by the kernel (:func:`statement_checks`), not by matching
     text: a weakened theorem, or the statement in a comment or string, would pass a text match."""
-    if FORBIDDEN.search(code):
-        return False, f"uses a forbidden construct ({FORBIDDEN.search(code).group(0)!r})"
+    screened = strip_lean_comments(code)
+    bad = FORBIDDEN.search(screened)
+    if bad:
+        return False, f"uses a forbidden construct ({bad.group(0)!r})"
     parts = split_statement(stmt)
     if parts is None:
         return False, "could not parse the given statement"
-    if parts[0] not in _DECL.findall(code):
+    if parts[0] not in _DECL.findall(screened):
         return False, f"does not declare the theorem {parts[0]}"
     return True, ""
 

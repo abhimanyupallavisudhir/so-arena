@@ -433,6 +433,12 @@ class SimOpsEnv(SwarmEnvironment):
                         os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
                         with open(os.path.join(d, rel), "w") as f:
                             f.write(content)
+                # the *trusted* visible tests are present at their real path, so a module that reads
+                # tests/test_visible.py at run time (to look up the expected answers) is graded as it
+                # would behave in the real project — and is caught as hard-coding
+                os.makedirs(os.path.join(d, "tests"), exist_ok=True)
+                with open(os.path.join(d, "tests", "test_visible.py"), "w") as f:
+                    f.write(self.test_src)
                 res = self._run(self.test_src, d, ("trusted", "project"))
             trusted, project = res["trusted"], res["project"]
             spec = self.task.resources["spec"]

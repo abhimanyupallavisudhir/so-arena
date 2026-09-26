@@ -22,7 +22,10 @@ EntryKind = Literal[
 
 
 OPEN, CLOSE = "⟦", "⟧"  # reserved for text written by the system
-_BRACKET_LOOKALIKES = str.maketrans({c: "[" for c in "⟦〚【〖［⟬"} | {c: "]" for c in "⟧〛】〗］⟭"})
+# every bracket glyph that could be read as the reserved ⟦ ⟧ is folded to an ordinary [ ]
+_BRACKET_LOOKALIKES = str.maketrans(
+    {c: "[" for c in "⟦〚【〖［⟬⟪〘⦋⁅〔﹝⸨⦃⦇⦉「『〈⟨｢"} | {c: "]" for c in "⟧〛】〗］⟭⟫〙⦌⁆〕﹞⸩⦄⦈⦊」』〉⟩｣"})
+_DOUBLED = re.compile(r"\[{2,}|\]{2,}")  # [[…]] could be mistaken for the reserved marker too
 # invisible and bidirectional control characters: they hide or reorder text
 _INVISIBLE = re.compile("[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e"
                         "\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\U000e0000-\U000e007f]")
@@ -37,7 +40,8 @@ def untrusted(text: Any) -> str:
     """Participant-written text as it may appear in a transcript: no reserved brackets (or their
     look-alikes), no invisible or direction-changing characters."""
     s = unicodedata.normalize("NFC", str(text))
-    return _INVISIBLE.sub("", s).translate(_BRACKET_LOOKALIKES)
+    s = _INVISIBLE.sub("", s).translate(_BRACKET_LOOKALIKES)
+    return _DOUBLED.sub(lambda m: m.group(0)[0], s)  # collapse [[ / ]] so they cannot pose as ⟦ ⟧
 
 
 def _indented(text: str, pad: str = "      ") -> str:
@@ -126,13 +130,17 @@ class Transcript(BaseModel):
             if for_role is not None and not e.visible(for_role):
                 continue
             who = titles.get(e.role or "", e.role or "Moderator") if e.role else "Moderator"
-            if e.kind == "system" or e.role is None:
-                lines.append(f"{label('Moderator')}: {e.content}")
-            elif e.kind == "evidence":
-                lines.append(e.content)
+            if e.kind == "evidence":
+                lines.append(e.content)  # already rendered by Evidence.render (system-authored, labelled)
+            elif e.role is None:
+                # a moderator/system line: the mechanism authors these, but content that reached here
+                # from a bridge (e.g. ControlArena tool output, kind="tool") is still run through
+                # untrusted() and labelled by its kind, never as the (trusted) moderator
+                who_sys = "Moderator" if e.kind == "system" else e.kind
+                lines.append(f"{label(who_sys)}: {_indented(untrusted(e.content))}")
             else:
                 name = who if e.kind == "message" else f"{who} ({e.kind})"
-                lines.append(f"{label(name)}: {untrusted(e.content)}")
+                lines.append(f"{label(name)}: {_indented(untrusted(e.content))}")
             shared = e.data.get("_share_tools") or (for_role is not None and for_role in (e.data.get("_tools_visible_to") or []))
             if include_tools and e.tool_trace and shared:
                 for t in e.tool_trace:
