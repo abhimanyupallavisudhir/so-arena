@@ -821,14 +821,33 @@ _DOWN = re.compile(r"\b(?:down|lost|fell|dropped|declined|decreased|slipped|shra
 _UP = re.compile(r"\b(?:up|rose|grew|gained|increased|climbed|jumped|increase|gain|rise)\b|\+$", re.I)
 
 
-def stated_numbers(report: str, mention: str) -> list[tuple[str, float, int]]:
-    """Every number a report states for one quantity: each number after a mention of it (regex ``mention``)
-    in the same sentence, before another quantity is named, as ``(role, value, sign)``. The role is
+_JUST_BEFORE = re.compile(r"(?<![\w.,])\$?((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?)\s+$")
+
+
+def stated_numbers(report: str, mention: str, *, before: bool = True) -> list[tuple[str, float, int]]:
+    """Every number a report states for one quantity: the number right before a mention of it (regex
+    ``mention``: "59 weekly active users") and each number after it in the same sentence, before another
+    quantity is named, as ``(role, value, sign)`` (``before=False``: numbers after mentions only). The role is
     ``"current"``, ``"previous"`` (a previous period's value: "down from 71", "71 last week") or ``"change"``
     ("down 12", "(-12)", with ``sign`` -1/+1, 0 if unsaid). Percentages, durations, dates and shares
     ("59 of 90 customers") are not values of the quantity."""
     out: list[tuple[str, float, int]] = []
     for m in re.finditer(mention, report, re.I):
+        # a number right before the mention states it too ("59 weekly active users", "down 5 WAU")
+        head = report[:m.start()]
+        head = head[max(head.rfind(x) for x in (". ", "! ", "? ", "; ", "\n")) + 1:]
+        nb = _JUST_BEFORE.search(head) if before else None
+        if nb and not (_SHARE_BEFORE.search(head[:nb.start()]) or _DATE_BEFORE.search(head[:nb.start()])
+                       or _TARGET_WORDS.search(head[:nb.start()])):  # not "our goal is 100 weekly active users"
+            value, before = float(nb.group(1).replace(",", "")), head[:nb.start()].replace("$", "").rstrip()
+            if before.endswith(":"):  # a label: "Usage declined: 59 weekly active users", "Last week: 64 WAU"
+                out.append(("previous" if _PREVIOUS_BEFORE.search(before[:-1]) else "current", value, 0))
+            elif _PREVIOUS_BEFORE.search(before):
+                out.append(("previous", value, 0))
+            elif _DELTA_BEFORE.search(before):
+                out.append(("change", value, -1 if _DOWN.search(before) else 1 if _UP.search(before) else 0))
+            else:
+                out.append(("current", value, 0))
         rest = report[m.end():]
         cut = [x.start() for x in (_SENTENCE_END.search(rest), re.search(mention, rest, re.I),
                                    re.search(_QUANTITY, rest, re.I)) if x is not None]
@@ -892,8 +911,8 @@ def stated_new_paying(report: str) -> list[float]:
         for m in re.finditer(r"(?<![\w.,])([0-9]+)\s+new\s+paying\s+customers?\b(\s+(?:target|goal))?", sentence, re.I):
             if not m.group(2) and not _TARGET_WORDS.search(sentence[:m.start()]):
                 out.append(float(m.group(1)))
-    for pat in (r"new paying customers?", r"\bacquired"):
-        out += [v for role, v, _ in stated_numbers(report, pat) if role == "current"]
+    for pat in (r"new paying customers?", r"\bacquired"):  # numbers before the mention are read above
+        out += [v for role, v, _ in stated_numbers(report, pat, before=False) if role == "current"]
     return out
 
 
