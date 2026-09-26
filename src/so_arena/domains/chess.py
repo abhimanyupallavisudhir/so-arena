@@ -638,6 +638,62 @@ def matched_alternative(board: chess.Board, a: dict[str, Any], *, min_gap_cp: in
             "source": "table_matched"}
 
 
+def _item_surfaces(item: TaskItem) -> tuple[tuple[bool, bool], tuple[bool, bool]]:
+    """(better move's, worse move's) surface pattern of a ``which_move`` item: (gives check, captures)."""
+    board, gt = chess.Board(item.context["fen"]), item.ground_truth.data
+    return (_surface(board, gt["moves"][gt["best"]]["uci"]), _surface(board, gt["moves"][gt["alternative"]]["uci"]))
+
+
+def balance_surface(items: Sequence[TaskItem]) -> list[TaskItem]:
+    """The largest subset of ``which_move`` items in which the surface of the moves says nothing: for every
+    two patterns $P \\ne Q$ of (gives check, captures), as many items pair a better move showing $P$ with a
+    worse one showing $Q$ as the other way round. Items whose moves look alike are all kept; of a surplus,
+    the items kept are chosen by a hash of their id, so the subset depends on the items only."""
+    groups: dict[tuple, list[TaskItem]] = {}
+    for it in items:
+        groups.setdefault(_item_surfaces(it), []).append(it)
+    keep: list[TaskItem] = []
+    for (p, q), group in groups.items():
+        if p == q:
+            keep += group
+            continue
+        n = min(len(group), len(groups.get((q, p), [])))
+        keep += sorted(group, key=lambda it: stable_hash("chess-balance", it.id))[:n]
+    order = {it.id: i for i, it in enumerate(items)}
+    return sorted(keep, key=lambda it: order[it.id])
+
+
+def blind_baselines(items: Sequence[TaskItem]) -> dict[str, float]:
+    """Accuracy of rules that never analyse the position, on ``which_move`` items (pick the move that gives
+    check, that captures, that does either) and on ``eval_claim`` items (the best leave-one-out lookup rule on
+    one or two :func:`blind_features`), next to ``chance`` (1/2). A tie or an empty cell counts 1/2. Far from
+    1/2 either way is a tell: a judge can answer without doing the task."""
+    import itertools
+
+    out: dict[str, float] = {"chance": 0.5}
+    moves = [it for it in items if it.metadata.get("kind") == "which_move" or it.id.startswith("chess-which_move")]
+    if moves:
+        surf = [_item_surfaces(it) for it in moves]
+        for name, f in (("pick the check", lambda s: s[0]), ("pick the capture", lambda s: s[1]),
+                        ("pick the forcing move", lambda s: s[0] or s[1])):
+            out[name] = sum(0.5 if f(b) == f(w) else float(f(b)) for b, w in surf) / len(surf)
+    claims = [it for it in items if "blind_features" in (it.ground_truth.data if it.ground_truth else {})]
+    if claims:
+        rows = [(it.ground_truth.data["blind_features"], it.true_label) for it in claims]
+        names = sorted(rows[0][0])
+        best = 0.5
+        for k in (1, 2):
+            for feats in itertools.combinations(names, k):
+                hits = 0.0
+                for i, (f, y) in enumerate(rows):
+                    cell = [yy for j, (ff, yy) in enumerate(rows) if j != i and all(ff[x] == f[x] for x in feats)]
+                    yes, no = cell.count("yes"), cell.count("no")
+                    hits += 0.5 if yes == no else float(("yes" if yes > no else "no") == y)
+                best = max(best, hits / len(rows))
+        out["best lookup rule (one or two blind features)"] = best
+    return out
+
+
 def which_move_item(rec: dict[str, Any], *, min_gap_cp: int = 150, **_: Any) -> TaskItem | None:
     a = rec.get("analysis")
     if not a or a["gap_cp"] < min_gap_cp:
@@ -1381,6 +1437,11 @@ class ChessDomain(Domain):
         max_bytes: size of the database prefix downloaded for ``"lichess"`` (default scales with ``n_items``).
         trap_depth: keep only ``which_move`` items that trap an :func:`engine_judge` of this search depth: alone,
             it prefers the worse move (needs Stockfish; a selection by ground truth, made experimenter-side).
+        balanced: ``which_move`` only: drop the items that let a blind rule win - so that, for every pair of
+            surface patterns (gives check, captures), as many items have the better move showing the first and
+            the worse the second as the other way round (:func:`balance_surface`). "Pick the check" then scores
+            exactly 1/2, at the cost of about a quarter of the sample (231 of 300 items); see
+            :func:`blind_baselines`. ``eval_claim`` items are always balanced (:func:`balanced_eval_claims`).
         engine_path: Stockfish binary (default: ``$SO_ARENA_STOCKFISH``, ``stockfish`` on PATH, common paths).
         seed: order of the items and of the puzzles sampled from Lichess (item content never depends on it).
     """
@@ -1396,18 +1457,20 @@ class ChessDomain(Domain):
                  min_rating: int | None = None, max_rating: int | None = None, min_gap_cp: int = 150,
                  win_cp: int = 200, not_win_cp: int = 50, eval_nodes: int = 20_000, tool_nodes: int | None = 100_000,
                  tool_depth: int | None = None, gt_nodes: int = 1_000_000, table_depth: int = 12,
-                 max_bytes: int | None = None, trap_depth: int | None = None, engine_path: str | None = None,
-                 seed: int = 0):
+                 max_bytes: int | None = None, trap_depth: int | None = None, balanced: bool = False,
+                 engine_path: str | None = None, seed: int = 0):
         if kind not in ITEM_BUILDERS:
             raise ValueError(f"unknown chess item kind {kind!r}; available: {list(ITEM_BUILDERS)}")
         if trap_depth is not None and kind != "which_move":
             raise ValueError("trap_depth applies to which_move items only")
+        if balanced and kind != "which_move":
+            raise ValueError("balanced applies to which_move items (eval_claim items are always balanced)")
         self.kind, self.source, self.n_items = kind, source, n_items
         self.min_rating, self.max_rating = min_rating, max_rating
         self.min_gap_cp, self.win_cp, self.not_win_cp = min_gap_cp, win_cp, not_win_cp
         self.eval_nodes, self.tool_nodes, self.tool_depth = eval_nodes, tool_nodes, tool_depth
         self.gt_nodes, self.table_depth, self.max_bytes = gt_nodes, table_depth, max_bytes
-        self.trap_depth, self.engine_path, self.seed = trap_depth, engine_path, seed
+        self.trap_depth, self.balanced, self.engine_path, self.seed = trap_depth, balanced, engine_path, seed
         self._records: list[dict[str, Any]] | None = None
 
     # ------------------------------------------------------------------ data
@@ -1476,6 +1539,8 @@ class ChessDomain(Domain):
                 it = build(rec, min_gap_cp=self.min_gap_cp, win_cp=self.win_cp, not_win_cp=self.not_win_cp)
             if it is not None:
                 items.append(it)
+        if self.balanced:
+            items = balance_surface(items)
         if self.trap_depth is not None:
             items = [it for it in items if self._traps(it)]
         random.Random(seed).shuffle(items)

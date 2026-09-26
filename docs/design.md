@@ -57,9 +57,10 @@ what rules that never read the question would score (`domains.code.blind_baselin
 items choose their positions for the whole set (`domains.chess.balanced_eval_claims`): within every
 combination of check, material, mobility, last capture and side to move there are as many "yes" as "no"
 items, so rules reading those score chance (a logistic model on twenty such board features scores about
-0.58, down from 0.83 when each puzzle's position was chosen on its own). Chess `which_move` keeps a weak
-tell ("pick the move that gives check" scores about 0.59): about 70 puzzles have no suitable quiet
-alternative.
+0.58, down from 0.83 when each puzzle's position was chosen on its own). Chess `which_move` items keep a
+weak tell by default ("pick the move that gives check" scores 0.59: about 70 puzzles have no suitable
+alternative that looks like the best move); `ChessDomain(balanced=True)` drops the surplus so that every
+such rule scores exactly 1/2 (231 of 300 items). `domains.chess.blind_baselines` reports both kinds.
 
 ### Bespoke per domain, or general mechanisms with adapters?
 

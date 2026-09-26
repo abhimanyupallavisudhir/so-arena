@@ -142,6 +142,21 @@ def test_eval_claim_items_carry_no_blind_tell():
         assert hits / len(rows) < 0.56, feats
 
 
+def test_balanced_which_move_items_and_blind_baselines():
+    from so_arena.domains.chess import blind_baselines
+
+    full = blind_baselines(ChessDomain().load())
+    assert full["pick the check"] > 0.55  # the documented residual tell of the default items
+    items = ChessDomain(balanced=True).load()
+    assert 200 <= len(items) < 300
+    assert all(abs(v - 0.5) < 1e-9 for v in blind_baselines(items).values())
+    assert [it.id for it in ChessDomain(balanced=True, seed=3).load()] != [it.id for it in items]  # order only
+    assert sorted(it.id for it in ChessDomain(balanced=True, seed=3).load()) == sorted(it.id for it in items)
+    with pytest.raises(ValueError):
+        ChessDomain(kind="eval_claim", balanced=True)
+    assert blind_baselines(ChessDomain(kind="eval_claim").load())["best lookup rule (one or two blind features)"] < 0.56
+
+
 def test_read_truncated_zst_prefix(tmp_path):
     zstandard = pytest.importorskip("zstandard")
     recs = ChessDomain().records()[:40]
