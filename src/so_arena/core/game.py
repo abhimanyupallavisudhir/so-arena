@@ -301,6 +301,8 @@ class Game:
         self._group_state: dict[str, str | None] = {}  # simultaneous group -> the state its movers act on
         # reverts of stateful work (state_without): reverted roles ("a,b") -> paths whose changes did not merge
         self.revert_conflicts: dict[str, list[str]] = {}
+        # uses of experimenter-side ground truth by the mechanism (audits, simulated probes): see log_gt_access
+        self.gt_access: list[dict[str, Any]] = []
         import random
 
         # per-episode randomness: in a game tree it differs by path, so nature's moves use chance() instead
@@ -321,6 +323,12 @@ class Game:
         import random
 
         return random.Random(stable_hash("chance", tag, self.item.id, self.repeat, self.seed))
+
+    def log_gt_access(self, channel: str, *, role: str | None = None, cost: float = 1.0) -> None:
+        """Record that the mechanism consulted ground truth through ``channel`` (an audit, a simulated probe)
+        about ``role``, at ``cost``: recorded as ``Episode.gt_access``, so analyses can count how much ground
+        truth a mechanism consumed. What was found is never recorded here (the ledger is published)."""
+        self.gt_access.append({"channel": channel, "role": role, "cost": float(cost), "slot": self._slot})
 
     # ------------------------------------------------------------------------------ views
     def stance(self, role: str) -> str | None:

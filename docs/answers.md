@@ -21,7 +21,9 @@ checks) and *tools* (capability gaps); domain-specific mechanisms remain possibl
 untrusted agent is paid something: task success minus a suspicion penalty, or task success unless
 flagged/caught by an audit (`integrations.controlarena`). These are trainable, with the known caveat
 that optimizing against a monitor teaches evasion - which the library measures rather than assumes
-(ASD after optimization; CoT-visible monitors in `MonitoredWork`). Existing ControlArena logs yield
+(ASD after optimization; CoT-visible monitors in `MonitoredWork`; a penalty on an evadable monitor's alarms
+against a simulated probe of fixed AUROC, Proposition 4 in `docs/theory.md`). Defer-to-trusted is
+`MonitoredWork(defer=True)`, and a monitor that gives no score fails closed. Existing ControlArena logs yield
 ASD for free; a common finding it makes visible is that the plain task reward gives *no* training
 incentive against attacking (attacks also complete the main task). Monitors on actions, chain of
 thought, tool calls and probe readings (`monitor_sees=`, `action.metadata["probe_scores"]` from a

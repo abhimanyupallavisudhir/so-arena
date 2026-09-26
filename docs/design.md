@@ -41,8 +41,8 @@ attacking.
 `item.censored()` is what mechanisms receive.
 
 A `Domain` supplies items plus the domain's **verifiers** (trusted claim checks), **tools** (private
-capabilities that create capability gaps) and **ground-truth scorers**. Built in: synthetic persuasion
-and team worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool),
+capabilities that create capability gaps) and **ground-truth scorers**. Built in: synthetic persuasion,
+team and monitoring worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool),
 text-to-SQL over a private database, code with hidden tests (including a hackable team task), Lean
 statement faithfulness (miniF2F formalizations vs. single-edit mutants; a rules-only structure verifier),
 forecasting (Manifold; pending resolutions), QA sets (GSM8K, MMLU, TruthfulQA, GPQA, QuALITY with
@@ -175,7 +175,8 @@ Built-in mechanisms: `DirectJudge` (naive judge), `Propaganda`, `Consultancy`, `
 rebuttal -> reviewer: single-judge RLAIF, the proposal/critique/rebuttal protocol of best-of-N
 self-play debate, and realistic work review with a dossier of state changes), `Work` (the work stage
 alone, for reviewing each result under many protocols), `MonitoredWork` (action/CoT/tool-call/probe monitors
-with suspicion penalties or audits), `Team` (swarms with private reporting, auditing, belief
+with suspicion penalties, flags or audits, missing scores failing closed, defer-to-trusted, simulated
+fixed-AUROC probes), `Team` (swarms with private reporting, auditing, belief
 elicitation, team channels that overseers may or may not read, shared stateful workspaces whose violators'
 changes can be reverted), `MarketMaking`, `PredictionMarket` (LMSR, deferred resolution), `PeerPrediction`
 (output agreement, BTS, multi-task) and `Confession` (a separately rewarded honesty channel).
@@ -220,7 +221,8 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
   replicator dynamics, fictitious play, regret matching, basins, policy-gradient learning dynamics.
   Expected ground-truth values of profiles, like those of prompt-search strategies, come with their
   label coverage and are NaN below 50%.
-* `theory`: analytic whistleblower model; audits as control variates.
+* `theory`: analytic whistleblower model; audits as control variates; monitor-based rewards (when a
+  penalty on alarms buys obfuscation instead of deterrence).
 * `analysis.plots` / `analysis.report`: validated-palette charts with per-mark tooltips and
   self-contained HTML reports.
 

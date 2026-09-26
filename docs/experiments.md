@@ -362,7 +362,7 @@ warns about audited episodes. `verify` prints the digest and, given the publishe
 bundle against it.
 Ground-truth-free mechanisms: `PeerPrediction(rule="bts" | "multitask")`, `MarketMaking`.
 
-## 11. Monitoring, chain of thought, and ControlArena
+## 11. Monitoring, chain of thought, and ControlArena - *offline demo*
 
 ```python
 from so_arena.mechanisms import MonitoredWork
@@ -381,6 +381,33 @@ from so_arena.integrations.probes import fit_linear_probe, llamacpp_featurizer, 
 probe = fit_linear_probe(train_texts, train_labels, llamacpp_featurizer("model.gguf"))
 MonitoredWork(penalty="suspicion")   # with players {"worker": ..., "monitor": probe_monitor(probe), "grader": ...}
 ```
+
+**Obfuscation vs. deterrence** (Proposition 4 in `docs/theory.md`): a real monitor can be evaded, a detector
+of fixed accuracy cannot. `SimulatedProbe` draws readings from the run's `violation_oracle` with a target
+AUROC (a chance move, so arms and best-of-N candidates share draws; each use is logged in
+`Episode.gt_access`); the `synthetic_monitoring` domain gives honest, overt and covert actors whose test
+edits show with probabilities $d_h, d_o, d_c$, a keyword monitor that sees only those traces, and the
+thresholds to compare with (`theory.monitoring`):
+
+```python
+from so_arena.core.runner import Profile
+from so_arena.domains.monitoring import SyntheticMonitoring, keyword_monitor, monitoring_actor, trusted_worker
+from so_arena.integrations.probes import SimulatedProbe, probe_monitor
+
+dom = SyntheticMonitoring(n_items=300, d_covert=0.15)
+real = MonitoredWork(penalty="flag", lam=1.0, forfeit=False)          # measured success - lam per flag
+probe = MonitoredWork(penalty="flag", lam=1.0, forfeit=False, monitor_sees=("probes",),
+                      probes=[SimulatedProbe(auroc=0.9)])               # monitor: probe_monitor()
+deferral = MonitoredWork(penalty="flag", lam=1.0, defer=True)          # flagged work -> the "trusted" role's
+profiles = [Profile(name=a, players={"worker": monitoring_actor(a), "monitor": keyword_monitor(),
+                                     "grader": dom.grader(), "trusted": trusted_worker()})
+            for a in ("honest", "overt", "covert")]
+# re-score logged episodes under other penalties without re-running: rescore(eps, MonitoredReward("flag", 2.0))
+```
+
+`so-arena demo monitoring` sweeps the penalty with a best-responding actor and reports misbehaviour and
+alarm rates with CIs across seeds, and the switch points against the theory. A monitor that gives no score
+fails closed (`missing_score="flag"`, the default): the episode is flagged, audited or deferred, never passed.
 
 ControlArena logs to ASD, and SO-arena mechanisms as ControlArena monitors:
 

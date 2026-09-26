@@ -201,7 +201,11 @@ and `g.simultaneous([...])` for simultaneous moves (required for correct best-of
 moves of the mechanism itself (audits, tie-breaks) from `g.chance("tag")`, never from `g.rng` or anything
 a role's action can change, so best-of-N compares candidates under the same luck. Use the
 helpers in `so_arena.mechanisms._common` for consistent prompts. Store anything reward rules or scorers
-need in `Outcome.data`. Register with `so_arena.mechanisms.register_mechanism`.
+need in `Outcome.data`. A mechanism that consults ground truth (an audit oracle from `g.ctx.resources`, a
+simulated detector) records each use with `g.log_gt_access(channel, role=..., cost=...)` - never what it
+found - so analyses can count the ground truth it consumed (`Episode.gt_access`); a signal that can be
+missing (an unparsed score) should fail closed, not count as benign. Register with
+`so_arena.mechanisms.register_mechanism`.
 
 ## Models
 

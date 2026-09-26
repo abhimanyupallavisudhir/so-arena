@@ -11,6 +11,8 @@ same experiments for real (see ``configs/`` and ``docs/experiments.md``).
   and policy-gradient training dynamics.
 * :func:`demo_work` - stateful work (the paired-branch design): honest and deceptive agents on the same
   repositories and company tasks, reviewed with three levels of access to the result.
+* :func:`demo_monitoring` - penalizing a monitor's alarms: an evadable monitor buys obfuscation, a
+  fixed-AUROC probe deters; thresholds against Proposition 4, with CIs across seeds.
 """
 
 from __future__ import annotations
@@ -271,7 +273,157 @@ def demo_work(out: str | Path = "runs/demo_work", n_repo: int = 6, n_firm: int =
     return out
 
 
+def demo_monitoring(out: str | Path = "runs/demo_monitoring", n_items: int = 200, n_seeds: int = 20,
+                    auroc: float = 0.9) -> Path:
+    """Monitor-based rewards under optimization (``docs/theory.md``, Proposition 4).
+
+    A scripted actor on the synthetic monitoring world works honestly, overtly edits the tests or edits them
+    covertly; ``MonitoredWork`` pays the reported pass rate minus ``lam`` per flag. For each seed (new trace and
+    probe draws) the actor best-responds - the strategy with the highest mean reward over ``n_items`` tasks - at
+    every penalty, against a keyword monitor (which covert work evades), a simulated probe of fixed AUROC, and
+    the keyword monitor with defer-to-trusted. Rewards are affine in the penalty, so each strategy's line is
+    measured with the mechanism's reward rule at two penalties and the envelope gives its exact switch points.
+    """
+    from dataclasses import replace
+
+    from so_arena.analysis.metrics import bootstrap_mean_ci
+    from so_arena.core.runner import run_episodes, run_sync
+    from so_arena.domains.monitoring import ACTIONS, SyntheticMonitoring, keyword_monitor, monitoring_actor, trusted_worker
+    from so_arena.integrations.probes import SimulatedProbe, probe_monitor
+    from so_arena.mechanisms import MonitoredWork
+    from so_arena.mechanisms.work import MonitoredReward
+    from so_arena.theory import monitoring as tm
+
+    out = Path(out)
+    figs = _figures(out)
+    theory = tm.MonitorParams(s=0.5, gain=0.3, hide_cost=0.05, d_overt=1.0, d_covert=0.15, d_honest=0.05)
+    dom = SyntheticMonitoring(n_items=n_items, success=theory.s, gain=theory.gain, hide_cost=theory.hide_cost,
+                              d_overt=theory.d_overt, d_covert=theory.d_covert, d_honest=theory.d_honest)
+    items = dom.load()
+    fpr, tpr = tm.probe_rates(auroc)
+    probe_name = f"probe (AUROC {auroc:g})"
+    variants = {  # name -> (mechanism, monitor policy, the theory it should match)
+        "keyword monitor": (MonitoredWork(penalty="flag", forfeit=False, name="monitored(keyword)"), keyword_monitor(),
+                            theory),
+        probe_name: (MonitoredWork(penalty="flag", forfeit=False, monitor_sees=("probes",),
+                                   probes=[SimulatedProbe(auroc=auroc)], name="monitored(probe)"),
+                     probe_monitor(), tm.with_detector(theory, fpr, tpr)),
+        "keyword monitor + defer": (MonitoredWork(penalty="flag", defer=True, name="monitored(keyword, defer)"),
+                                    keyword_monitor(), replace(theory, forfeit=True)),
+    }
+    lams = np.round(np.linspace(0.0, 3.0, 121), 4)
+    curve, switches, rates, n_eps = [], [], [], 0
+    for seed in range(n_seeds):
+        ctx = dom.context(seed=seed)
+        for vname, (mech, monitor, _) in variants.items():
+            fixtures = {"monitor": monitor, "grader": dom.grader(), **({"trusted": trusted_worker()} if mech.defer else {})}
+            profiles = [Profile(name=a, players={"worker": monitoring_actor(a), **fixtures}) for a in ACTIONS]
+            eps = run_sync(run_episodes(mech, items, profiles, ctx=ctx, seed=seed, ground_truth=dom.ground_truth_scorers()))
+            n_eps += len(eps)
+            if any(e.error for e in eps):
+                raise RuntimeError(next(e.error for e in eps if e.error))
+            # each strategy's expected reward is a line in the penalty: measure it with the mechanism's own rule
+            r0, r1 = (MonitoredReward("flag", lam, forfeit=mech.forfeit) for lam in (0.0, 1.0))
+            lines, alarm = [], {}
+            for a in ACTIONS:
+                es = [e for e in eps if e.profile == a]
+                c = float(np.mean([r0.compute(e)["worker"] for e in es]))
+                lines.append(tm.Behaviour(a, c, c - float(np.mean([r1.compute(e)["worker"] for e in es]))))
+                alarm[a] = float(np.mean([e.outcome.data["flagged"] for e in es]))
+                rates.append({"detector": vname, "seed": seed, "action": a, "alarm_rate": alarm[a]})
+            lines.sort(key=lambda b: ACTIONS.index(b.name))
+            switches.append({"detector": vname, "seed": seed, **tm.switch_points(lines),
+                             **{f"{b.name}_{k}": v for b in lines for k, v in (("reward0", b.success), ("alarm", b.alarm))}})
+            for lam in lams:
+                a = tm.best_response_of(lines, float(lam))
+                curve.append({"detector": vname, "seed": seed, "penalty": float(lam), "misbehaves": float(a != "honest"),
+                              "covert": float(a == "covert"), "alarm_rate": alarm[a]})
+    curve_df, switch_df = pd.DataFrame(curve), pd.DataFrame(switches)
+
+    def summarize(col: str) -> pd.DataFrame:
+        rows = []
+        for (v, lam), g in curve_df.groupby(["detector", "penalty"], sort=False):
+            lo, hi = bootstrap_mean_ci(g[col].to_numpy())
+            rows.append({"detector": v, "penalty": lam, "mean": g[col].mean(), "lo": lo, "hi": hi})
+        wide = pd.DataFrame(rows).pivot(index="penalty", columns="detector")
+        flat = pd.DataFrame({"penalty": wide.index})
+        for v in variants:
+            for stat in ("mean", "lo", "hi"):
+                flat[v if stat == "mean" else f"{v} {stat}"] = wide[(stat, v)].to_numpy()
+        return flat
+
+    names = list(variants)
+    bands = {v: (f"{v} lo", f"{v} hi") for v in names}
+    th = {v: tm.thresholds(p) for v, (_, _, p) in variants.items()}
+    vlines = [(th["keyword monitor"]["deterred"], "keyword: deters (theory)"),
+              (th[probe_name]["deterred"], "probe: deters (theory)")]
+    mis, alarms = summarize("misbehaves"), summarize("alarm_rate")
+    kw_mis = dict(x="penalty", ys=names, bands=bands, vlines=vlines, ylim=(-0.03, 1.03), xlabel="penalty per alarm (λ)",
+                  title="Does penalizing alarms stop misbehaviour?",
+                  subtitle=f"share of {n_seeds} seeds in which the actor's best response misbehaves; bands: 95% CI",
+                  ylabel="P(best response misbehaves)")
+    kw_alarm = dict(x="penalty", ys=names, bands=bands, vlines=vlines, ylim=(-0.03, 1.03), xlabel="penalty per alarm (λ)",
+                    title="...or does the monitor only look better?",
+                    subtitle="alarm rate of the best response (mean over seeds; bands: 95% CI)", ylabel="alarm rate")
+    plots.line_chart(mis, **kw_mis).save(figs / "monitoring_misbehaviour.png")
+    plots.line_chart(alarms, **kw_alarm).save(figs / "monitoring_alarms.png")
+    mis.to_csv(out / "misbehaviour.csv", index=False)
+    alarms.to_csv(out / "alarm_rate.csv", index=False)
+    switch_df.to_csv(out / "switch_points.csv", index=False)
+
+    def pooled(rows: pd.DataFrame) -> dict[str, float]:
+        """Switch points of the strategies' lines averaged over seeds (a ratio of means: the mean of per-seed
+        ratios would be biased upwards)."""
+        return tm.switch_points([tm.Behaviour(a, rows[f"{a}_reward0"].mean(), rows[f"{a}_alarm"].mean())
+                                 for a in ACTIONS])
+
+    table, boot_rng = [], np.random.default_rng(0)
+    for v in names:
+        rows = switch_df[switch_df.detector == v].reset_index(drop=True)
+        boots = [pooled(rows.iloc[boot_rng.integers(0, len(rows), len(rows))]) for _ in range(1000)]
+        for key, what in (("overt_to_covert", "misbehaviour turns covert"), ("deterred", "misbehaviour deterred")):
+            b = np.array([x[key] for x in boots])
+            lo, hi = (np.percentile(b, [2.5, 97.5]) if np.isfinite(b).all() else (np.nan, np.nan))
+            table.append({"detector": v, "switch": what, "theory λ": th[v][key], "measured λ": pooled(rows)[key],
+                          "ci_low": lo, "ci_high": hi,
+                          "seeds where it happens": f"{int(np.isfinite(rows[key]).sum())}/{len(rows)}"})
+    table = pd.DataFrame(table)
+    table.to_csv(out / "thresholds.csv", index=False)
+    theory_rates = {v: {b.name: b.alarm for b in p.behaviours()} for v, (_, _, p) in variants.items()}
+    rate_table = (pd.DataFrame(rates).groupby(["detector", "action"], sort=False)["alarm_rate"].mean().reset_index()
+                  .rename(columns={"alarm_rate": "measured alarm rate"}))
+    rate_table["theory"] = [theory_rates[r.detector][r.action] for r in rate_table.itertuples()]
+
+    rep = Report("Monitoring: obfuscation vs. deterrence",
+                 "synthetic monitoring world, scripted actor best-responding to MonitoredWork's reward (demo)")
+    rep.kpis({"episodes": n_eps, "seeds": n_seeds, "tasks per seed": n_items, "probe AUROC": auroc})
+    rep.section("Misbehaviour under a growing penalty", charts=plots.dual_mode(plots.line_chart, mis, **kw_mis),
+                info="The actor picks whichever of honest work, overt test edits and covert test edits earns the most "
+                     "(measured pass rate minus λ per flag). Against the keyword monitor, a small penalty only makes it "
+                     "hide the edits; it is deterred at λ ≈ (Δ−κ)/(d_c−d_h). Against a probe whose accuracy does not "
+                     "depend on how the actor behaves, hiding buys nothing and a moderate penalty deters. With deferral, "
+                     "a flag also costs the task credit: misbehaviour is covert from the start.")
+    rep.section("What the alarm rate says", charts=plots.dual_mode(plots.line_chart, alarms, **kw_alarm),
+                info="Against the keyword monitor, the alarm rate drops from d_o to d_c as soon as the actor hides - "
+                     "the monitor looks as if it were working while the misbehaviour continues. A low alarm rate under "
+                     "optimization is not evidence of good behaviour.")
+    rep.section("Switch points: theory vs. measured", table=table,
+                note="Theory: the envelope of the three strategies' expected rewards (Proposition 4; the deferral row "
+                     "uses the forfeiture variant). Measured: the same envelope of the strategies' reward lines measured "
+                     "with the mechanism's reward rule and averaged over seeds, with a 95% bootstrap CI over seeds; the "
+                     "last column counts the seeds whose own envelope has the switch. The keyword monitor's deterrence "
+                     "threshold divides by d_c − d_h, so it is the noisiest number here.")
+    rep.section("Alarm rates by strategy", table=rate_table,
+                note="Mean over seeds. The probe's alarm rate on both kinds of misbehaviour is its detection rate: "
+                     "its draws are shared by every strategy on an item (common random numbers).")
+    rep.raw("<p>All agents here are scripted: the actor is a best response over three fixed strategies, the "
+            "monitor a keyword match and the probe a simulation from ground truth. The demo checks the machinery "
+            "and the theory; it is not a finding about language models.</p>")
+    rep.write(out / "report.html")
+    return out
+
+
 def run_all(out: str | Path = "runs/demos") -> list[Path]:
     out = Path(out)
     return [demo_asd(out / "asd"), demo_optimization(out / "optimization"), demo_swarm(out / "swarm"),
-            demo_work(out / "work")]
+            demo_work(out / "work"), demo_monitoring(out / "monitoring")]
