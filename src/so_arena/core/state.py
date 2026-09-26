@@ -812,6 +812,21 @@ def content_id(root: Path, hidden: Mapping[str, Any]) -> str:
     return "s-" + h.hexdigest()[:24]
 
 
+def visible_id(root: Path) -> str:
+    """Content address of what agents can see of a state: :func:`content_id` without the hidden part.
+
+    Two states that differ only in hidden environment state (a ledger, a sent-mail record, the seed of a
+    counterparty) look the same to every role: game-tree information sets are keyed on this, never on the
+    full snapshot id, so best-of-N cannot select on what nobody can read.
+    """
+    h = hashlib.sha256(_ID_SCHEME + b"visible\0")
+    for rel, st in _walk(root, git=True):
+        sub = _git_sub(rel)
+        if sub is None or not _git_volatile(sub):
+            h.update(_entry_token(root, rel, st))
+    return "v-" + h.hexdigest()[:24]
+
+
 # ============================================================================== store
 
 _TEMP_ROOTS: dict[str, int] = {}  # temporary store roots created by this process -> the creating process id
@@ -904,6 +919,15 @@ class StateStore:
 
     def has(self, sid: str | None) -> bool:
         return bool(sid) and self.files_dir(sid).is_dir()  # type: ignore[arg-type]
+
+    def visible_id(self, sid: str) -> str:
+        """:func:`visible_id` of a stored snapshot (snapshots are immutable, so it is computed once)."""
+        cache = self.__dict__.setdefault("_visible_ids", {})
+        if sid not in cache:
+            if not self.has(sid):
+                raise KeyError(f"no snapshot {sid!r} in {self.root}")
+            cache[sid] = visible_id(self.files_dir(sid))
+        return cache[sid]
 
     def _new_work_dir(self) -> Path:
         d = self.work_root / uuid.uuid4().hex

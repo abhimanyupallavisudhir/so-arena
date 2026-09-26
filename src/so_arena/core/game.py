@@ -179,25 +179,29 @@ class BranchController:
 
     def __init__(self, pool_sizes: dict[str, int] | None = None, plan: dict[str, int] | None = None,
                  memo: dict[str, list[_Produced]] | None = None, locks: dict[str, asyncio.Lock] | None = None,
-                 usage: dict[str, Usage] | None = None, roles: dict[str, str] | None = None):
+                 usage: dict[str, Usage] | None = None, roles: dict[str, str] | None = None,
+                 origins: dict[str, str | None] | None = None, adapted: dict[str, list[_Produced] | None] | None = None):
         self.pool_sizes = dict(pool_sizes or {})
         self.plan = dict(plan or {})
         self.memo = memo if memo is not None else {}
         self.locks = locks if locks is not None else {}
         self.usage = usage if usage is not None else defaultdict(Usage)
         self.roles = roles if roles is not None else {}  # pool key -> the role it belongs to
+        self.origins = origins if origins is not None else {}  # pool key -> the state it was sampled on
+        self.adapted = adapted if adapted is not None else {}  # (pool key, state) -> the pool as it plays out there
         self.trace: list[NodeRecord] = []
 
     def fork(self, plan: dict[str, int]) -> "BranchController":
-        return BranchController(self.pool_sizes, plan, self.memo, self.locks, self.usage, self.roles)
+        return BranchController(self.pool_sizes, plan, self.memo, self.locks, self.usage, self.roles, self.origins,
+                                self.adapted)
 
     def pool_size(self, role: str, phase: str = "") -> int:
         """Pool size for a decision: a ``"role:phase"`` key overrides a ``"role"`` key (default 1)."""
         k = self.pool_sizes.get(f"{role}:{phase}", self.pool_sizes.get(role, 1))
         return max(1, int(k))
 
-    async def decide(self, key: str, role: str, phase: str, group: str | None, slot: int,
-                     sampler: Callable[[int], Awaitable[_Produced]]) -> tuple[_Produced, int]:
+    async def _pool(self, key: str, role: str, phase: str, sampler: Callable[[int], Awaitable[_Produced]],
+                    origin: str | None) -> list[_Produced]:
         lock = self.locks.setdefault(key, asyncio.Lock())
         async with lock:
             if key not in self.memo:
@@ -207,10 +211,45 @@ class BranchController:
                     self.usage[role] = self.usage[role] + p.usage
                 self.memo[key] = pool
                 self.roles[key] = role
-        pool = self.memo[key]
+                self.origins[key] = origin
+        return self.memo[key]
+
+    async def decide(self, key: str, role: str, phase: str, group: str | None, slot: int,
+                     sampler: Callable[[int], Awaitable[_Produced]], *, origin: str | None = None,
+                     adapt: Callable[[_Produced, str | None], Awaitable[_Produced | None]] | None = None
+                     ) -> tuple[_Produced, int, str]:
+        """The candidate the plan follows at this decision, its index, and the key of its pool.
+
+        An information set's pool is sampled once, on the state ``origin`` of the node that reaches it
+        first. Another node of the set may be in a different state - one differing only in what the role
+        cannot see (hidden environment state; or any state, for a role without access). There each
+        candidate is ``adapt``-ed: replayed on that node's state (:meth:`Game._adapt`). If a candidate would
+        observe something different there, the role can tell the nodes apart, and the node gets a pool of
+        its own (keyed by the set and its state). Which node samples first can then decide which nodes
+        share a pool; with tools that reveal nothing hidden - the usual case - every node shares it.
+        """
+        pool = await self._pool(key, role, phase, sampler, origin)
+        if adapt is not None and self.origins.get(key) != origin:
+            ak = f"{key}|{origin}"
+            lock = self.locks.setdefault(ak, asyncio.Lock())
+            async with lock:
+                if ak not in self.adapted:
+                    here: list[_Produced] | None = []
+                    for p in pool:
+                        a = await adapt(p, self.origins.get(key))
+                        if a is None:
+                            here = None
+                            break
+                        here.append(a)  # type: ignore[union-attr]
+                    self.adapted[ak] = here
+            if self.adapted[ak] is None:
+                key = hashlib.sha256(ak.encode()).hexdigest()[:20]
+                pool = await self._pool(key, role, phase, sampler, origin)
+            else:
+                pool = self.adapted[ak]  # type: ignore[assignment]
         idx = self.plan.get(key, 0)
         self.trace.append(NodeRecord(key=key, role=role, phase=phase, k=len(pool), choice=idx, group=group, slot=slot))
-        return pool[idx], idx
+        return pool[idx], idx, key
 
 
 class Game:
@@ -323,10 +362,10 @@ class Game:
     def view(self, role: str, *, exclude_group: str | None = None) -> GameView:
         turns = []
         visible = self.visible_turns(role, exclude_group=exclude_group)
-        for t in visible:
+        for i, t in enumerate(visible):  # numbered among the turns the viewer sees: hidden ones are not counted
             own = t.role == role
             reasoning = t.reasoning if self.sees_reasoning(role, t.role) else None
-            turns.append(TurnView(index=t.index, role=t.role, phase=t.phase, text=t.text if own else t.shown,
+            turns.append(TurnView(index=i, role=t.role, phase=t.phase, text=t.text if own else t.shown,
                                   reasoning=reasoning if own or reasoning is None else neutralize_markers(reasoning)))
         # public positions: the viewer's own, those of roles it has heard from, and published ones
         speakers = {t.role for t in visible}
@@ -469,11 +508,14 @@ class Game:
                      used: int) -> str:
         """A game-tree decision's key: its *information set* - everything the role can condition on here.
 
-        That is the request it is sent (prompt and view: every turn it may see, as shown to it), its own
-        earlier decisions and the candidates it took (perfect recall), the state it acts on if it can see it
-        (or if its claims are checked against it) and the verifications it has used. Moves it cannot see -
-        another role's private turn, a simultaneous partner's current move, a dealer's hidden card - do not
-        enter the key, so the nodes that differ only in them share one pool of candidates, and selection
+        That is the request it is sent (prompt and view: every turn it may see, as shown to it, numbered
+        among those it sees), its own earlier decisions and the candidates it took (perfect recall), the
+        *visible* files of the state it acts on if it can see them (or if its claims are checked against
+        it) - never hidden environment state, which no role can read (``state`` is a
+        :meth:`~so_arena.core.state.StateStore.visible_id`) - and the verifications it has used. Moves it
+        cannot see - another role's private turn, a simultaneous partner's current move, a dealer's hidden
+        card, a write to hidden records - do not enter the key, so the nodes that differ only in them share
+        one pool of candidates (adapted to each node's state, :meth:`BranchController.decide`), and selection
         (:func:`~so_arena.analysis.optimization.evaluate_tree`) picks one distribution for all of them. Keying
         by the whole path instead would let best-of-N choose separately behind every hidden move, i.e. act on
         information the role never had.
@@ -523,51 +565,116 @@ class Game:
         if action.tool_calls and _call_keys(action.tool_calls) != _call_keys(record):
             action.metadata["reported_tool_calls"] = action.tool_calls
         action.tool_calls = record
-        log_path = getattr(self.ctx.environment, "action_log", None)
-        if log_path and calls and slot is not None and access == "write":
-            # an agent-visible, agent-writable mirror of the trusted record: what an overseer reading logs sees
-            ws = slot.get()
-            for c in calls:
-                ws.append_jsonl(log_path, {"role": role, "phase": request.phase, "tool": c["name"],
-                                           "args": str(c["args"])[:2000], "result": str(c["result"])[:2000]})
+        self._mirror(slot, access, role, request.phase, calls)
         if slot is not None:
             kept = slot.close(keep=access == "write")
             new_state = kept if kept != parent else None
         usage = action.usage + actx.usage if action.usage.calls or action.usage.effort_seconds else actx.usage
         action.usage = usage
+        verifs, shown, vusage, checked = await self._verify(role, action, budget_used, new_state or parent)
+        return _Produced(action=action, verifications=verifs, shown=shown, usage=usage + vusage, state=new_state,
+                         checked=checked)
+
+    def _mirror(self, slot: WorkspaceSlot | None, access: str, role: str, phase: str,
+                calls: Sequence[dict[str, Any]]) -> None:
+        """An agent-visible, agent-writable mirror of the trusted record: what an overseer reading logs sees."""
+        log_path = getattr(self.ctx.environment, "action_log", None)
+        if log_path and calls and slot is not None and access == "write":
+            ws = slot.get()
+            for c in calls:
+                ws.append_jsonl(log_path, {"role": role, "phase": phase, "tool": c["name"],
+                                           "args": str(c["args"])[:2000], "result": str(c["result"])[:2000]})
+
+    async def _verify(self, role: str, action: Action, budget_used: int, target: str | None
+                      ) -> tuple[list[Verification], str, Usage, int]:
+        """Check the claims in ``action``: the verifications, the text others see (claims replaced by
+        markers), the verifiers' usage and how many claims were charged to the role's budget. A claim about
+        the state is checked on a scratch copy of ``target``, the state the claimant left."""
         verifs: list[Verification] = []
         checked = 0
+        usage = Usage()
         # what others see: marker tags the role wrote itself are escaped, so only verifiers make markers
         shown = neutralize_markers(action.text)
         vs = self.verifiers_for(role)
-        if vs and action.text:
-            vp = self.mechanism.verification
-            assert vp is not None
-            for claim in parse_claims(action.text, role):
-                v = vs.get(claim.kind)
-                if v is None:
-                    verifs.append(Verification(claim=claim, status="unknown_kind"))
-                    continue
-                if vp.budget_per_role is not None and budget_used + checked >= vp.budget_per_role:
-                    verifs.append(Verification(claim=claim, status="over_budget"))
-                    continue
-                checked += 1
-                # a claim about the state is checked on a fresh scratch copy of the state the claimant left,
-                # one per claim: an earlier claim's command must not rig the state a later claim is checked on
-                target = new_state or parent
-                scratch = self.states.fork(target, access="read") if getattr(v, "uses_state", False) and target else None
-                try:
-                    with using_workspace(scratch):
-                        res = await v.verify(claim, self.item, self)
-                except Exception as e:  # verifier failures are logged, not fatal
-                    res = Verification(claim=claim, status="error", detail=repr(e))
-                finally:
-                    if scratch is not None:
-                        self.states.discard(scratch)
-                usage = usage + res.usage
-                verifs.append(res)
-            shown = annotate(action.text, verifs, display=vp.display, show_output=vp.show_output)
-        return _Produced(action=action, verifications=verifs, shown=shown, usage=usage, state=new_state, checked=checked)
+        if not (vs and action.text):
+            return verifs, shown, usage, checked
+        vp = self.mechanism.verification
+        assert vp is not None
+        for claim in parse_claims(action.text, role):
+            v = vs.get(claim.kind)
+            if v is None:
+                verifs.append(Verification(claim=claim, status="unknown_kind"))
+                continue
+            if vp.budget_per_role is not None and budget_used + checked >= vp.budget_per_role:
+                verifs.append(Verification(claim=claim, status="over_budget"))
+                continue
+            checked += 1
+            # a fresh scratch copy per claim: an earlier claim's command must not rig the state a later
+            # claim is checked on
+            scratch = self.states.fork(target, access="read") if getattr(v, "uses_state", False) and target else None
+            try:
+                with using_workspace(scratch):
+                    res = await v.verify(claim, self.item, self)
+            except Exception as e:  # verifier failures are logged, not fatal
+                res = Verification(claim=claim, status="error", detail=repr(e))
+            finally:
+                if scratch is not None:
+                    self.states.discard(scratch)
+            usage = usage + res.usage
+            verifs.append(res)
+        shown = annotate(action.text, verifs, display=vp.display, show_output=vp.show_output)
+        return verifs, shown, usage, checked
+
+    async def _adapt(self, p: _Produced, role: str, request: ActionRequest, access: str | None,
+                     parent: str | None, origin: str | None, budget_used: int) -> _Produced | None:
+        """Candidate ``p`` - sampled at another node of this information set, in state ``origin`` - as it plays
+        out at this node, in state ``parent``, which differs from ``origin`` only in what ``role`` cannot see.
+
+        A policy's action is a function of what it observed. The candidate's recorded tool calls are
+        replayed on this node's state: if every call returns what it returned there, the role would have
+        acted the same, and the replay gives the action's effect here (hidden records included) and the
+        verdicts on its claims here. If a call returns something else, the role could tell the nodes apart:
+        None, and the node gets a pool of its own - as for a writer whose edits did not all go through
+        tools (a script editing its workspace directly), whose visible result the replay must reproduce.
+        """
+        access = self.state_access(role, access)
+        slot = WorkspaceSlot(self.states, parent, access) if access != "none" and parent else None
+        tools = self.tools_for(role, access)
+        calls: list[dict[str, Any]] = []
+        same = True
+        try:
+            with using_workspace(slot), recording_tool_calls(calls):
+                for c in p.action.tool_calls:
+                    name, args = c.get("name"), c.get("args")
+                    tool = tools.get(name) if isinstance(name, str) else None
+                    if tool is None:
+                        out: Any = f"error: unknown tool {name!r}; available: {sorted(tools)}"
+                        record_tool_call({"name": name, "args": args, "result": out, "error": True})
+                    else:
+                        out = (await _RecordingTool(tool).call(args, self.item, self)).output
+                    if str(out) != str(c.get("result")):
+                        same = False
+                        break
+        except BaseException:
+            if slot is not None:
+                slot.close(keep=False)
+            raise
+        if not same:
+            if slot is not None:
+                slot.close(keep=False)
+            return None
+        self._mirror(slot, access, role, request.phase, calls)
+        new_state = None
+        if slot is not None:
+            kept = slot.close(keep=access == "write")
+            new_state = kept if kept != parent else None
+        if access == "write":
+            here, there = new_state or parent, p.state or origin
+            if (here is None) != (there is None) or (here and there and self.states.visible_id(here) != self.states.visible_id(there)):
+                return None
+        verifs, shown, _, checked = await self._verify(role, p.action, budget_used, new_state or parent)
+        return p.model_copy(deep=True, update={"state": new_state, "verifications": verifs, "shown": shown,
+                                               "checked": checked})
 
     async def act(
         self,
@@ -612,8 +719,9 @@ class Game:
         # the state the decision acts on; simultaneous movers all act on the state the stage began with, as
         # their views exclude each other's moves (a partner may finish first, in plain runs and in replays)
         parent = self._group_state.setdefault(group, self.state) if group is not None else self.state
-        if self.branch is not None:  # game trees: one pool per information set
-            key = self._infoset_key(role, request, slot=slot, access=self.state_access(role, access), state=parent,
+        if self.branch is not None:  # game trees: one pool per information set, keyed on what the role can see
+            visible = self.states.visible_id(parent) if parent else None
+            key = self._infoset_key(role, request, slot=slot, access=self.state_access(role, access), state=visible,
                                     used=used)
         else:
             key = self._node_key(role, request.phase, slot, group)
@@ -622,7 +730,11 @@ class Game:
             return await self._produce(role, request, i, key, used, access, parent)
 
         if self.branch is not None:
-            produced, idx = await self.branch.decide(key, role, request.phase, group, slot, sample)
+            async def adapt(p: _Produced, origin: str | None) -> _Produced | None:
+                return await self._adapt(p, role, request, access, parent, origin, used)
+
+            produced, idx, key = await self.branch.decide(key, role, request.phase, group, slot, sample, origin=parent,
+                                                          adapt=adapt if parent is not None else None)
             produced = produced.model_copy(deep=True)
             node, cand = key, idx
         else:
