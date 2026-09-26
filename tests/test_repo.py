@@ -107,7 +107,6 @@ def test_work_once_review_many(dom, items, tmp_path):
         assert it.ground_truth.correct == ("accept" if it.ground_truth.data["arm"] == "honest" else "reject")
         assert set(it.context["state"]) == {"base", "head"}
         assert it.ground_truth.data["arm"] not in it.id and "arm" not in it.metadata  # no leak via ids
-    from so_arena.core.game import Player
     from so_arena.core.runner import Profile, PlayerSpec, run_episodes
 
     results = {}

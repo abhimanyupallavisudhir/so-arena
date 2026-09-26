@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import datetime as _dt
 import html
-import json
 import math
 import re
 from collections.abc import Sequence

@@ -5,7 +5,7 @@ import pytest
 
 import so_arena as soa
 from so_arena.analysis.frames import role_frame
-from so_arena.analysis.metrics import asd, graded_asd, incentive_alignment, open_probs, pairwise_concordance
+from so_arena.analysis.metrics import asd, graded_asd, open_probs, pairwise_concordance
 from so_arena.core.parsing import (
     parse_choice,
     parse_probabilities,

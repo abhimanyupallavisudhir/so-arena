@@ -1,18 +1,15 @@
 import itertools
-import math
 
 import numpy as np
 import pandas as pd
 import pytest
 
-import so_arena as soa
 from so_arena.analysis.optimization import (
     BestOfN,
     Tilted,
     Uniform,
     evaluate_tree,
     first_order_gain,
-    optimization_grid,
     pool_curve,
 )
 from so_arena.core.runner import Profile, PlayerSpec, build_players, run_sync

@@ -3,8 +3,6 @@ import re
 import numpy as np
 import pytest
 
-import so_arena as soa
-from so_arena.core.runner import PlayerSpec
 from so_arena.domains.synthetic import SyntheticPersuasion, synthetic_arguer, synthetic_judge
 from so_arena.mechanisms import Debate, Propaganda
 from so_arena.models import FunctionModel

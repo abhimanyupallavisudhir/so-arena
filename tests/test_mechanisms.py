@@ -1,6 +1,5 @@
 import math
 
-import numpy as np
 import pytest
 
 import so_arena as soa
@@ -10,7 +9,6 @@ from so_arena.domains.synthetic import (
     SyntheticPersuasion,
     SyntheticTeam,
     synthetic_arguer,
-    synthetic_judge,
     team_worker,
 )
 from so_arena.games import EmpiricalGameExperiment

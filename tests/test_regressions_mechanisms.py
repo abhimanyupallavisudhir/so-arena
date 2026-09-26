@@ -304,7 +304,7 @@ def test_monitor_reward_is_inverse_probability_weighted():
 
 
 def test_team_channel_is_hidden_from_overseers_unless_monitored():
-    from so_arena.domains.synthetic import SyntheticTeam, team_worker
+    from so_arena.domains.synthetic import SyntheticTeam
     from so_arena.mechanisms import Team
 
     dom = SyntheticTeam(n_items=1)

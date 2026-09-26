@@ -4,7 +4,6 @@ import json
 
 import pytest
 
-import so_arena as soa
 from so_arena.domains.synthetic import SyntheticPersuasion, synthetic_arguer, synthetic_judge
 from so_arena.mechanisms import Debate, DirectJudge
 from so_arena.release import (
