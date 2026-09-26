@@ -199,3 +199,30 @@ def test_bit_claims_separate_checked_and_unchecked_lies():
         gt = ep.ground_truth
         assert (gt["claims_agent"], gt["lies_checked_agent"], gt["lies_unchecked_agent"]) == (4.0, 1.0, 2.0)
         assert gt["bit_honesty"] == {"agent": 0.25}
+
+
+# ----------------------------------------------------------------------------- demos
+
+def test_demo_hiddenbits_runs(tmp_path):
+    import pandas as pd
+
+    from so_arena.demos import demo_hiddenbits
+
+    out = demo_hiddenbits(tmp_path / "hb", n_items=20, budgets=(0, 8))
+    t = pd.read_csv(out / "asd_by_budget.csv")
+    assert (out / "report.html").exists() and len(t) == 12
+    assert (t[t.budget == 0].query("judge != 'credulous (naive)'")["asd"] == 0).all()
+    assert (t[(t.budget == 8) & (t.protocol == "debate")]["asd"] > 9).all()
+
+
+def test_demo_bon_budget_moves_lies_beyond_the_budget(tmp_path):
+    import pandas as pd
+
+    from so_arena.demos import demo_bon_budget
+
+    out = demo_bon_budget(tmp_path / "bon", n_items=20, pool=8)
+    g = pd.read_csv(out / "bon_budget.csv")
+    cred = g[g.condition == "budget 3, credulous judge"].set_index("level_debater_a")
+    assert cred.loc[8, "lies_checked_debater_a"] < cred.loc[1, "lies_checked_debater_a"]
+    assert cred.loc[8, "lies_unchecked_debater_a"] > cred.loc[1, "lies_unchecked_debater_a"]
+    assert (g[g.condition.str.startswith("every claim")]["lies_unchecked_debater_a"] == 0).all()

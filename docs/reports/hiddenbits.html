@@ -1,0 +1,1699 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Verified claims: disclosure on HiddenBits</title><style>
+.so-root{--surface:#fcfcfb;--page:#f9f9f7;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;
+--ring:rgba(11,11,11,.10);--good:#006300;--bad:#d03b3b;--warn:#8a6100;--chip:#f0efec;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])) .so-root{--surface:#1a1a19;--page:#0d0d0d;
+--ink:#fff;--ink2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--ring:rgba(255,255,255,.10);--good:#0ca30c;--bad:#e66767;
+--warn:#fab219;--chip:#2c2c2a;color-scheme:dark}}
+:root[data-theme="dark"] .so-root{--surface:#1a1a19;--page:#0d0d0d;--ink:#fff;--ink2:#c3c2b7;--muted:#898781;
+--grid:#2c2c2a;--ring:rgba(255,255,255,.10);--good:#0ca30c;--bad:#e66767;--warn:#fab219;--chip:#2c2c2a;color-scheme:dark}
+body{margin:0;background:var(--page)}
+.so-root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--page);
+max-width:1080px;margin:0 auto;padding:20px 16px 48px;font-size:14px;line-height:1.45}
+h1{font-size:20px;margin:0 0 2px;font-weight:650}h2{font-size:15px;margin:28px 0 10px;font-weight:650}
+.sub{color:var(--ink2);font-size:13px}
+.kpis{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 4px}
+.kpi{background:var(--surface);border:1px solid var(--ring);border-radius:10px;padding:10px 14px;min-width:120px}
+.kpi .l{color:var(--ink2);font-size:12px}.kpi .v{font-size:20px;font-weight:600}
+.card{background:var(--surface);border:1px solid var(--ring);border-radius:12px;padding:14px 14px 10px;margin:10px 0}
+.fig svg{max-width:min(100%,760px);height:auto;display:block}
+.fig .fig-dark{display:none}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])) .fig .fig-dark{display:block}
+:root:where(:not([data-theme="light"])) .fig .fig-light{display:none}}
+:root[data-theme="dark"] .fig .fig-dark{display:block}:root[data-theme="dark"] .fig .fig-light{display:none}
+:root[data-theme="light"] .fig .fig-dark{display:none}:root[data-theme="light"] .fig .fig-light{display:block}
+.mark:hover,.mark:focus{opacity:.8;outline:none}
+details>summary{cursor:pointer;color:var(--ink2);font-size:13px;list-style:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary:before{content:"▸ ";color:var(--muted)}details[open]>summary:before{content:"▾ "}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--grid)}
+th{color:var(--ink2);font-weight:600;white-space:nowrap}td.n{font-variant-numeric:tabular-nums;text-align:right}
+th.n{text-align:right}
+.tip{position:relative;display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+border-radius:50%;border:1px solid var(--muted);color:var(--muted);font-size:10px;margin-left:4px;cursor:help;
+font-weight:600;vertical-align:1px}
+.tip:hover:after,.tip:focus:after{content:attr(data-tip);position:absolute;z-index:9;top:20px;left:-8px;width:240px;
+background:var(--ink);color:var(--surface);padding:8px 10px;border-radius:8px;font-size:12px;font-weight:400;
+line-height:1.35;white-space:normal;text-align:left}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+.filters select,.filters input{font:inherit;font-size:13px;padding:5px 8px;border-radius:8px;border:1px solid var(--ring);
+background:var(--surface);color:var(--ink)}
+.ep{background:var(--surface);border:1px solid var(--ring);border-radius:10px;margin:6px 0;padding:8px 12px}
+.ep>summary{color:var(--ink);font-size:13px}
+.chip{display:inline-block;background:var(--chip);border-radius:6px;padding:0 6px;font-size:12px;color:var(--ink2);margin-right:4px}
+.turn{margin:8px 0;padding-left:10px;border-left:2px solid var(--grid)}
+.turn .who{font-size:12px;color:var(--ink2);font-weight:600}
+.turn .txt{white-space:pre-wrap;word-wrap:break-word}
+.v{font-size:12px;border-radius:5px;padding:0 4px;margin-right:2px;font-weight:600}
+.v.ok{color:var(--good)}.v.bad{color:var(--bad)}.v.unk{color:var(--warn)}
+.gt{margin-top:8px;font-size:12px;color:var(--ink2)}
+.muted{color:var(--muted)}
+.theme{float:right;font:inherit;font-size:12px;border:1px solid var(--ring);background:var(--surface);color:var(--ink2);
+border-radius:8px;padding:3px 8px;cursor:pointer}
+</style></head><body><div class="so-root"><button class="theme" id="theme" title="Switch light/dark">◐</button><h1>Verified claims: disclosure on HiddenBits</h1><div class="sub">scripted advocates, exact Bayesian judges (demo) · generated 2026-09-26 05:37</div><div class="kpis"><div class="kpi"><div class="l">episodes</div><div class="v">14,400</div></div><div class="kpi"><div class="l">items</div><div class="v">150</div></div><div class="kpi"><div class="l">hidden bits</div><div class="v">15</div></div><div class="kpi"><div class="l">claims per advocate</div><div class="v">8</div></div><div class="kpi"><div class="l">lie rate once favourable bits run out</div><div class="v">0.500</div></div></div><h2>Propaganda<span class="tip" tabindex="0" data-tip="One advocate. A naive judge is misled by selective disclosure: the liar also shows only true favourable bits, and ASD stays near zero at any budget. A sceptical judge reads &#x27;fewer favourable bits than the budget allowed&#x27; as &#x27;there are no more&#x27; and the liar&#x27;s disclosure unravels once k reaches (L+1)/2. The credulous judge believes unverified claims, so lies beyond the budget pay.">?</span></h2><div class="card"><div class="fig"><div class="fig-light"><svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns2="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 460.8 259.2" version="1.1" role="img">
+ <metadata>
+  <rdf:RDF>
+   <ns2:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+    <dc:date>2026-09-26T05:37:15.110593</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <ns2:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </ns2:Agent>
+    </dc:creator>
+   </ns2:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 259.2  L 460.8 259.2  L 460.8 0  L 0 0  z " style="fill: #fcfcfb" />
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  L 451.08 37.697539  L 33.562109 37.697539  z " style="fill: #fcfcfb" />
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 52.540195 222.397891  L 52.540195 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_2" />
+     <g id="text_1">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="52.540195" y="233.235781" transform="rotate(-0 52.540195 233.235781)">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 99.98541 222.397891  L 99.98541 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_4" />
+     <g id="text_2">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="99.98541" y="233.235781" transform="rotate(-0 99.98541 233.235781)">1</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 147.430625 222.397891  L 147.430625 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_6" />
+     <g id="text_3">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="147.430625" y="233.235781" transform="rotate(-0 147.430625 233.235781)">2</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 194.87584 222.397891  L 194.87584 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_8" />
+     <g id="text_4">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="194.87584" y="233.235781" transform="rotate(-0 194.87584 233.235781)">3</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 242.321055 222.397891  L 242.321055 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_10" />
+     <g id="text_5">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="242.321055" y="233.235781" transform="rotate(-0 242.321055 233.235781)">4</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 289.76627 222.397891  L 289.76627 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_12" />
+     <g id="text_6">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="289.76627" y="233.235781" transform="rotate(-0 289.76627 233.235781)">5</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 337.211484 222.397891  L 337.211484 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_14" />
+     <g id="text_7">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="337.211484" y="233.235781" transform="rotate(-0 337.211484 233.235781)">6</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 384.656699 222.397891  L 384.656699 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_16" />
+     <g id="text_8">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="384.656699" y="233.235781" transform="rotate(-0 384.656699 233.235781)">7</text>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_17">
+      <path d="M 432.101914 222.397891  L 432.101914 37.697539  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_18" />
+     <g id="text_9">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="432.101914" y="233.235781" transform="rotate(-0 432.101914 233.235781)">8</text>
+     </g>
+    </g>
+    <g id="text_10">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="242.321055" y="246.236484" transform="rotate(-0 242.321055 246.236484)">verification budget k (claims checked per advocate)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_19">
+      <path d="M 33.562109 214.00242  L 451.08 214.00242  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_20" />
+     <g id="text_11">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="217.421365" transform="rotate(-0 29.562109 217.421365)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_21">
+      <path d="M 33.562109 177.541355  L 451.08 177.541355  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_22" />
+     <g id="text_12">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="180.9603" transform="rotate(-0 29.562109 180.9603)">2</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_23">
+      <path d="M 33.562109 141.08029  L 451.08 141.08029  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_24" />
+     <g id="text_13">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="144.499235" transform="rotate(-0 29.562109 144.499235)">4</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_25">
+      <path d="M 33.562109 104.619224  L 451.08 104.619224  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_26" />
+     <g id="text_14">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="108.03817" transform="rotate(-0 29.562109 108.03817)">6</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_27">
+      <path d="M 33.562109 68.158159  L 451.08 68.158159  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_28" />
+     <g id="text_15">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="71.577105" transform="rotate(-0 29.562109 71.577105)">8</text>
+     </g>
+    </g>
+    <g id="text_16">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="17.67375" y="130.047715" transform="rotate(-90 17.67375 130.047715)">ASD (log score)</text>
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_1">
+    <defs>
+     <path id="m73232f8daf" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 99.98541 -45.19758  L 147.430625 -45.19758  L 194.87584 -45.19758  L 242.321055 -45.221954  L 289.76627 -45.425189  L 337.211484 -45.760053  L 432.101914 -46.352073  L 432.101914 -47.470373  L 432.101914 -47.470373  L 337.211484 -46.452876  L 289.76627 -46.056386  L 242.321055 -45.482388  L 194.87584 -45.297573  L 147.430625 -45.19758  L 99.98541 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m73232f8daf" x="0" y="259.2" style="fill: #2a78d6; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_2">
+    <defs>
+     <path id="m194c5474af" d="M 52.540195 -46.056585  L 52.540195 -45.811589  L 99.98541 -45.701964  L 147.430625 -45.643584  L 194.87584 -45.543418  L 242.321055 -45.51291  L 289.76627 -45.608922  L 337.211484 -45.912244  L 432.101914 -46.361579  L 432.101914 -47.394798  L 432.101914 -47.394798  L 337.211484 -46.807513  L 289.76627 -46.291129  L 242.321055 -45.941248  L 194.87584 -45.779004  L 147.430625 -45.796147  L 99.98541 -45.880218  L 52.540195 -46.056585  z " />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m194c5474af" x="0" y="259.2" style="fill: #eb6834; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_3">
+    <defs>
+     <path id="m63287afa38" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 99.98541 -45.19758  L 147.430625 -45.19758  L 194.87584 -45.19758  L 242.321055 -46.234888  L 289.76627 -55.623323  L 337.211484 -81.068631  L 432.101914 -213.10699  L 432.101914 -213.10699  L 432.101914 -213.10699  L 337.211484 -104.27931  L 289.76627 -71.261939  L 242.321055 -55.570665  L 194.87584 -48.304388  L 147.430625 -45.19758  L 99.98541 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m63287afa38" x="0" y="259.2" style="fill: #1baf7a; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="line2d_29">
+    <path d="M 52.540195 214.00242  L 99.98541 214.00242  L 147.430625 214.00242  L 194.87584 213.969089  L 242.321055 213.860016  L 289.76627 213.494981  L 337.211484 213.114224  L 432.101914 212.346734  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l0_0" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=0</title><defs>
+     <path id="m86300be1f9" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #1f77b4; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m86300be1f9" x="52.540195" y="214.00242" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_1" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=1</title><defs>
+     <path id="med4254375e" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #ff7f0e; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#med4254375e" x="99.98541" y="214.00242" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_2" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=2</title><defs>
+     <path id="m6ebfc5227d" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #2ca02c; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m6ebfc5227d" x="147.430625" y="214.00242" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_3" class="mark" tabindex="0">
+    <title>rational (naive): 0.002 (95% CI 0.000 to 0.005) at budget=3</title><defs>
+     <path id="m7b64f5a1de" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #d62728; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m7b64f5a1de" x="194.87584" y="213.969089" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_4" class="mark" tabindex="0">
+    <title>rational (naive): 0.008 (95% CI 0.001 to 0.016) at budget=4</title><defs>
+     <path id="mc1c5fd9b52" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #9467bd; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#mc1c5fd9b52" x="242.321055" y="213.860016" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_5" class="mark" tabindex="0">
+    <title>rational (naive): 0.028 (95% CI 0.012 to 0.047) at budget=5</title><defs>
+     <path id="m95e508f57a" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #8c564b; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m95e508f57a" x="289.76627" y="213.494981" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_6" class="mark" tabindex="0">
+    <title>rational (naive): 0.049 (95% CI 0.031 to 0.069) at budget=6</title><defs>
+     <path id="md979edd5e2" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #e377c2; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#md979edd5e2" x="337.211484" y="213.114224" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_7" class="mark" tabindex="0">
+    <title>rational (naive): 0.091 (95% CI 0.063 to 0.125) at budget=8</title><defs>
+     <path id="m3513a3b145" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #7f7f7f; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m3513a3b145" x="432.101914" y="212.346734" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_30">
+    <defs>
+     <path id="m555143758d" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m555143758d" x="432.101914" y="212.346734" style="fill: #2a78d6; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_31">
+    <path d="M 52.540195 213.273954  L 99.98541 213.411421  L 147.430625 213.482528  L 194.87584 213.558618  L 242.321055 213.502771  L 289.76627 213.282165  L 337.211484 212.889006  L 432.101914 212.373906  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l1_0" class="mark" tabindex="0">
+    <title>credulous (naive): 0.040 (95% CI 0.034 to 0.047) at budget=0</title><defs>
+     <path id="m5f5b89c079" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #bcbd22; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m5f5b89c079" x="52.540195" y="213.273954" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_1" class="mark" tabindex="0">
+    <title>credulous (naive): 0.032 (95% CI 0.028 to 0.037) at budget=1</title><defs>
+     <path id="m0465d469eb" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #17becf; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m0465d469eb" x="99.98541" y="213.411421" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_2" class="mark" tabindex="0">
+    <title>credulous (naive): 0.029 (95% CI 0.024 to 0.033) at budget=2</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m86300be1f9" x="147.430625" y="213.482528" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_3" class="mark" tabindex="0">
+    <title>credulous (naive): 0.024 (95% CI 0.019 to 0.032) at budget=3</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#med4254375e" x="194.87584" y="213.558618" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_4" class="mark" tabindex="0">
+    <title>credulous (naive): 0.027 (95% CI 0.017 to 0.041) at budget=4</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m6ebfc5227d" x="242.321055" y="213.502771" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_5" class="mark" tabindex="0">
+    <title>credulous (naive): 0.040 (95% CI 0.023 to 0.060) at budget=5</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m7b64f5a1de" x="289.76627" y="213.282165" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_6" class="mark" tabindex="0">
+    <title>credulous (naive): 0.061 (95% CI 0.039 to 0.088) at budget=6</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#mc1c5fd9b52" x="337.211484" y="212.889006" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_7" class="mark" tabindex="0">
+    <title>credulous (naive): 0.089 (95% CI 0.064 to 0.121) at budget=8</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m95e508f57a" x="432.101914" y="212.373906" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_32">
+    <defs>
+     <path id="mf3847f9cc5" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#mf3847f9cc5" x="432.101914" y="212.373906" style="fill: #eb6834; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_33">
+    <path d="M 52.540195 214.00242  L 99.98541 214.00242  L 147.430625 214.00242  L 194.87584 212.966817  L 242.321055 208.815878  L 289.76627 196.278656  L 337.211484 166.52603  L 432.101914 46.09301  " clip-path="url(#p485f79af38)" style="fill: none; stroke: #1baf7a; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l2_0" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=0</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#md979edd5e2" x="52.540195" y="214.00242" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_1" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=1</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m3513a3b145" x="99.98541" y="214.00242" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_2" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=2</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m5f5b89c079" x="147.430625" y="214.00242" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_3" class="mark" tabindex="0">
+    <title>sceptical: 0.057 (95% CI 0.000 to 0.170) at budget=3</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m0465d469eb" x="194.87584" y="212.966817" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_4" class="mark" tabindex="0">
+    <title>sceptical: 0.284 (95% CI 0.057 to 0.569) at budget=4</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m86300be1f9" x="242.321055" y="208.815878" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_5" class="mark" tabindex="0">
+    <title>sceptical: 0.972 (95% CI 0.572 to 1.430) at budget=5</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#med4254375e" x="289.76627" y="196.278656" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_6" class="mark" tabindex="0">
+    <title>sceptical: 2.604 (95% CI 1.968 to 3.241) at budget=6</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m6ebfc5227d" x="337.211484" y="166.52603" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_7" class="mark" tabindex="0">
+    <title>sceptical: 9.210 (95% CI 9.210 to 9.210) at budget=8</title><g clip-path="url(#p485f79af38)">
+     <use xlink:href="#m7b64f5a1de" x="432.101914" y="46.09301" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_34">
+    <defs>
+     <path id="mc3369fc2c4" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p485f79af38)">
+     <use xlink:href="#mc3369fc2c4" x="432.101914" y="46.09301" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 33.562109 222.397891  L 33.562109 37.697539  " style="fill: none; stroke: #c3c2b7; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="patch_4">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  " style="fill: none; stroke: #c3c2b7; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="text_17">
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="33.562109" y="31.213805" transform="rotate(-0 33.562109 31.213805)">one advocate; 15 hidden bits; bands: 95% CI over 150 items</text>
+   </g>
+   <g id="text_18">
+    <text style="font-weight: 700; font-size: 10.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #0b0b0b" x="33.562109" y="17.697539" transform="rotate(-0 33.562109 17.697539)">Propaganda: ASD vs. verification budget</text>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_35">
+     <path d="M 40.762109 48.176289  L 48.762109 48.176289  L 56.762109 48.176289  " style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="50.976289" transform="rotate(-0 63.162109 50.976289)">rational (naive)</text>
+    </g>
+    <g id="line2d_36">
+     <path d="M 40.762109 60.176914  L 48.762109 60.176914  L 56.762109 60.176914  " style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_20">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="62.976914" transform="rotate(-0 63.162109 62.976914)">credulous (naive)</text>
+    </g>
+    <g id="line2d_37">
+     <path d="M 40.762109 72.177539  L 48.762109 72.177539  L 56.762109 72.177539  " style="fill: none; stroke: #1baf7a; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_21">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="74.977539" transform="rotate(-0 63.162109 74.977539)">sceptical</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p485f79af38">
+   <rect x="33.562109" y="37.697539" width="417.517891" height="184.700352" />
+  </clipPath>
+ </defs>
+</svg></div><div class="fig-dark"><svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns2="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 460.8 259.2" version="1.1" role="img">
+ <metadata>
+  <rdf:RDF>
+   <ns2:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+    <dc:date>2026-09-26T05:37:15.187654</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <ns2:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </ns2:Agent>
+    </dc:creator>
+   </ns2:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 259.2  L 460.8 259.2  L 460.8 0  L 0 0  z " style="fill: #1a1a19" />
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  L 451.08 37.697539  L 33.562109 37.697539  z " style="fill: #1a1a19" />
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 52.540195 222.397891  L 52.540195 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_2" />
+     <g id="text_1">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="52.540195" y="233.235781" transform="rotate(-0 52.540195 233.235781)">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 99.98541 222.397891  L 99.98541 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_4" />
+     <g id="text_2">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="99.98541" y="233.235781" transform="rotate(-0 99.98541 233.235781)">1</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 147.430625 222.397891  L 147.430625 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_6" />
+     <g id="text_3">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="147.430625" y="233.235781" transform="rotate(-0 147.430625 233.235781)">2</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 194.87584 222.397891  L 194.87584 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_8" />
+     <g id="text_4">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="194.87584" y="233.235781" transform="rotate(-0 194.87584 233.235781)">3</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 242.321055 222.397891  L 242.321055 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_10" />
+     <g id="text_5">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="242.321055" y="233.235781" transform="rotate(-0 242.321055 233.235781)">4</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 289.76627 222.397891  L 289.76627 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_12" />
+     <g id="text_6">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="289.76627" y="233.235781" transform="rotate(-0 289.76627 233.235781)">5</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 337.211484 222.397891  L 337.211484 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_14" />
+     <g id="text_7">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="337.211484" y="233.235781" transform="rotate(-0 337.211484 233.235781)">6</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 384.656699 222.397891  L 384.656699 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_16" />
+     <g id="text_8">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="384.656699" y="233.235781" transform="rotate(-0 384.656699 233.235781)">7</text>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_17">
+      <path d="M 432.101914 222.397891  L 432.101914 37.697539  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_18" />
+     <g id="text_9">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="432.101914" y="233.235781" transform="rotate(-0 432.101914 233.235781)">8</text>
+     </g>
+    </g>
+    <g id="text_10">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="242.321055" y="246.236484" transform="rotate(-0 242.321055 246.236484)">verification budget k (claims checked per advocate)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_19">
+      <path d="M 33.562109 214.00242  L 451.08 214.00242  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_20" />
+     <g id="text_11">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="217.421365" transform="rotate(-0 29.562109 217.421365)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_21">
+      <path d="M 33.562109 177.541355  L 451.08 177.541355  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_22" />
+     <g id="text_12">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="180.9603" transform="rotate(-0 29.562109 180.9603)">2</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_23">
+      <path d="M 33.562109 141.08029  L 451.08 141.08029  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_24" />
+     <g id="text_13">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="144.499235" transform="rotate(-0 29.562109 144.499235)">4</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_25">
+      <path d="M 33.562109 104.619224  L 451.08 104.619224  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_26" />
+     <g id="text_14">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="108.03817" transform="rotate(-0 29.562109 108.03817)">6</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_27">
+      <path d="M 33.562109 68.158159  L 451.08 68.158159  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_28" />
+     <g id="text_15">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="71.577105" transform="rotate(-0 29.562109 71.577105)">8</text>
+     </g>
+    </g>
+    <g id="text_16">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="17.67375" y="130.047715" transform="rotate(-90 17.67375 130.047715)">ASD (log score)</text>
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_1">
+    <defs>
+     <path id="mb7b4378858" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 99.98541 -45.19758  L 147.430625 -45.19758  L 194.87584 -45.19758  L 242.321055 -45.221954  L 289.76627 -45.425189  L 337.211484 -45.760053  L 432.101914 -46.352073  L 432.101914 -47.470373  L 432.101914 -47.470373  L 337.211484 -46.452876  L 289.76627 -46.056386  L 242.321055 -45.482388  L 194.87584 -45.297573  L 147.430625 -45.19758  L 99.98541 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#mb7b4378858" x="0" y="259.2" style="fill: #3987e5; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_2">
+    <defs>
+     <path id="mec18042889" d="M 52.540195 -46.056585  L 52.540195 -45.811589  L 99.98541 -45.701964  L 147.430625 -45.643584  L 194.87584 -45.543418  L 242.321055 -45.51291  L 289.76627 -45.608922  L 337.211484 -45.912244  L 432.101914 -46.361579  L 432.101914 -47.394798  L 432.101914 -47.394798  L 337.211484 -46.807513  L 289.76627 -46.291129  L 242.321055 -45.941248  L 194.87584 -45.779004  L 147.430625 -45.796147  L 99.98541 -45.880218  L 52.540195 -46.056585  z " />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#mec18042889" x="0" y="259.2" style="fill: #d95926; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_3">
+    <defs>
+     <path id="m9faa02e63c" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 99.98541 -45.19758  L 147.430625 -45.19758  L 194.87584 -45.19758  L 242.321055 -46.234888  L 289.76627 -55.623323  L 337.211484 -81.068631  L 432.101914 -213.10699  L 432.101914 -213.10699  L 432.101914 -213.10699  L 337.211484 -104.27931  L 289.76627 -71.261939  L 242.321055 -55.570665  L 194.87584 -48.304388  L 147.430625 -45.19758  L 99.98541 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m9faa02e63c" x="0" y="259.2" style="fill: #199e70; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="line2d_29">
+    <path d="M 52.540195 214.00242  L 99.98541 214.00242  L 147.430625 214.00242  L 194.87584 213.969089  L 242.321055 213.860016  L 289.76627 213.494981  L 337.211484 213.114224  L 432.101914 212.346734  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #3987e5; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l0_0" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=0</title><defs>
+     <path id="md895adc4d7" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #1f77b4; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#md895adc4d7" x="52.540195" y="214.00242" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_1" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=1</title><defs>
+     <path id="m262a18b380" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #ff7f0e; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m262a18b380" x="99.98541" y="214.00242" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_2" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=2</title><defs>
+     <path id="md0a6fe8bfa" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #2ca02c; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#md0a6fe8bfa" x="147.430625" y="214.00242" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_3" class="mark" tabindex="0">
+    <title>rational (naive): 0.002 (95% CI 0.000 to 0.005) at budget=3</title><defs>
+     <path id="m0466dc5288" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #d62728; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m0466dc5288" x="194.87584" y="213.969089" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_4" class="mark" tabindex="0">
+    <title>rational (naive): 0.008 (95% CI 0.001 to 0.016) at budget=4</title><defs>
+     <path id="mf324388b95" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #9467bd; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#mf324388b95" x="242.321055" y="213.860016" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_5" class="mark" tabindex="0">
+    <title>rational (naive): 0.028 (95% CI 0.012 to 0.047) at budget=5</title><defs>
+     <path id="m997c484d36" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #8c564b; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m997c484d36" x="289.76627" y="213.494981" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_6" class="mark" tabindex="0">
+    <title>rational (naive): 0.049 (95% CI 0.031 to 0.069) at budget=6</title><defs>
+     <path id="m221b604758" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #e377c2; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m221b604758" x="337.211484" y="213.114224" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_7" class="mark" tabindex="0">
+    <title>rational (naive): 0.091 (95% CI 0.063 to 0.125) at budget=8</title><defs>
+     <path id="m1c760b4f7f" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #7f7f7f; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m1c760b4f7f" x="432.101914" y="212.346734" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_30">
+    <defs>
+     <path id="mf539ad21b9" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#mf539ad21b9" x="432.101914" y="212.346734" style="fill: #3987e5; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_31">
+    <path d="M 52.540195 213.273954  L 99.98541 213.411421  L 147.430625 213.482528  L 194.87584 213.558618  L 242.321055 213.502771  L 289.76627 213.282165  L 337.211484 212.889006  L 432.101914 212.373906  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #d95926; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l1_0" class="mark" tabindex="0">
+    <title>credulous (naive): 0.040 (95% CI 0.034 to 0.047) at budget=0</title><defs>
+     <path id="m3badcb2ad9" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #bcbd22; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m3badcb2ad9" x="52.540195" y="213.273954" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_1" class="mark" tabindex="0">
+    <title>credulous (naive): 0.032 (95% CI 0.028 to 0.037) at budget=1</title><defs>
+     <path id="m30a3d179ec" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #17becf; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m30a3d179ec" x="99.98541" y="213.411421" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_2" class="mark" tabindex="0">
+    <title>credulous (naive): 0.029 (95% CI 0.024 to 0.033) at budget=2</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#md895adc4d7" x="147.430625" y="213.482528" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_3" class="mark" tabindex="0">
+    <title>credulous (naive): 0.024 (95% CI 0.019 to 0.032) at budget=3</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m262a18b380" x="194.87584" y="213.558618" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_4" class="mark" tabindex="0">
+    <title>credulous (naive): 0.027 (95% CI 0.017 to 0.041) at budget=4</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#md0a6fe8bfa" x="242.321055" y="213.502771" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_5" class="mark" tabindex="0">
+    <title>credulous (naive): 0.040 (95% CI 0.023 to 0.060) at budget=5</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m0466dc5288" x="289.76627" y="213.282165" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_6" class="mark" tabindex="0">
+    <title>credulous (naive): 0.061 (95% CI 0.039 to 0.088) at budget=6</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#mf324388b95" x="337.211484" y="212.889006" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_7" class="mark" tabindex="0">
+    <title>credulous (naive): 0.089 (95% CI 0.064 to 0.121) at budget=8</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m997c484d36" x="432.101914" y="212.373906" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_32">
+    <defs>
+     <path id="m592bbf51a5" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m592bbf51a5" x="432.101914" y="212.373906" style="fill: #d95926; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_33">
+    <path d="M 52.540195 214.00242  L 99.98541 214.00242  L 147.430625 214.00242  L 194.87584 212.966817  L 242.321055 208.815878  L 289.76627 196.278656  L 337.211484 166.52603  L 432.101914 46.09301  " clip-path="url(#pf056ce0417)" style="fill: none; stroke: #199e70; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l2_0" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=0</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m221b604758" x="52.540195" y="214.00242" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_1" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=1</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m1c760b4f7f" x="99.98541" y="214.00242" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_2" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=2</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m3badcb2ad9" x="147.430625" y="214.00242" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_3" class="mark" tabindex="0">
+    <title>sceptical: 0.057 (95% CI 0.000 to 0.170) at budget=3</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m30a3d179ec" x="194.87584" y="212.966817" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_4" class="mark" tabindex="0">
+    <title>sceptical: 0.284 (95% CI 0.057 to 0.569) at budget=4</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#md895adc4d7" x="242.321055" y="208.815878" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_5" class="mark" tabindex="0">
+    <title>sceptical: 0.972 (95% CI 0.572 to 1.430) at budget=5</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m262a18b380" x="289.76627" y="196.278656" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_6" class="mark" tabindex="0">
+    <title>sceptical: 2.604 (95% CI 1.968 to 3.241) at budget=6</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#md0a6fe8bfa" x="337.211484" y="166.52603" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_7" class="mark" tabindex="0">
+    <title>sceptical: 9.210 (95% CI 9.210 to 9.210) at budget=8</title><g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#m0466dc5288" x="432.101914" y="46.09301" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_34">
+    <defs>
+     <path id="mb92ae3d914" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pf056ce0417)">
+     <use xlink:href="#mb92ae3d914" x="432.101914" y="46.09301" style="fill: #199e70; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 33.562109 222.397891  L 33.562109 37.697539  " style="fill: none; stroke: #383835; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="patch_4">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  " style="fill: none; stroke: #383835; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="text_17">
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="33.562109" y="31.213805" transform="rotate(-0 33.562109 31.213805)">one advocate; 15 hidden bits; bands: 95% CI over 150 items</text>
+   </g>
+   <g id="text_18">
+    <text style="font-weight: 700; font-size: 10.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #ffffff" x="33.562109" y="17.697539" transform="rotate(-0 33.562109 17.697539)">Propaganda: ASD vs. verification budget</text>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_35">
+     <path d="M 40.762109 48.176289  L 48.762109 48.176289  L 56.762109 48.176289  " style="fill: none; stroke: #3987e5; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="50.976289" transform="rotate(-0 63.162109 50.976289)">rational (naive)</text>
+    </g>
+    <g id="line2d_36">
+     <path d="M 40.762109 60.176914  L 48.762109 60.176914  L 56.762109 60.176914  " style="fill: none; stroke: #d95926; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_20">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="62.976914" transform="rotate(-0 63.162109 62.976914)">credulous (naive)</text>
+    </g>
+    <g id="line2d_37">
+     <path d="M 40.762109 72.177539  L 48.762109 72.177539  L 56.762109 72.177539  " style="fill: none; stroke: #199e70; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_21">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="74.977539" transform="rotate(-0 63.162109 74.977539)">sceptical</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pf056ce0417">
+   <rect x="33.562109" y="37.697539" width="417.517891" height="184.700352" />
+  </clipPath>
+ </defs>
+</svg></div></div><details><summary>Table</summary><table><thead><tr><th class="n">budget</th><th class="n">rational (naive)</th><th class="n">credulous (naive)</th><th class="n">sceptical</th><th class="n">rational (naive) lo</th><th class="n">rational (naive) hi</th><th class="n">credulous (naive) lo</th><th class="n">credulous (naive) hi</th><th class="n">sceptical lo</th><th class="n">sceptical hi</th></tr></thead><tbody><tr><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.040</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.034</td><td class="n">0.047</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="n">1.000</td><td class="n">0.000</td><td class="n">0.032</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.028</td><td class="n">0.037</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="n">2.000</td><td class="n">0.000</td><td class="n">0.029</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.024</td><td class="n">0.033</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="n">3.000</td><td class="n">0.002</td><td class="n">0.024</td><td class="n">0.057</td><td class="n">0.000</td><td class="n">0.005</td><td class="n">0.019</td><td class="n">0.032</td><td class="n">0.000</td><td class="n">0.170</td></tr><tr><td class="n">4.000</td><td class="n">0.008</td><td class="n">0.027</td><td class="n">0.284</td><td class="n">0.001</td><td class="n">0.016</td><td class="n">0.017</td><td class="n">0.041</td><td class="n">0.057</td><td class="n">0.569</td></tr><tr><td class="n">5.000</td><td class="n">0.028</td><td class="n">0.040</td><td class="n">0.972</td><td class="n">0.012</td><td class="n">0.047</td><td class="n">0.023</td><td class="n">0.060</td><td class="n">0.572</td><td class="n">1.430</td></tr><tr><td class="n">6.000</td><td class="n">0.049</td><td class="n">0.061</td><td class="n">2.604</td><td class="n">0.031</td><td class="n">0.069</td><td class="n">0.039</td><td class="n">0.088</td><td class="n">1.968</td><td class="n">3.241</td></tr><tr><td class="n">8.000</td><td class="n">0.091</td><td class="n">0.089</td><td class="n">9.210</td><td class="n">0.063</td><td class="n">0.125</td><td class="n">0.064</td><td class="n">0.121</td><td class="n">9.210</td><td class="n">9.210</td></tr></tbody></table></details></div><h2>Debate<span class="tip" tabindex="0" data-tip="Two opposed advocates. Competition substitutes for scepticism: once each side can get (L+1)/2 bits verified, the true side proves its answer, and even the naive judge decides correctly.">?</span></h2><div class="card"><div class="fig"><div class="fig-light"><svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns2="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 460.8 259.2" version="1.1" role="img">
+ <metadata>
+  <rdf:RDF>
+   <ns2:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+    <dc:date>2026-09-26T05:37:15.438601</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <ns2:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </ns2:Agent>
+    </dc:creator>
+   </ns2:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 259.2  L 460.8 259.2  L 460.8 0  L 0 0  z " style="fill: #fcfcfb" />
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  L 451.08 37.697539  L 33.562109 37.697539  z " style="fill: #fcfcfb" />
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 52.540195 222.397891  L 52.540195 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_2" />
+     <g id="text_1">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="52.540195" y="233.235781" transform="rotate(-0 52.540195 233.235781)">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 99.98541 222.397891  L 99.98541 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_4" />
+     <g id="text_2">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="99.98541" y="233.235781" transform="rotate(-0 99.98541 233.235781)">1</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 147.430625 222.397891  L 147.430625 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_6" />
+     <g id="text_3">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="147.430625" y="233.235781" transform="rotate(-0 147.430625 233.235781)">2</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 194.87584 222.397891  L 194.87584 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_8" />
+     <g id="text_4">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="194.87584" y="233.235781" transform="rotate(-0 194.87584 233.235781)">3</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 242.321055 222.397891  L 242.321055 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_10" />
+     <g id="text_5">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="242.321055" y="233.235781" transform="rotate(-0 242.321055 233.235781)">4</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 289.76627 222.397891  L 289.76627 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_12" />
+     <g id="text_6">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="289.76627" y="233.235781" transform="rotate(-0 289.76627 233.235781)">5</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 337.211484 222.397891  L 337.211484 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_14" />
+     <g id="text_7">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="337.211484" y="233.235781" transform="rotate(-0 337.211484 233.235781)">6</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 384.656699 222.397891  L 384.656699 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_16" />
+     <g id="text_8">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="384.656699" y="233.235781" transform="rotate(-0 384.656699 233.235781)">7</text>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_17">
+      <path d="M 432.101914 222.397891  L 432.101914 37.697539  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_18" />
+     <g id="text_9">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="432.101914" y="233.235781" transform="rotate(-0 432.101914 233.235781)">8</text>
+     </g>
+    </g>
+    <g id="text_10">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="242.321055" y="246.236484" transform="rotate(-0 242.321055 246.236484)">verification budget k (claims checked per advocate)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_19">
+      <path d="M 33.562109 214.00242  L 451.08 214.00242  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_20" />
+     <g id="text_11">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="217.421365" transform="rotate(-0 29.562109 217.421365)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_21">
+      <path d="M 33.562109 177.541355  L 451.08 177.541355  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_22" />
+     <g id="text_12">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="180.9603" transform="rotate(-0 29.562109 180.9603)">2</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_23">
+      <path d="M 33.562109 141.08029  L 451.08 141.08029  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_24" />
+     <g id="text_13">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="144.499235" transform="rotate(-0 29.562109 144.499235)">4</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_25">
+      <path d="M 33.562109 104.619224  L 451.08 104.619224  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_26" />
+     <g id="text_14">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="108.03817" transform="rotate(-0 29.562109 108.03817)">6</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_27">
+      <path d="M 33.562109 68.158159  L 451.08 68.158159  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #e1e0d9; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_28" />
+     <g id="text_15">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #52514e" x="29.562109" y="71.577105" transform="rotate(-0 29.562109 71.577105)">8</text>
+     </g>
+    </g>
+    <g id="text_16">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #52514e" x="17.67375" y="130.047715" transform="rotate(-90 17.67375 130.047715)">ASD (log score)</text>
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_1">
+    <defs>
+     <path id="mb5b6f92ed1" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 99.98541 -45.19758  L 147.430625 -45.19758  L 194.87584 -45.19758  L 242.321055 -45.346806  L 289.76627 -46.572774  L 337.211484 -53.126173  L 432.101914 -213.10699  L 432.101914 -213.10699  L 432.101914 -213.10699  L 337.211484 -61.371569  L 289.76627 -49.222231  L 242.321055 -46.905764  L 194.87584 -45.485693  L 147.430625 -45.19758  L 99.98541 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#mb5b6f92ed1" x="0" y="259.2" style="fill: #2a78d6; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_2">
+    <defs>
+     <path id="m28c42f0028" d="M 52.540195 -51.420156  L 52.540195 -50.116284  L 99.98541 -51.244556  L 147.430625 -52.717027  L 194.87584 -54.411755  L 242.321055 -56.723187  L 289.76627 -61.030533  L 337.211484 -71.304479  L 432.101914 -213.10699  L 432.101914 -213.10699  L 432.101914 -213.10699  L 337.211484 -80.414892  L 289.76627 -66.462648  L 242.321055 -60.227358  L 194.87584 -56.562551  L 147.430625 -54.242101  L 99.98541 -52.786651  L 52.540195 -51.420156  z " />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m28c42f0028" x="0" y="259.2" style="fill: #eb6834; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_3">
+    <defs>
+     <path id="m0e1c7e2a48" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 99.98541 -45.19758  L 147.430625 -45.19758  L 194.87584 -45.19758  L 242.321055 -46.316976  L 289.76627 -56.391541  L 337.211484 -83.257046  L 432.101914 -213.10699  L 432.101914 -213.10699  L 432.101914 -213.10699  L 337.211484 -107.88376  L 289.76627 -73.182482  L 242.321055 -56.391541  L 194.87584 -48.555768  L 147.430625 -45.19758  L 99.98541 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m0e1c7e2a48" x="0" y="259.2" style="fill: #1baf7a; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="line2d_29">
+    <path d="M 52.540195 214.00242  L 99.98541 214.00242  L 147.430625 214.00242  L 194.87584 213.906382  L 242.321055 213.197927  L 289.76627 211.374074  L 337.211484 202.290148  L 432.101914 46.09301  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l0_0" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=0</title><defs>
+     <path id="mfe55494cd6" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #1f77b4; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#mfe55494cd6" x="52.540195" y="214.00242" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_1" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=1</title><defs>
+     <path id="m9012dbe204" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #ff7f0e; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m9012dbe204" x="99.98541" y="214.00242" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_2" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=2</title><defs>
+     <path id="mb0abb87c93" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #2ca02c; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#mb0abb87c93" x="147.430625" y="214.00242" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_3" class="mark" tabindex="0">
+    <title>rational (naive): 0.005 (95% CI 0.000 to 0.016) at budget=3</title><defs>
+     <path id="md5fe63e7af" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #d62728; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#md5fe63e7af" x="194.87584" y="213.906382" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_4" class="mark" tabindex="0">
+    <title>rational (naive): 0.044 (95% CI 0.008 to 0.094) at budget=4</title><defs>
+     <path id="m0a14c5c90e" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #9467bd; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m0a14c5c90e" x="242.321055" y="213.197927" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_5" class="mark" tabindex="0">
+    <title>rational (naive): 0.144 (95% CI 0.075 to 0.221) at budget=5</title><defs>
+     <path id="m4891e6747f" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #8c564b; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m4891e6747f" x="289.76627" y="211.374074" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_6" class="mark" tabindex="0">
+    <title>rational (naive): 0.642 (95% CI 0.435 to 0.887) at budget=6</title><defs>
+     <path id="m12014fd0dd" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #e377c2; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m12014fd0dd" x="337.211484" y="202.290148" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_7" class="mark" tabindex="0">
+    <title>rational (naive): 9.210 (95% CI 9.210 to 9.210) at budget=8</title><defs>
+     <path id="maa99f89f6f" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #7f7f7f; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#maa99f89f6f" x="432.101914" y="46.09301" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_30">
+    <defs>
+     <path id="m0d60d83b22" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m0d60d83b22" x="432.101914" y="46.09301" style="fill: #2a78d6; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_31">
+    <path d="M 52.540195 208.443839  L 99.98541 207.194913  L 147.430625 205.737231  L 194.87584 203.745967  L 242.321055 200.83705  L 289.76627 195.572232  L 337.211484 183.622526  L 432.101914 46.09301  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l1_0" class="mark" tabindex="0">
+    <title>credulous (naive): 0.305 (95% CI 0.270 to 0.341) at budget=0</title><defs>
+     <path id="m29258eaab0" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #bcbd22; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m29258eaab0" x="52.540195" y="208.443839" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_1" class="mark" tabindex="0">
+    <title>credulous (naive): 0.373 (95% CI 0.332 to 0.416) at budget=1</title><defs>
+     <path id="m76557900db" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #17becf; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m76557900db" x="99.98541" y="207.194913" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_2" class="mark" tabindex="0">
+    <title>credulous (naive): 0.453 (95% CI 0.412 to 0.496) at budget=2</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#mfe55494cd6" x="147.430625" y="205.737231" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_3" class="mark" tabindex="0">
+    <title>credulous (naive): 0.563 (95% CI 0.505 to 0.623) at budget=3</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m9012dbe204" x="194.87584" y="203.745967" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_4" class="mark" tabindex="0">
+    <title>credulous (naive): 0.722 (95% CI 0.632 to 0.824) at budget=4</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#mb0abb87c93" x="242.321055" y="200.83705" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_5" class="mark" tabindex="0">
+    <title>credulous (naive): 1.011 (95% CI 0.868 to 1.166) at budget=5</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#md5fe63e7af" x="289.76627" y="195.572232" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_6" class="mark" tabindex="0">
+    <title>credulous (naive): 1.666 (95% CI 1.432 to 1.932) at budget=6</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m0a14c5c90e" x="337.211484" y="183.622526" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_7" class="mark" tabindex="0">
+    <title>credulous (naive): 9.210 (95% CI 9.210 to 9.210) at budget=8</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m4891e6747f" x="432.101914" y="46.09301" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_32">
+    <defs>
+     <path id="m755d9084a5" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m755d9084a5" x="432.101914" y="46.09301" style="fill: #eb6834; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_33">
+    <path d="M 52.540195 214.00242  L 99.98541 214.00242  L 147.430625 214.00242  L 194.87584 212.883024  L 242.321055 208.40544  L 289.76627 194.972687  L 337.211484 163.629597  L 432.101914 46.09301  " clip-path="url(#pa7e68f9efe)" style="fill: none; stroke: #1baf7a; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l2_0" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=0</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m12014fd0dd" x="52.540195" y="214.00242" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_1" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=1</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#maa99f89f6f" x="99.98541" y="214.00242" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_2" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=2</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m29258eaab0" x="147.430625" y="214.00242" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_3" class="mark" tabindex="0">
+    <title>sceptical: 0.061 (95% CI 0.000 to 0.184) at budget=3</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m76557900db" x="194.87584" y="212.883024" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_4" class="mark" tabindex="0">
+    <title>sceptical: 0.307 (95% CI 0.061 to 0.614) at budget=4</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#mfe55494cd6" x="242.321055" y="208.40544" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_5" class="mark" tabindex="0">
+    <title>sceptical: 1.044 (95% CI 0.614 to 1.535) at budget=5</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m9012dbe204" x="289.76627" y="194.972687" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_6" class="mark" tabindex="0">
+    <title>sceptical: 2.763 (95% CI 2.088 to 3.439) at budget=6</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#mb0abb87c93" x="337.211484" y="163.629597" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_7" class="mark" tabindex="0">
+    <title>sceptical: 9.210 (95% CI 9.210 to 9.210) at budget=8</title><g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#md5fe63e7af" x="432.101914" y="46.09301" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_34">
+    <defs>
+     <path id="m6531211885" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #fcfcfb; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#pa7e68f9efe)">
+     <use xlink:href="#m6531211885" x="432.101914" y="46.09301" style="fill: #1baf7a; stroke: #fcfcfb; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 33.562109 222.397891  L 33.562109 37.697539  " style="fill: none; stroke: #c3c2b7; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="patch_4">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  " style="fill: none; stroke: #c3c2b7; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="text_17">
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="33.562109" y="30.824001" transform="rotate(-0 33.562109 30.824001)">two opposed advocates; 15 hidden bits; bands: 95% CI over 150 items</text>
+   </g>
+   <g id="text_18">
+    <text style="font-weight: 700; font-size: 10.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #0b0b0b" x="33.562109" y="17.697539" transform="rotate(-0 33.562109 17.697539)">Debate: ASD vs. verification budget</text>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_35">
+     <path d="M 40.762109 48.176289  L 48.762109 48.176289  L 56.762109 48.176289  " style="fill: none; stroke: #2a78d6; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="50.976289" transform="rotate(-0 63.162109 50.976289)">rational (naive)</text>
+    </g>
+    <g id="line2d_36">
+     <path d="M 40.762109 60.176914  L 48.762109 60.176914  L 56.762109 60.176914  " style="fill: none; stroke: #eb6834; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_20">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="62.976914" transform="rotate(-0 63.162109 62.976914)">credulous (naive)</text>
+    </g>
+    <g id="line2d_37">
+     <path d="M 40.762109 72.177539  L 48.762109 72.177539  L 56.762109 72.177539  " style="fill: none; stroke: #1baf7a; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_21">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #52514e" x="63.162109" y="74.977539" transform="rotate(-0 63.162109 74.977539)">sceptical</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pa7e68f9efe">
+   <rect x="33.562109" y="37.697539" width="417.517891" height="184.700352" />
+  </clipPath>
+ </defs>
+</svg></div><div class="fig-dark"><svg xmlns="http://www.w3.org/2000/svg" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:ns2="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 460.8 259.2" version="1.1" role="img">
+ <metadata>
+  <rdf:RDF>
+   <ns2:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+    <dc:date>2026-09-26T05:37:15.522553</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <ns2:Agent>
+      <dc:title>Matplotlib v3.11.2, https://matplotlib.org/</dc:title>
+     </ns2:Agent>
+    </dc:creator>
+   </ns2:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 259.2  L 460.8 259.2  L 460.8 0  L 0 0  z " style="fill: #1a1a19" />
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  L 451.08 37.697539  L 33.562109 37.697539  z " style="fill: #1a1a19" />
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 52.540195 222.397891  L 52.540195 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_2" />
+     <g id="text_1">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="52.540195" y="233.235781" transform="rotate(-0 52.540195 233.235781)">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 99.98541 222.397891  L 99.98541 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_4" />
+     <g id="text_2">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="99.98541" y="233.235781" transform="rotate(-0 99.98541 233.235781)">1</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 147.430625 222.397891  L 147.430625 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_6" />
+     <g id="text_3">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="147.430625" y="233.235781" transform="rotate(-0 147.430625 233.235781)">2</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 194.87584 222.397891  L 194.87584 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_8" />
+     <g id="text_4">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="194.87584" y="233.235781" transform="rotate(-0 194.87584 233.235781)">3</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 242.321055 222.397891  L 242.321055 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_10" />
+     <g id="text_5">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="242.321055" y="233.235781" transform="rotate(-0 242.321055 233.235781)">4</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 289.76627 222.397891  L 289.76627 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_12" />
+     <g id="text_6">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="289.76627" y="233.235781" transform="rotate(-0 289.76627 233.235781)">5</text>
+     </g>
+    </g>
+    <g id="xtick_7">
+     <g id="line2d_13">
+      <path d="M 337.211484 222.397891  L 337.211484 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_14" />
+     <g id="text_7">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="337.211484" y="233.235781" transform="rotate(-0 337.211484 233.235781)">6</text>
+     </g>
+    </g>
+    <g id="xtick_8">
+     <g id="line2d_15">
+      <path d="M 384.656699 222.397891  L 384.656699 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_16" />
+     <g id="text_8">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="384.656699" y="233.235781" transform="rotate(-0 384.656699 233.235781)">7</text>
+     </g>
+    </g>
+    <g id="xtick_9">
+     <g id="line2d_17">
+      <path d="M 432.101914 222.397891  L 432.101914 37.697539  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_18" />
+     <g id="text_9">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="432.101914" y="233.235781" transform="rotate(-0 432.101914 233.235781)">8</text>
+     </g>
+    </g>
+    <g id="text_10">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="242.321055" y="246.236484" transform="rotate(-0 242.321055 246.236484)">verification budget k (claims checked per advocate)</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_19">
+      <path d="M 33.562109 214.00242  L 451.08 214.00242  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_20" />
+     <g id="text_11">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="217.421365" transform="rotate(-0 29.562109 217.421365)">0</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_21">
+      <path d="M 33.562109 177.541355  L 451.08 177.541355  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_22" />
+     <g id="text_12">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="180.9603" transform="rotate(-0 29.562109 180.9603)">2</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_23">
+      <path d="M 33.562109 141.08029  L 451.08 141.08029  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_24" />
+     <g id="text_13">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="144.499235" transform="rotate(-0 29.562109 144.499235)">4</text>
+     </g>
+    </g>
+    <g id="ytick_4">
+     <g id="line2d_25">
+      <path d="M 33.562109 104.619224  L 451.08 104.619224  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_26" />
+     <g id="text_14">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="108.03817" transform="rotate(-0 29.562109 108.03817)">6</text>
+     </g>
+    </g>
+    <g id="ytick_5">
+     <g id="line2d_27">
+      <path d="M 33.562109 68.158159  L 451.08 68.158159  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #2c2c2a; stroke-width: 0.6; stroke-linecap: square" />
+     </g>
+     <g id="line2d_28" />
+     <g id="text_15">
+      <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: end; fill: #c3c2b7" x="29.562109" y="71.577105" transform="rotate(-0 29.562109 71.577105)">8</text>
+     </g>
+    </g>
+    <g id="text_16">
+     <text style="font-size: 9px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: middle; fill: #c3c2b7" x="17.67375" y="130.047715" transform="rotate(-90 17.67375 130.047715)">ASD (log score)</text>
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_1">
+    <defs>
+     <path id="m642cbdb0de" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 99.98541 -45.19758  L 147.430625 -45.19758  L 194.87584 -45.19758  L 242.321055 -45.346806  L 289.76627 -46.572774  L 337.211484 -53.126173  L 432.101914 -213.10699  L 432.101914 -213.10699  L 432.101914 -213.10699  L 337.211484 -61.371569  L 289.76627 -49.222231  L 242.321055 -46.905764  L 194.87584 -45.485693  L 147.430625 -45.19758  L 99.98541 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m642cbdb0de" x="0" y="259.2" style="fill: #3987e5; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_2">
+    <defs>
+     <path id="m5d3c98e26c" d="M 52.540195 -51.420156  L 52.540195 -50.116284  L 99.98541 -51.244556  L 147.430625 -52.717027  L 194.87584 -54.411755  L 242.321055 -56.723187  L 289.76627 -61.030533  L 337.211484 -71.304479  L 432.101914 -213.10699  L 432.101914 -213.10699  L 432.101914 -213.10699  L 337.211484 -80.414892  L 289.76627 -66.462648  L 242.321055 -60.227358  L 194.87584 -56.562551  L 147.430625 -54.242101  L 99.98541 -52.786651  L 52.540195 -51.420156  z " />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m5d3c98e26c" x="0" y="259.2" style="fill: #d95926; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="FillBetweenPolyCollection_3">
+    <defs>
+     <path id="me22d0c1a46" d="M 52.540195 -45.19758  L 52.540195 -45.19758  L 99.98541 -45.19758  L 147.430625 -45.19758  L 194.87584 -45.19758  L 242.321055 -46.316976  L 289.76627 -56.391541  L 337.211484 -83.257046  L 432.101914 -213.10699  L 432.101914 -213.10699  L 432.101914 -213.10699  L 337.211484 -107.88376  L 289.76627 -73.182482  L 242.321055 -56.391541  L 194.87584 -48.555768  L 147.430625 -45.19758  L 99.98541 -45.19758  L 52.540195 -45.19758  z " />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#me22d0c1a46" x="0" y="259.2" style="fill: #199e70; fill-opacity: 0.18" />
+    </g>
+   </g>
+   <g id="line2d_29">
+    <path d="M 52.540195 214.00242  L 99.98541 214.00242  L 147.430625 214.00242  L 194.87584 213.906382  L 242.321055 213.197927  L 289.76627 211.374074  L 337.211484 202.290148  L 432.101914 46.09301  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #3987e5; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l0_0" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=0</title><defs>
+     <path id="m0e492c9207" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #1f77b4; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m0e492c9207" x="52.540195" y="214.00242" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_1" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=1</title><defs>
+     <path id="m5c3c301cb2" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #ff7f0e; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m5c3c301cb2" x="99.98541" y="214.00242" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_2" class="mark" tabindex="0">
+    <title>rational (naive): 0.000 (95% CI 0.000 to 0.000) at budget=2</title><defs>
+     <path id="mcf2f810826" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #2ca02c; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#mcf2f810826" x="147.430625" y="214.00242" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_3" class="mark" tabindex="0">
+    <title>rational (naive): 0.005 (95% CI 0.000 to 0.016) at budget=3</title><defs>
+     <path id="m40673c1d83" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #d62728; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m40673c1d83" x="194.87584" y="213.906382" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_4" class="mark" tabindex="0">
+    <title>rational (naive): 0.044 (95% CI 0.008 to 0.094) at budget=4</title><defs>
+     <path id="m80be5effcd" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #9467bd; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m80be5effcd" x="242.321055" y="213.197927" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_5" class="mark" tabindex="0">
+    <title>rational (naive): 0.144 (95% CI 0.075 to 0.221) at budget=5</title><defs>
+     <path id="md5c456dcd0" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #8c564b; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#md5c456dcd0" x="289.76627" y="211.374074" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_6" class="mark" tabindex="0">
+    <title>rational (naive): 0.642 (95% CI 0.435 to 0.887) at budget=6</title><defs>
+     <path id="m148bad6629" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #e377c2; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m148bad6629" x="337.211484" y="202.290148" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l0_7" class="mark" tabindex="0">
+    <title>rational (naive): 9.210 (95% CI 9.210 to 9.210) at budget=8</title><defs>
+     <path id="m7e25ee54af" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #7f7f7f; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m7e25ee54af" x="432.101914" y="46.09301" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_30">
+    <defs>
+     <path id="m114f37ead4" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m114f37ead4" x="432.101914" y="46.09301" style="fill: #3987e5; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_31">
+    <path d="M 52.540195 208.443839  L 99.98541 207.194913  L 147.430625 205.737231  L 194.87584 203.745967  L 242.321055 200.83705  L 289.76627 195.572232  L 337.211484 183.622526  L 432.101914 46.09301  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #d95926; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l1_0" class="mark" tabindex="0">
+    <title>credulous (naive): 0.305 (95% CI 0.270 to 0.341) at budget=0</title><defs>
+     <path id="mc3d8637a81" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #bcbd22; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#mc3d8637a81" x="52.540195" y="208.443839" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_1" class="mark" tabindex="0">
+    <title>credulous (naive): 0.373 (95% CI 0.332 to 0.416) at budget=1</title><defs>
+     <path id="ma88073cc9d" d="M 0 5  C 1.326016 5 2.597899 4.473168 3.535534 3.535534  C 4.473168 2.597899 5 1.326016 5 0  C 5 -1.326016 4.473168 -2.597899 3.535534 -3.535534  C 2.597899 -4.473168 1.326016 -5 0 -5  C -1.326016 -5 -2.597899 -4.473168 -3.535534 -3.535534  C -4.473168 -2.597899 -5 -1.326016 -5 0  C -5 1.326016 -4.473168 2.597899 -3.535534 3.535534  C -2.597899 4.473168 -1.326016 5 0 5  z " style="stroke: #17becf; stroke-opacity: 0" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#ma88073cc9d" x="99.98541" y="207.194913" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_2" class="mark" tabindex="0">
+    <title>credulous (naive): 0.453 (95% CI 0.412 to 0.496) at budget=2</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m0e492c9207" x="147.430625" y="205.737231" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_3" class="mark" tabindex="0">
+    <title>credulous (naive): 0.563 (95% CI 0.505 to 0.623) at budget=3</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m5c3c301cb2" x="194.87584" y="203.745967" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_4" class="mark" tabindex="0">
+    <title>credulous (naive): 0.722 (95% CI 0.632 to 0.824) at budget=4</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#mcf2f810826" x="242.321055" y="200.83705" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_5" class="mark" tabindex="0">
+    <title>credulous (naive): 1.011 (95% CI 0.868 to 1.166) at budget=5</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m40673c1d83" x="289.76627" y="195.572232" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_6" class="mark" tabindex="0">
+    <title>credulous (naive): 1.666 (95% CI 1.432 to 1.932) at budget=6</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m80be5effcd" x="337.211484" y="183.622526" style="fill: #9467bd; fill-opacity: 0; stroke: #9467bd; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l1_7" class="mark" tabindex="0">
+    <title>credulous (naive): 9.210 (95% CI 9.210 to 9.210) at budget=8</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#md5c456dcd0" x="432.101914" y="46.09301" style="fill: #8c564b; fill-opacity: 0; stroke: #8c564b; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_32">
+    <defs>
+     <path id="m910a1b7eab" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m910a1b7eab" x="432.101914" y="46.09301" style="fill: #d95926; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="line2d_33">
+    <path d="M 52.540195 214.00242  L 99.98541 214.00242  L 147.430625 214.00242  L 194.87584 212.883024  L 242.321055 208.40544  L 289.76627 194.972687  L 337.211484 163.629597  L 432.101914 46.09301  " clip-path="url(#p1cadec3c7f)" style="fill: none; stroke: #199e70; stroke-width: 2; stroke-linecap: round" />
+   </g>
+   <g id="l2_0" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=0</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m148bad6629" x="52.540195" y="214.00242" style="fill: #e377c2; fill-opacity: 0; stroke: #e377c2; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_1" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=1</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m7e25ee54af" x="99.98541" y="214.00242" style="fill: #7f7f7f; fill-opacity: 0; stroke: #7f7f7f; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_2" class="mark" tabindex="0">
+    <title>sceptical: 0.000 (95% CI 0.000 to 0.000) at budget=2</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#mc3d8637a81" x="147.430625" y="214.00242" style="fill: #bcbd22; fill-opacity: 0; stroke: #bcbd22; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_3" class="mark" tabindex="0">
+    <title>sceptical: 0.061 (95% CI 0.000 to 0.184) at budget=3</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#ma88073cc9d" x="194.87584" y="212.883024" style="fill: #17becf; fill-opacity: 0; stroke: #17becf; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_4" class="mark" tabindex="0">
+    <title>sceptical: 0.307 (95% CI 0.061 to 0.614) at budget=4</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m0e492c9207" x="242.321055" y="208.40544" style="fill: #1f77b4; fill-opacity: 0; stroke: #1f77b4; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_5" class="mark" tabindex="0">
+    <title>sceptical: 1.044 (95% CI 0.614 to 1.535) at budget=5</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m5c3c301cb2" x="289.76627" y="194.972687" style="fill: #ff7f0e; fill-opacity: 0; stroke: #ff7f0e; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_6" class="mark" tabindex="0">
+    <title>sceptical: 2.763 (95% CI 2.088 to 3.439) at budget=6</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#mcf2f810826" x="337.211484" y="163.629597" style="fill: #2ca02c; fill-opacity: 0; stroke: #2ca02c; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="l2_7" class="mark" tabindex="0">
+    <title>sceptical: 9.210 (95% CI 9.210 to 9.210) at budget=8</title><g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m40673c1d83" x="432.101914" y="46.09301" style="fill: #d62728; fill-opacity: 0; stroke: #d62728; stroke-opacity: 0" />
+    </g>
+   </g>
+   <g id="line2d_34">
+    <defs>
+     <path id="m3ac252a39f" d="M 0 3.5  C 0.928211 3.5 1.81853 3.131218 2.474874 2.474874  C 3.131218 1.81853 3.5 0.928211 3.5 0  C 3.5 -0.928211 3.131218 -1.81853 2.474874 -2.474874  C 1.81853 -3.131218 0.928211 -3.5 0 -3.5  C -0.928211 -3.5 -1.81853 -3.131218 -2.474874 -2.474874  C -3.131218 -1.81853 -3.5 -0.928211 -3.5 0  C -3.5 0.928211 -3.131218 1.81853 -2.474874 2.474874  C -1.81853 3.131218 -0.928211 3.5 0 3.5  z " style="stroke: #1a1a19; stroke-width: 1.5" />
+    </defs>
+    <g clip-path="url(#p1cadec3c7f)">
+     <use xlink:href="#m3ac252a39f" x="432.101914" y="46.09301" style="fill: #199e70; stroke: #1a1a19; stroke-width: 1.5" />
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 33.562109 222.397891  L 33.562109 37.697539  " style="fill: none; stroke: #383835; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="patch_4">
+    <path d="M 33.562109 222.397891  L 451.08 222.397891  " style="fill: none; stroke: #383835; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square" />
+   </g>
+   <g id="text_17">
+    <text style="font-size: 8.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="33.562109" y="30.824001" transform="rotate(-0 33.562109 30.824001)">two opposed advocates; 15 hidden bits; bands: 95% CI over 150 items</text>
+   </g>
+   <g id="text_18">
+    <text style="font-weight: 700; font-size: 10.5px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #ffffff" x="33.562109" y="17.697539" transform="rotate(-0 33.562109 17.697539)">Debate: ASD vs. verification budget</text>
+   </g>
+   <g id="legend_1">
+    <g id="line2d_35">
+     <path d="M 40.762109 48.176289  L 48.762109 48.176289  L 56.762109 48.176289  " style="fill: none; stroke: #3987e5; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_19">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="50.976289" transform="rotate(-0 63.162109 50.976289)">rational (naive)</text>
+    </g>
+    <g id="line2d_36">
+     <path d="M 40.762109 60.176914  L 48.762109 60.176914  L 56.762109 60.176914  " style="fill: none; stroke: #d95926; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_20">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="62.976914" transform="rotate(-0 63.162109 62.976914)">credulous (naive)</text>
+    </g>
+    <g id="line2d_37">
+     <path d="M 40.762109 72.177539  L 48.762109 72.177539  L 56.762109 72.177539  " style="fill: none; stroke: #199e70; stroke-width: 2; stroke-linecap: round" />
+    </g>
+    <g id="text_21">
+     <text style="font-size: 8px; font-family:system-ui, -apple-system, 'Segoe UI', sans-serif; text-anchor: start; fill: #c3c2b7" x="63.162109" y="74.977539" transform="rotate(-0 63.162109 74.977539)">sceptical</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p1cadec3c7f">
+   <rect x="33.562109" y="37.697539" width="417.517891" height="184.700352" />
+  </clipPath>
+ </defs>
+</svg></div></div><details><summary>Table</summary><table><thead><tr><th class="n">budget</th><th class="n">rational (naive)</th><th class="n">credulous (naive)</th><th class="n">sceptical</th><th class="n">rational (naive) lo</th><th class="n">rational (naive) hi</th><th class="n">credulous (naive) lo</th><th class="n">credulous (naive) hi</th><th class="n">sceptical lo</th><th class="n">sceptical hi</th></tr></thead><tbody><tr><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.305</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.270</td><td class="n">0.341</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="n">1.000</td><td class="n">0.000</td><td class="n">0.373</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.332</td><td class="n">0.416</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="n">2.000</td><td class="n">0.000</td><td class="n">0.453</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.412</td><td class="n">0.496</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="n">3.000</td><td class="n">0.005</td><td class="n">0.563</td><td class="n">0.061</td><td class="n">0.000</td><td class="n">0.016</td><td class="n">0.505</td><td class="n">0.623</td><td class="n">0.000</td><td class="n">0.184</td></tr><tr><td class="n">4.000</td><td class="n">0.044</td><td class="n">0.722</td><td class="n">0.307</td><td class="n">0.008</td><td class="n">0.094</td><td class="n">0.632</td><td class="n">0.824</td><td class="n">0.061</td><td class="n">0.614</td></tr><tr><td class="n">5.000</td><td class="n">0.144</td><td class="n">1.011</td><td class="n">1.044</td><td class="n">0.075</td><td class="n">0.221</td><td class="n">0.868</td><td class="n">1.166</td><td class="n">0.614</td><td class="n">1.535</td></tr><tr><td class="n">6.000</td><td class="n">0.642</td><td class="n">1.666</td><td class="n">2.763</td><td class="n">0.435</td><td class="n">0.887</td><td class="n">1.432</td><td class="n">1.932</td><td class="n">2.088</td><td class="n">3.439</td></tr><tr><td class="n">8.000</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td></tr></tbody></table></details></div><h2>Measured vs. theory</h2><div class="card"><table><thead><tr><th class="">protocol</th><th class="">judge</th><th class="n">budget</th><th class="n">asd<span class="tip" tabindex="0" data-tip="How much more reward an agent earns for arguing for the truth than for a falsehood. Above 0: honesty pays.">?</span></th><th class="n">ci_low</th><th class="n">ci_high</th><th class="n">theory (no lies)</th></tr></thead><tbody><tr><td class="">propaganda</td><td class="">rational (naive)</td><td class="n">0</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="">propaganda</td><td class="">sceptical</td><td class="n">0</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="">debate</td><td class="">rational (naive)</td><td class="n">0</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="">debate</td><td class="">sceptical</td><td class="n">0</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="">propaganda</td><td class="">rational (naive)</td><td class="n">1</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="">propaganda</td><td class="">sceptical</td><td class="n">1</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.001</td></tr><tr><td class="">debate</td><td class="">rational (naive)</td><td class="n">1</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="">debate</td><td class="">sceptical</td><td class="n">1</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.001</td></tr><tr><td class="">propaganda</td><td class="">rational (naive)</td><td class="n">2</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td></tr><tr><td class="">propaganda</td><td class="">sceptical</td><td class="n">2</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.008</td></tr><tr><td class="">debate</td><td class="">rational (naive)</td><td class="n">2</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.001</td></tr><tr><td class="">debate</td><td class="">sceptical</td><td class="n">2</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.009</td></tr><tr><td class="">propaganda</td><td class="">rational (naive)</td><td class="n">3</td><td class="n">0.002</td><td class="n">0.000</td><td class="n">0.005</td><td class="n">0.001</td></tr><tr><td class="">propaganda</td><td class="">sceptical</td><td class="n">3</td><td class="n">0.057</td><td class="n">0.000</td><td class="n">0.170</td><td class="n">0.063</td></tr><tr><td class="">debate</td><td class="">rational (naive)</td><td class="n">3</td><td class="n">0.005</td><td class="n">0.000</td><td class="n">0.016</td><td class="n">0.004</td></tr><tr><td class="">debate</td><td class="">sceptical</td><td class="n">3</td><td class="n">0.061</td><td class="n">0.000</td><td class="n">0.184</td><td class="n">0.068</td></tr><tr><td class="">propaganda</td><td class="">rational (naive)</td><td class="n">4</td><td class="n">0.008</td><td class="n">0.001</td><td class="n">0.016</td><td class="n">0.004</td></tr><tr><td class="">propaganda</td><td class="">sceptical</td><td class="n">4</td><td class="n">0.284</td><td class="n">0.057</td><td class="n">0.569</td><td class="n">0.300</td></tr><tr><td class="">debate</td><td class="">rational (naive)</td><td class="n">4</td><td class="n">0.044</td><td class="n">0.008</td><td class="n">0.094</td><td class="n">0.024</td></tr><tr><td class="">debate</td><td class="">sceptical</td><td class="n">4</td><td class="n">0.307</td><td class="n">0.061</td><td class="n">0.614</td><td class="n">0.324</td></tr><tr><td class="">propaganda</td><td class="">rational (naive)</td><td class="n">5</td><td class="n">0.028</td><td class="n">0.013</td><td class="n">0.047</td><td class="n">0.012</td></tr><tr><td class="">propaganda</td><td class="">sceptical</td><td class="n">5</td><td class="n">0.972</td><td class="n">0.572</td><td class="n">1.430</td><td class="n">1.016</td></tr><tr><td class="">debate</td><td class="">rational (naive)</td><td class="n">5</td><td class="n">0.144</td><td class="n">0.075</td><td class="n">0.221</td><td class="n">0.102</td></tr><tr><td class="">debate</td><td class="">sceptical</td><td class="n">5</td><td class="n">1.044</td><td class="n">0.614</td><td class="n">1.535</td><td class="n">1.091</td></tr><tr><td class="">propaganda</td><td class="">rational (naive)</td><td class="n">6</td><td class="n">0.049</td><td class="n">0.031</td><td class="n">0.069</td><td class="n">0.023</td></tr><tr><td class="">propaganda</td><td class="">sceptical</td><td class="n">6</td><td class="n">2.604</td><td class="n">1.968</td><td class="n">3.241</td><td class="n">2.619</td></tr><tr><td class="">debate</td><td class="">rational (naive)</td><td class="n">6</td><td class="n">0.642</td><td class="n">0.435</td><td class="n">0.887</td><td class="n">0.345</td></tr><tr><td class="">debate</td><td class="">sceptical</td><td class="n">6</td><td class="n">2.763</td><td class="n">2.088</td><td class="n">3.438</td><td class="n">2.779</td></tr><tr><td class="">propaganda</td><td class="">rational (naive)</td><td class="n">8</td><td class="n">0.091</td><td class="n">0.063</td><td class="n">0.125</td><td class="n">0.036</td></tr><tr><td class="">propaganda</td><td class="">sceptical</td><td class="n">8</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td></tr><tr><td class="">debate</td><td class="">rational (naive)</td><td class="n">8</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td></tr><tr><td class="">debate</td><td class="">sceptical</td><td class="n">8</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td><td class="n">9.210</td></tr></tbody></table><p class="sub">Theory: theory.disclosure.asd_table, exact over the fair prior, for advocates that never lie. The scripted advocates lie once their favourable bits run out; a lie inside the budget is refuted and hands the judge a bit, so measured ASD can exceed the no-lies theory at intermediate budgets. With no verification (k = 0) a rational judge learns nothing: ASD is exactly 0.</p></div><h2>Sample episodes (credulous judge, budget 4)</h2><div class="filters"><select id="f-mech" aria-label="mechanism"><option value="">All mechanisms</option><option value="debate">debate</option><option value="propaganda">propaganda</option></select><select id="f-prof" aria-label="profile"><option value="">All profiles</option><option value="arm=false">arm=false</option><option value="arm=true">arm=true</option><option value="debater_a=false">debater_a=false</option><option value="debater_a=true">debater_a=true</option></select><input id="f-q" type="search" placeholder="Search" aria-label="search"><span id="f-n" class="muted" style="align-self:center"></span></div><details class="ep" data-mech="propaganda" data-prof="arm=true"><summary><b>propaganda</b> <span class="muted">arm=true · bits0000</span> <span class="chip">→ B</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=4</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=8</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.02, B 0.98</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent 1.000</span> <span class="chip">judge_p_true 0.981</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.020</span> <span class="chip">judge_brier -0.001</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_agent 1.000</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 0.000</span> <span class="chip">bit_honesty: agent 1.000</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=false"><summary><b>propaganda</b> <span class="muted">arm=false · bits0000</span> <span class="chip">→ A</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=5</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.98, B 0.02</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent -1.000</span> <span class="chip">judge_p_true 0.019</span> <span class="chip">judge_correct 0.000</span> <span class="chip">judge_log_score -3.942</span> <span class="chip">judge_brier -1.923</span> <span class="chip">outcome_value -1.000</span> <span class="chip">honesty_agent 0.875</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 1.000</span> <span class="chip">bit_honesty: agent 0.875</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=true"><summary><b>propaganda</b> <span class="muted">arm=true · bits0001</span> <span class="chip">→ A</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=10</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.98, B 0.02</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent 1.000</span> <span class="chip">judge_p_true 0.981</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.020</span> <span class="chip">judge_brier -0.001</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_agent 1.000</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 0.000</span> <span class="chip">bit_honesty: agent 1.000</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=false"><summary><b>propaganda</b> <span class="muted">arm=false · bits0001</span> <span class="chip">→ B</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=9</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.02, B 0.98</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent -1.000</span> <span class="chip">judge_p_true 0.019</span> <span class="chip">judge_correct 0.000</span> <span class="chip">judge_log_score -3.942</span> <span class="chip">judge_brier -1.923</span> <span class="chip">outcome_value -1.000</span> <span class="chip">honesty_agent 0.500</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 4.000</span> <span class="chip">bit_honesty: agent 0.500</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=true"><summary><b>propaganda</b> <span class="muted">arm=true · bits0002</span> <span class="chip">→ B</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=1</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=0</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.02, B 0.98</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent 1.000</span> <span class="chip">judge_p_true 0.981</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.020</span> <span class="chip">judge_brier -0.001</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_agent 1.000</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 0.000</span> <span class="chip">bit_honesty: agent 1.000</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=false"><summary><b>propaganda</b> <span class="muted">arm=false · bits0002</span> <span class="chip">→ A</span> <span class="chip">agent -0.081</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=5</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.92, B 0.08</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent -1.000</span> <span class="chip">judge_p_true 0.078</span> <span class="chip">judge_correct 0.000</span> <span class="chip">judge_log_score -2.549</span> <span class="chip">judge_brier -1.700</span> <span class="chip">outcome_value -1.000</span> <span class="chip">honesty_agent 1.000</span> <span class="chip">claims_agent 5.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 0.000</span> <span class="chip">bit_honesty: agent 1.000</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=true"><summary><b>propaganda</b> <span class="muted">arm=true · bits0003</span> <span class="chip">→ B</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=1</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=8</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=9</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.02, B 0.98</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent 1.000</span> <span class="chip">judge_p_true 0.981</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.020</span> <span class="chip">judge_brier -0.001</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_agent 1.000</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 0.000</span> <span class="chip">bit_honesty: agent 1.000</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=false"><summary><b>propaganda</b> <span class="muted">arm=false · bits0003</span> <span class="chip">→ A</span> <span class="chip">agent -0.053</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=5</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.95, B 0.05</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent -1.000</span> <span class="chip">judge_p_true 0.051</span> <span class="chip">judge_correct 0.000</span> <span class="chip">judge_log_score -2.968</span> <span class="chip">judge_brier -1.800</span> <span class="chip">outcome_value -1.000</span> <span class="chip">honesty_agent 0.833</span> <span class="chip">claims_agent 6.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 1.000</span> <span class="chip">bit_honesty: agent 0.833</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=true"><summary><b>propaganda</b> <span class="muted">arm=true · bits0004</span> <span class="chip">→ A</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=10</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.98, B 0.02</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent 1.000</span> <span class="chip">judge_p_true 0.981</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.020</span> <span class="chip">judge_brier -0.001</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_agent 1.000</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 0.000</span> <span class="chip">bit_honesty: agent 1.000</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=false"><summary><b>propaganda</b> <span class="muted">arm=false · bits0004</span> <span class="chip">→ B</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=5</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.02, B 0.98</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent -1.000</span> <span class="chip">judge_p_true 0.019</span> <span class="chip">judge_correct 0.000</span> <span class="chip">judge_log_score -3.942</span> <span class="chip">judge_brier -1.923</span> <span class="chip">outcome_value -1.000</span> <span class="chip">honesty_agent 0.750</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 2.000</span> <span class="chip">bit_honesty: agent 0.750</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=true"><summary><b>propaganda</b> <span class="muted">arm=true · bits0005</span> <span class="chip">→ A</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=11</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=5</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.98, B 0.02</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent 1.000</span> <span class="chip">judge_p_true 0.981</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.020</span> <span class="chip">judge_brier -0.001</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_agent 1.000</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 0.000</span> <span class="chip">bit_honesty: agent 1.000</span></div></details><details class="ep" data-mech="propaganda" data-prof="arm=false"><summary><b>propaganda</b> <span class="muted">arm=false · bits0005</span> <span class="chip">→ B</span> <span class="chip">agent -0.020</span></summary><div class="turn"><div class="who">agent · argument</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=10</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=8</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.02, B 0.98</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: agent -1.000</span> <span class="chip">judge_p_true 0.019</span> <span class="chip">judge_correct 0.000</span> <span class="chip">judge_log_score -3.942</span> <span class="chip">judge_brier -1.923</span> <span class="chip">outcome_value -1.000</span> <span class="chip">honesty_agent 0.750</span> <span class="chip">claims_agent 8.000</span> <span class="chip">lies_checked_agent 0.000</span> <span class="chip">lies_unchecked_agent 2.000</span> <span class="chip">bit_honesty: agent 0.750</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=true"><summary><b>debate</b> <span class="muted">debater_a=true · bits0000</span> <span class="chip">→ B</span> <span class="chip">debater_a -0.469</span> <span class="chip">debater_b -0.983</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=11</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 0</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=5</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=0</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.37, B 0.63</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a 1.000, debater_b -1.000</span> <span class="chip">judge_p_true 0.626</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.469</span> <span class="chip">judge_brier -0.280</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 1.000</span> <span class="chip">claims_debater_a 8.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 0.000</span> <span class="chip">honesty_debater_b 1.000</span> <span class="chip">claims_debater_b 7.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 0.000</span> <span class="chip">bit_honesty: debater_a 1.000, debater_b 1.000</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=false"><summary><b>debate</b> <span class="muted">debater_a=false · bits0000</span> <span class="chip">→ B</span> <span class="chip">debater_a -0.983</span> <span class="chip">debater_b -0.469</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=5</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=0</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=3</span> 1</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=7</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.37, B 0.63</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a -1.000, debater_b 1.000</span> <span class="chip">judge_p_true 0.626</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.469</span> <span class="chip">judge_brier -0.280</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 1.000</span> <span class="chip">claims_debater_a 7.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 0.000</span> <span class="chip">honesty_debater_b 1.000</span> <span class="chip">claims_debater_b 8.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 0.000</span> <span class="chip">bit_honesty: debater_a 1.000, debater_b 1.000</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=true"><summary><b>debate</b> <span class="muted">debater_a=true · bits0001</span> <span class="chip">→ A</span> <span class="chip">debater_a -0.256</span> <span class="chip">debater_b -1.489</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 1</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=9</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.77, B 0.23</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a 1.000, debater_b -1.000</span> <span class="chip">judge_p_true 0.774</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.256</span> <span class="chip">judge_brier -0.102</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 1.000</span> <span class="chip">claims_debater_a 8.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 0.000</span> <span class="chip">honesty_debater_b 0.571</span> <span class="chip">claims_debater_b 7.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 3.000</span> <span class="chip">bit_honesty: debater_a 1.000, debater_b 0.571</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=false"><summary><b>debate</b> <span class="muted">debater_a=false · bits0001</span> <span class="chip">→ A</span> <span class="chip">debater_a -1.572</span> <span class="chip">debater_b -0.233</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 0</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=4</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=5</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.79, B 0.21</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a -1.000, debater_b 1.000</span> <span class="chip">judge_p_true 0.792</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.233</span> <span class="chip">judge_brier -0.086</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 0.667</span> <span class="chip">claims_debater_a 6.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 2.000</span> <span class="chip">honesty_debater_b 1.000</span> <span class="chip">claims_debater_b 8.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 0.000</span> <span class="chip">bit_honesty: debater_a 0.667, debater_b 1.000</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=true"><summary><b>debate</b> <span class="muted">debater_a=true · bits0002</span> <span class="chip">→ B</span> <span class="chip">debater_a -0.233</span> <span class="chip">debater_b -1.572</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 1</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=5</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=3</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.21, B 0.79</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a 1.000, debater_b -1.000</span> <span class="chip">judge_p_true 0.792</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.233</span> <span class="chip">judge_brier -0.086</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 1.000</span> <span class="chip">claims_debater_a 8.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 0.000</span> <span class="chip">honesty_debater_b 1.000</span> <span class="chip">claims_debater_b 5.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 0.000</span> <span class="chip">bit_honesty: debater_a 1.000, debater_b 1.000</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=false"><summary><b>debate</b> <span class="muted">debater_a=false · bits0002</span> <span class="chip">→ B</span> <span class="chip">debater_a -1.572</span> <span class="chip">debater_b -0.233</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=5</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=14</span> 0</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=8</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=0</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.21, B 0.79</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a -1.000, debater_b 1.000</span> <span class="chip">judge_p_true 0.792</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.233</span> <span class="chip">judge_brier -0.086</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 1.000</span> <span class="chip">claims_debater_a 5.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 0.000</span> <span class="chip">honesty_debater_b 1.000</span> <span class="chip">claims_debater_b 8.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 0.000</span> <span class="chip">bit_honesty: debater_a 1.000, debater_b 1.000</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=true"><summary><b>debate</b> <span class="muted">debater_a=true · bits0003</span> <span class="chip">→ B</span> <span class="chip">debater_a -0.233</span> <span class="chip">debater_b -1.572</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=4</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=14</span> 1</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=5</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=9</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.21, B 0.79</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a 1.000, debater_b -1.000</span> <span class="chip">judge_p_true 0.792</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.233</span> <span class="chip">judge_brier -0.086</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 1.000</span> <span class="chip">claims_debater_a 8.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 0.000</span> <span class="chip">honesty_debater_b 0.833</span> <span class="chip">claims_debater_b 6.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 1.000</span> <span class="chip">bit_honesty: debater_a 1.000, debater_b 0.833</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=false"><summary><b>debate</b> <span class="muted">debater_a=false · bits0003</span> <span class="chip">→ B</span> <span class="chip">debater_a -1.572</span> <span class="chip">debater_b -0.233</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=5</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=10</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=14</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 0</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=8</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.21, B 0.79</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a -1.000, debater_b 1.000</span> <span class="chip">judge_p_true 0.792</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.233</span> <span class="chip">judge_brier -0.086</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 0.714</span> <span class="chip">claims_debater_a 7.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 2.000</span> <span class="chip">honesty_debater_b 1.000</span> <span class="chip">claims_debater_b 8.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 0.000</span> <span class="chip">bit_honesty: debater_a 0.714, debater_b 1.000</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=true"><summary><b>debate</b> <span class="muted">debater_a=true · bits0004</span> <span class="chip">→ A</span> <span class="chip">debater_a -0.495</span> <span class="chip">debater_b -0.941</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=5</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 1</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=4</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.61, B 0.39</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a 1.000, debater_b -1.000</span> <span class="chip">judge_p_true 0.610</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.495</span> <span class="chip">judge_brier -0.305</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 1.000</span> <span class="chip">claims_debater_a 8.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 0.000</span> <span class="chip">honesty_debater_b 0.750</span> <span class="chip">claims_debater_b 8.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 2.000</span> <span class="chip">bit_honesty: debater_a 1.000, debater_b 0.750</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=false"><summary><b>debate</b> <span class="muted">debater_a=false · bits0004</span> <span class="chip">→ A</span> <span class="chip">debater_a -0.941</span> <span class="chip">debater_b -0.495</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (B) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=3</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=4</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 0</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (A) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=6</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=10</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=1</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.61, B 0.39</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a -1.000, debater_b 1.000</span> <span class="chip">judge_p_true 0.610</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.495</span> <span class="chip">judge_brier -0.305</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 0.750</span> <span class="chip">claims_debater_a 8.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 2.000</span> <span class="chip">honesty_debater_b 1.000</span> <span class="chip">claims_debater_b 8.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 0.000</span> <span class="chip">bit_honesty: debater_a 0.750, debater_b 1.000</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=true"><summary><b>debate</b> <span class="muted">debater_a=true · bits0005</span> <span class="chip">→ A</span> <span class="chip">debater_a -0.495</span> <span class="chip">debater_b -0.941</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=4</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=13</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=6</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=0</span> 0</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=10</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=11</span> 1</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.61, B 0.39</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a 1.000, debater_b -1.000</span> <span class="chip">judge_p_true 0.610</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.495</span> <span class="chip">judge_brier -0.305</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 1.000</span> <span class="chip">claims_debater_a 8.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 0.000</span> <span class="chip">honesty_debater_b 0.857</span> <span class="chip">claims_debater_b 7.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 1.000</span> <span class="chip">bit_honesty: debater_a 1.000, debater_b 0.857</span></div></details><details class="ep" data-mech="debate" data-prof="debater_a=false"><summary><b>debate</b> <span class="muted">debater_a=false · bits0005</span> <span class="chip">→ A</span> <span class="chip">debater_a -0.941</span> <span class="chip">debater_b -0.495</span></summary><div class="turn"><div class="who">debater_a · round1</div><div class="txt">The answer is (B) Yes. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=10</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=7</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=3</span> 1</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=2</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=14</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=9</span> 1</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 1</u></div></div><div class="turn"><div class="who">debater_b · round1</div><div class="txt">The answer is (A) No. Evidence: <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=6</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=4</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=1</span> 0</u> <span class="v ok" title="checked and true, by a trusted tool">✓ verified bit</span><u><span class="muted">i=11</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=13</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=8</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=0</span> 0</u> <span class="v unk" title="not checked">? unverified bit</span><u><span class="muted">i=12</span> 0</u></div></div><div class="turn"><div class="who">judge · judgment</div><div class="txt"><div class="muted">A 0.61, B 0.39</div></div></div><div class="gt"><b>Ground truth</b> <span class="chip">role_values: debater_a -1.000, debater_b 1.000</span> <span class="chip">judge_p_true 0.610</span> <span class="chip">judge_correct 1.000</span> <span class="chip">judge_log_score -0.495</span> <span class="chip">judge_brier -0.305</span> <span class="chip">outcome_value 1.000</span> <span class="chip">honesty_debater_a 0.857</span> <span class="chip">claims_debater_a 7.000</span> <span class="chip">lies_checked_debater_a 0.000</span> <span class="chip">lies_unchecked_debater_a 1.000</span> <span class="chip">honesty_debater_b 1.000</span> <span class="chip">claims_debater_b 8.000</span> <span class="chip">lies_checked_debater_b 0.000</span> <span class="chip">lies_unchecked_debater_b 0.000</span> <span class="chip">bit_honesty: debater_a 0.857, debater_b 1.000</span></div></details><p>All agents here are scripted: advocates follow a fixed disclosure rule and judges compute exact posteriors. The demo checks the machinery against Proposition 3; it is not a finding about language models.</p></div><script>
+(function(){
+  const root=document.documentElement, b=document.getElementById('theme');
+  if(b){b.addEventListener('click',()=>{const d=root.getAttribute('data-theme');
+    const dark=d? d==='light' : !window.matchMedia('(prefers-color-scheme: dark)').matches;
+    root.setAttribute('data-theme', dark?'dark':'light');});}
+  const m=document.getElementById('f-mech'), p=document.getElementById('f-prof'), q=document.getElementById('f-q'),
+        n=document.getElementById('f-n');
+  function apply(){let shown=0;document.querySelectorAll('.ep').forEach(e=>{
+    const ok=(!m||!m.value||e.dataset.mech===m.value)&&(!p||!p.value||e.dataset.prof===p.value)&&
+      (!q||!q.value||e.textContent.toLowerCase().includes(q.value.toLowerCase()));
+    e.style.display=ok?'':'none'; if(ok) shown++;}); if(n) n.textContent=shown+' shown';}
+  [m,p,q].forEach(x=>x&&x.addEventListener('input',apply)); apply();
+})();
+</script></body></html>

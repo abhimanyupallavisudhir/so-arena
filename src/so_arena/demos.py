@@ -13,6 +13,10 @@ same experiments for real (see ``configs/`` and ``docs/experiments.md``).
   repositories and company tasks, reviewed with three levels of access to the result.
 * :func:`demo_monitoring` - penalizing a monitor's alarms: an evadable monitor buys obfuscation, a
   fixed-AUROC probe deters; thresholds against Proposition 4, with CIs across seeds.
+* :func:`demo_hiddenbits` - verified claims (HiddenBits): ASD against the verification budget for naive,
+  credulous and sceptical Bayesian judges, in propaganda and debate, against Proposition 3.
+* :func:`demo_bon_budget` - best-of-N on a lying debater under a verification budget: selection moves its
+  lies beyond what is checked.
 """
 
 from __future__ import annotations
@@ -423,7 +427,210 @@ def demo_monitoring(out: str | Path = "runs/demo_monitoring", n_items: int = 200
     return out
 
 
+HIDDENBITS_JUDGES = ("rational (naive)", "credulous (naive)", "sceptical")
+
+
+def _bits_judge(name: str, k: int):
+    from so_arena.domains.hidden_bits import bayesian_bit_judge
+
+    return {"rational (naive)": bayesian_bit_judge(trust=0.5), "credulous (naive)": bayesian_bit_judge(trust=0.8),
+            "sceptical": bayesian_bit_judge(trust=0.5, sceptical=True, disclosure_limit=k)}[name]
+
+
+def demo_hiddenbits(out: str | Path = "runs/demo_hiddenbits", n_items: int = 150, length: int = 15,
+                    budgets: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6, 8), claims: int = 8, lie_rate: float = 0.5) -> Path:
+    """Verified claims on HiddenBits (``docs/theory.md``, section 5, Proposition 3).
+
+    Scripted advocates reveal up to ``claims`` favourable bits as ``<claim kind="bit">`` claims, lying (with
+    probability ``lie_rate`` per claim) once their true favourable bits run out; the first ``k`` claims of
+    each advocate are checked (``budget_per_role=k``), the rest are shown as unverified. Exact Bayesian judges
+    read what they are shown: a rational one ignores unverified claims, a credulous one believes them with
+    probability 0.8, a sceptical one also reads "fewer than k favourable verified bits" as "no more exist".
+    ASD (log score) with 95% bootstrap CIs over items, propaganda (one advocate) and debate (two, one round),
+    against the exact ASD of ``theory.disclosure`` (which assumes advocates that never lie).
+    """
+    from so_arena.analysis.frames import role_frame
+    from so_arena.analysis.metrics import asd
+    from so_arena.domains.hidden_bits import HiddenBits, bit_advocate
+    from so_arena.mechanisms import Debate, Propaganda
+    from so_arena.samplers.arms import ASDExperiment
+    from so_arena.theory import disclosure as td
+
+    out = Path(out)
+    figs = _figures(out)
+    dom = HiddenBits(n_items=n_items, length=length)
+    items, ctx = dom.load(), dom.context()
+    advocate = bit_advocate(claims=claims, lie_rate=lie_rate)
+    aff = {"agents": ["bits"]}
+    rows, sample, n_eps = [], [], 0
+    for k in budgets:
+        vp = soa.VerificationPolicy(verifiers=["bit"], budget_per_role=k)
+        for mech in (Propaganda(affordances=aff, verification=vp), Debate(rounds=1, affordances=aff, verification=vp)):
+            for judge in HIDDENBITS_JUDGES:
+                exp = ASDExperiment([mech], items, agent=advocate, fixtures={"judge": _bits_judge(judge, k)}, ctx=ctx,
+                                    ground_truth=dom.ground_truth_scorers())
+                eps = exp.run()
+                n_eps += len(eps)
+                if any(e.error for e in eps):
+                    raise RuntimeError(next(e.error for e in eps if e.error))
+                a = asd(role_frame(eps)).iloc[0]
+                rows.append({"protocol": mech.name, "judge": judge, "budget": k, "asd": a["asd"],
+                             "ci_low": a["ci_low"], "ci_high": a["ci_high"], "n_items": int(a["n_items"])})
+                if k == 4 and judge == "credulous (naive)":
+                    sample += eps[:12]
+    table = pd.DataFrame(rows)
+    table.to_csv(out / "asd_by_budget.csv", index=False)
+    theory = pd.DataFrame(td.asd_table(length, list(budgets)))
+    theory.to_csv(out / "theory_disclosure.csv", index=False)
+
+    def wide(protocol: str) -> pd.DataFrame:
+        d = table[table.protocol == protocol]
+        w = pd.DataFrame({"budget": list(budgets)})
+        for j in HIDDENBITS_JUDGES:
+            dj = d[d.judge == j].set_index("budget").loc[list(budgets)]
+            w[j], w[f"{j} lo"], w[f"{j} hi"] = dj["asd"].to_numpy(), dj["ci_low"].to_numpy(), dj["ci_high"].to_numpy()
+        return w
+
+    bands = {j: (f"{j} lo", f"{j} hi") for j in HIDDENBITS_JUDGES}
+    charts = {}
+    for protocol, what in (("propaganda", "one advocate"), ("debate", "two opposed advocates")):
+        kw = dict(x="budget", ys=list(HIDDENBITS_JUDGES), bands=bands, xlabel="verification budget k (claims checked per advocate)",
+                  ylabel="ASD (log score)", title=f"{protocol.capitalize()}: ASD vs. verification budget",
+                  subtitle=f"{what}; {length} hidden bits; bands: 95% CI over {n_items} items")
+        plots.line_chart(wide(protocol), **kw).save(figs / f"hiddenbits_{protocol}.png")
+        charts[protocol] = (wide(protocol), kw)
+    comp = table[table.judge != "credulous (naive)"].copy()
+    comp["theory (no lies)"] = [
+        next(r[f"{p}_asd"] for r in td.asd_table(length, [k]) if r["judge"] == ("sceptical" if j == "sceptical" else "naive"))
+        for p, j, k in zip(comp.protocol, comp.judge, comp.budget)]
+    comp = comp[["protocol", "judge", "budget", "asd", "ci_low", "ci_high", "theory (no lies)"]]
+
+    rep = Report("Verified claims: disclosure on HiddenBits", "scripted advocates, exact Bayesian judges (demo)")
+    rep.kpis({"episodes": n_eps, "items": n_items, "hidden bits": length, "claims per advocate": claims,
+              "lie rate once favourable bits run out": lie_rate})
+    for protocol, info in (
+            ("propaganda", "One advocate. A naive judge is misled by selective disclosure: the liar also shows only true "
+                           "favourable bits, and ASD stays near zero at any budget. A sceptical judge reads 'fewer "
+                           "favourable bits than the budget allowed' as 'there are no more' and the liar's disclosure "
+                           "unravels once k reaches (L+1)/2. The credulous judge believes unverified claims, so lies "
+                           "beyond the budget pay."),
+            ("debate", "Two opposed advocates. Competition substitutes for scepticism: once each side can get (L+1)/2 "
+                       "bits verified, the true side proves its answer, and even the naive judge decides correctly.")):
+        df, kw = charts[protocol]
+        rep.section(f"{protocol.capitalize()}", charts=plots.dual_mode(plots.line_chart, df, **kw), info=info)
+    rep.section("Measured vs. theory", table=comp.round(4),
+                note="Theory: theory.disclosure.asd_table, exact over the fair prior, for advocates that never lie. The "
+                     "scripted advocates lie once their favourable bits run out; a lie inside the budget is refuted and "
+                     "hands the judge a bit, so measured ASD can exceed the no-lies theory at intermediate budgets. "
+                     "With no verification (k = 0) a rational judge learns nothing: ASD is exactly 0.")
+    rep.episodes(sample, title="Sample episodes (credulous judge, budget 4)")
+    rep.raw("<p>All agents here are scripted: advocates follow a fixed disclosure rule and judges compute exact "
+            "posteriors. The demo checks the machinery against Proposition 3; it is not a finding about language "
+            "models.</p>")
+    rep.write(out / "report.html")
+    return out
+
+
+def demo_bon_budget(out: str | Path = "runs/demo_bon_budget", n_items: int = 60, pool: int = 16, budget: int = 3,
+                    length: int = 15) -> Path:
+    """Best-of-N against a verification budget: where does optimization put a liar's lies?
+
+    Debate on HiddenBits (one simultaneous round). Debater A is assigned the false answer; its base policy is
+    diverse - 2 to 12 bit claims, a random lie rate, lies placed anywhere half the time - and debater B argues
+    the truth honestly. Each advocate's first ``budget`` claims are checked. ``OptimizationExperiment`` samples
+    ``pool`` candidates for A per item and computes the exact best-of-n policy under the mechanism's reward (log
+    score of the judge's probability on A's answer). Three conditions: a credulous judge (trust 0.8) with the
+    budget, a rational judge (unverified claims ignored) with the budget, and a credulous judge with every claim
+    checked. Values are ground truth about A's claims (``BitClaims``), with 95% bootstrap CIs over items.
+    """
+    from so_arena.domains.hidden_bits import HiddenBits, bayesian_bit_judge, bit_advocate
+    from so_arena.mechanisms import Debate
+    from so_arena.samplers.pools import OptimizationExperiment
+
+    out = Path(out)
+    figs = _figures(out)
+    dom = HiddenBits(n_items=n_items, length=length, seed=3)
+    items, ctx = dom.load(), dom.context()
+    base = bit_advocate(sample={"claims": (2, 12), "lie_rate": (0.0, 1.0), "lie_first": 0.5}, label="base_policy")
+    honest = bit_advocate(claims=budget, label="honest")
+    aff = {"agents": ["bits"]}
+    conditions = {
+        f"budget {budget}, credulous judge": (budget, 0.8),
+        f"budget {budget}, rational judge": (budget, 0.5),
+        "every claim checked, credulous judge": (None, 0.8),
+    }
+    ns = [n for n in (1, 2, 4, 8, 16, 32, 64) if n <= pool]
+    frames = []
+    for cname, (k, trust) in conditions.items():
+        mech = Debate(rounds=1, affordances=aff, name=f"debate[{cname}]",
+                      verification=soa.VerificationPolicy(verifiers=["bit"], budget_per_role=k))
+        prof = Profile(name="liar_vs_honest", players={
+            "debater_a": PlayerSpec(policy=base, stance="false"),
+            "debater_b": PlayerSpec(policy=honest, stance="opposite:debater_a"),
+            "judge": PlayerSpec(policy=bayesian_bit_judge(trust=trust))})
+        exp = OptimizationExperiment(mech, items, prof, pool_sizes={"debater_a": pool}, ctx=ctx,
+                                     ground_truth=dom.ground_truth_scorers())
+        exp.run()
+        g = exp.grid({"debater_a": ns})
+        g.insert(0, "condition", cname)
+        frames.append(g)
+    grid = pd.concat(frames, ignore_index=True)
+    grid.to_csv(out / "bon_budget.csv", index=False)
+    lie_cols = {"lies_checked_debater_a": "lies in checked claims", "lies_unchecked_debater_a": "lies beyond the budget"}
+
+    def series(cname: str) -> pd.DataFrame:
+        d = grid[grid.condition == cname]
+        w = pd.DataFrame({"n": d["level_debater_a"].to_numpy()})
+        for col, lab in lie_cols.items():
+            w[lab], w[f"{lab} lo"], w[f"{lab} hi"] = (d[col].to_numpy(), d[f"{col}_ci_low"].to_numpy(),
+                                                     d[f"{col}_ci_high"].to_numpy())
+        return w
+
+    first = next(iter(conditions))
+    kw1 = dict(x="n", ys=list(lie_cols.values()), bands={lab: (f"{lab} lo", f"{lab} hi") for lab in lie_cols.values()},
+               xlabel="best-of-n (debater A)", ylabel="false claims per debate",
+               title="Selection moves lies beyond the verification budget",
+               subtitle=f"{first}; debater A argues the false answer; bands: 95% CI over {n_items} items")
+    plots.line_chart(series(first), **kw1).save(figs / "bon_budget_lies.png")
+    cmp = pd.DataFrame({"n": ns})
+    for cname in conditions:
+        d = grid[grid.condition == cname]
+        cmp[cname] = d["lies_unchecked_debater_a"].to_numpy()
+        cmp[f"{cname} lo"], cmp[f"{cname} hi"] = d["lies_unchecked_debater_a_ci_low"].to_numpy(), \
+            d["lies_unchecked_debater_a_ci_high"].to_numpy()
+    kw2 = dict(x="n", ys=list(conditions), bands={c: (f"{c} lo", f"{c} hi") for c in conditions},
+               xlabel="best-of-n (debater A)", ylabel="unchecked false claims per debate",
+               title="...only where unchecked claims are believed",
+               subtitle="lies beyond the budget under selection, by condition; bands: 95% CI over items")
+    plots.line_chart(cmp, **kw2).save(figs / "bon_budget_conditions.png")
+    keep = ["condition", "level_debater_a", "reward_debater_a", "lies_checked_debater_a", "lies_checked_debater_a_ci_low",
+            "lies_checked_debater_a_ci_high", "lies_unchecked_debater_a", "lies_unchecked_debater_a_ci_low",
+            "lies_unchecked_debater_a_ci_high", "honesty_debater_a", "judge_correct"]
+    tbl = grid[[c for c in keep if c in grid.columns]].rename(columns={"level_debater_a": "n"})
+
+    rep = Report("Best-of-N against a verification budget", "HiddenBits debate, scripted base policy, exact best-of-n (demo)")
+    rep.kpis({"items": n_items, "candidates per item": pool, "verification budget": budget, "hidden bits": length})
+    rep.section("Where selection puts the lies", charts=plots.dual_mode(plots.line_chart, series(first), **kw1),
+                info="Best-of-n by the mechanism's reward almost eliminates lies in checked claims - a refuted claim "
+                     "costs the liar - and raises the lies told after the budget is spent, which the credulous judge "
+                     "still believes. Optimization does not remove deception; it moves it to where verification does "
+                     "not reach.")
+    rep.section("It depends on who believes unchecked claims", charts=plots.dual_mode(plots.line_chart, cmp, **kw2),
+                table=tbl.round(3),
+                info="A rational judge ignores unverified claims, so lies beyond the budget earn nothing and selection "
+                     "does not favour them. With every claim checked there is nowhere left to hide a lie and "
+                     "selection removes most of them - yet the naive judge is still misled (judge_correct in the table): debater A shows more "
+                     "favourable true bits than its honest opponent, and a naive judge reads a selected sample as a "
+                     "random one (Proposition 3). Verification bounds what can be said, not what is left out.")
+    rep.raw("<p>All agents here are scripted: debater A's base policy samples claim counts, lie rates and lie "
+            "placement, and judges compute exact posteriors. Best-of-n is computed exactly from the sampled pools "
+            "(samplers.pools.OptimizationExperiment). The demo illustrates the machinery, not LLM behaviour.</p>")
+    rep.write(out / "report.html")
+    return out
+
+
 def run_all(out: str | Path = "runs/demos") -> list[Path]:
     out = Path(out)
     return [demo_asd(out / "asd"), demo_optimization(out / "optimization"), demo_swarm(out / "swarm"),
-            demo_work(out / "work"), demo_monitoring(out / "monitoring")]
+            demo_work(out / "work"), demo_monitoring(out / "monitoring"), demo_hiddenbits(out / "hiddenbits"),
+            demo_bon_budget(out / "bon_budget")]
