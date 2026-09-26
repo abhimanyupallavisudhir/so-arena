@@ -1,0 +1,17 @@
+# ASD on GSM8K with a strong agent and a weak judge (the setup of the ASD paper). Needs API keys.
+# Estimate first:  so-arena estimate configs/asd_gsm8k_llm.yaml
+name: asd-gsm8k
+seed: 0
+cache_dir: .cache/so_arena
+domain: {name: gsm8k}
+items: {limit: 100}
+policies:
+  expert: {model: anthropic/claude-haiku-4-5, temperature: 0.7, max_tokens: 600}
+  judge: {model: openai/gpt-4o-mini, elicitation: logprobs, temperature: 0.0}
+mechanisms:
+  - {name: direct}
+  - {name: propaganda}
+  - {name: consultancy, rounds: 2}
+  - {name: debate, rounds: 2, simultaneous: true}
+  - {name: debate, rounds: 2, simultaneous: false, label: debate_sequential}
+experiment: {type: asd, agent: expert, fixtures: {judge: judge}, arms: [true, false]}

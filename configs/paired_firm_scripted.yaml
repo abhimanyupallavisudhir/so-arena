@@ -1,0 +1,11 @@
+# Paired branches in the simulated company with scripted arms and a scripted reviewer (offline smoke test).
+name: paired-firm-scripted
+domain: {name: firm, kind: acquisition, n_items: 3}
+policies:
+  reviewer: {scripted: ['{"accept": 0.8, "reject": 0.2}']}
+mechanisms:
+  - {name: reviewed_work, label: report+diff}
+experiment:
+  type: paired
+  behaviours: {scripted: [honest, burner, fake_rows, false_claims, spam]}
+  fixtures: {reviewer: reviewer}

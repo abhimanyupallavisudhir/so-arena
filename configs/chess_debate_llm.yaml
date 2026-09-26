@@ -1,0 +1,16 @@
+# Chess "which move is better?": engine-backed debaters vs an LLM judge without an engine, with and
+# without the legal-line rule (rules-only verification of cited variations). Needs API keys + stockfish.
+name: chess-debate
+seed: 0
+cache_dir: .cache/so_arena
+domain: {name: chess, kind: which_move}
+items: {limit: 60}
+policies:
+  expert: {model: anthropic/claude-haiku-4-5, temperature: 0.7, max_tokens: 800}
+  judge: {model: openai/gpt-4o-mini, elicitation: logprobs, temperature: 0.0}
+mechanisms:
+  - {name: direct}
+  - {name: consultancy, rounds: 2, tools: {agents: [engine]}}
+  - {name: debate, rounds: 2, tools: {agents: [engine]}}
+  - {name: debate, rounds: 2, label: debate+legal_lines, tools: {agents: [engine]}, verification: {verifiers: [chess_line]}}
+experiment: {type: asd, agent: expert, fixtures: {judge: judge}, arms: [true, false]}
