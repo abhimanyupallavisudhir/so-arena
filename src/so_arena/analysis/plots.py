@@ -281,11 +281,12 @@ def parametric_curves(df: pd.DataFrame, *, x: str, y: str, series: str | None = 
 def line_chart(df: pd.DataFrame, *, x: str, ys: Sequence[str], labels: Sequence[str] | None = None,
                title: str = "", subtitle: str | None = None, xlabel: str = "", ylabel: str = "",
                ylim: tuple[float, float] | None = None, bands: dict[str, tuple[str, str]] | None = None,
-               vlines: Sequence[tuple[float, str]] = (), mode: str = "light") -> Chart:
+               vlines: Sequence[tuple[float, str]] = (), dashed: Sequence[str] = (), mode: str = "light") -> Chart:
     """Multi-series lines (<= 4 per chart), direct-labelled at the right end, with a legend.
 
     ``bands`` maps a series to its (low, high) columns, drawn as a light band in the series' colour (e.g. a
-    95% CI across seeds); ``vlines`` are labelled reference lines ``(x, label)`` (e.g. a theoretical threshold).
+    95% CI across seeds); ``vlines`` are labelled reference lines ``(x, label)`` (e.g. a theoretical threshold);
+    ``dashed`` series are drawn dashed (e.g. a theoretical prediction next to its simulation).
     """
     if len(ys) > 4:
         raise ValueError("at most 4 series per line chart; facet into several charts")
@@ -303,7 +304,8 @@ def line_chart(df: pd.DataFrame, *, x: str, ys: Sequence[str], labels: Sequence[
         if col in bands:
             lo, hi = bands[col]
             ax.fill_between(df[x], df[lo], df[hi], color=c, alpha=0.18, linewidth=0, zorder=1)
-        ax.plot(df[x], df[col], color=c, linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=lab)
+        ax.plot(df[x], df[col], color=c, linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=lab,
+                linestyle="--" if col in dashed else "-")
         for j in range(0, len(df), step):
             (pt,) = ax.plot([df[x].iloc[j]], [df[col].iloc[j]], marker="o", markersize=10, alpha=0.0, linestyle="none")
             gid = f"l{i}_{j}"

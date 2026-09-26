@@ -335,6 +335,41 @@ sweeps over the bounty ratio) and with training dynamics from different initial 
 (`games.learning`). `elicit_beliefs=True` records each agent's stated probability that a teammate
 reports, so actions can be checked against best responses.
 
+**Partial observation, confessions and misprision.** `Team(observe_prob=0.8)` shows each contribution to
+each teammate with probability 0.8 (a chance move, the same for every profile on an item) and records who
+witnessed whose work; `Team(self_reports=True)` accepts confessions. `Whistleblower(leniency=1.0)` waives a
+confessing violator's penalty, and `misprision=m` charges the silent witnesses of a caught violator.
+`SyntheticTeam(gain=0.3, damage=0.3, opportunity="one")` lets one random worker per task hack the grader
+(`team_worker(work="hack")` hacks only then) and scores the true value of the output (`true_score`).
+The theory (`whistleblower.regime`, `report_equilibrium_bounty`, `dominance_bounty`, `risk_dominant`)
+predicts that a bounty below $b_R$ buys nothing when a witness may be alone.
+
+**Training the whole game** (violate? report?) on sampled episodes, by REINFORCE or natural policy gradient:
+
+```python
+from so_arena.domains.synthetic import team_worker
+from so_arena.games.learning import StrategyGradient, policy_gradient
+from so_arena.theory import whistleblower as wb
+
+dom = get_domain("synthetic_team", opportunity="one")
+workers = ["worker_1", "worker_2", "worker_3"]
+strategies = {w: {s: team_worker(work="hack" if s.startswith("violate") else "honest",
+                                 report="report" if s.endswith("report") else "silent")
+                  for s in wb.TEAM_STRATEGIES} for w in workers}
+mech = Team(n_workers=3, observe_prob=0.8, regrade_on_report=True,
+            reward=soa.Whistleblower(bounty=0.45, split="shared", violation_penalty=0.3))
+trainer = StrategyGradient(mech, dom.load(), strategies, fixtures={"grader": dom.grader()}, shared=[workers],
+                           init={w: wb.team_mix(0.5, 0.1) for w in workers}, natural=True, lr=2.0, batch=24,
+                           iterations=60, ctx=dom.context(), ground_truth=dom.ground_truth_scorers())
+df = trainer.run()     # p_<role>_<strategy>, reward_<role>, outcome means per iteration
+# the expected update on the analytic game: policy_gradient(wb.team_game(2, ...), natural=True, shared=...)
+```
+
+`demo_swarm` runs this with 6 runs per algorithm: with a bounty above the stake and a mostly silent
+start, natural-gradient training deters misconduct in every run (P(violate) 0.02 after 60 iterations,
+95% CI 0.00 to 0.04) while REINFORCE entrenches it (0.87, 0.85 to 0.88); both match the exact expected
+update on `theory.whistleblower.team_game`.
+
 ## 10. No ground truth (yet): release now, resolve later - *offline*
 
 ```python

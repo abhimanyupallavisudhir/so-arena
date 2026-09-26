@@ -8,7 +8,8 @@ same experiments for real (see ``configs/`` and ``docs/experiments.md``).
 * :func:`demo_optimization` - best-of-N optimization pressure on a proposer, with and without a critic
   (the "debate with self-play best-of-N" design): does optimizing against the mechanism raise accuracy?
 * :func:`demo_swarm` - reporting incentives in teams: analytic equilibria, a simulated empirical game,
-  and policy-gradient training dynamics.
+  policy-gradient training dynamics, partial observation (when a bounty buys nothing) and natural vs.
+  vanilla policy gradient on sampled episodes (the training algorithm selects the equilibrium).
 * :func:`demo_work` - stateful work (the paired-branch design): honest and deceptive agents on the same
   repositories and company tasks, reviewed with three levels of access to the result.
 * :func:`demo_monitoring` - penalizing a monitor's alarms: an evadable monitor buys obfuscation, a
@@ -17,6 +18,7 @@ same experiments for real (see ``configs/`` and ``docs/experiments.md``).
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -117,7 +119,11 @@ def demo_optimization(out: str | Path = "runs/demo_optimization", n_items: int =
     return out
 
 
-def demo_swarm(out: str | Path = "runs/demo_swarm") -> Path:
+def demo_swarm(out: str | Path = "runs/demo_swarm", n_runs: int = 6) -> Path:
+    """Shared rewards vs. reporting incentives: (a) the analytic threshold, (b) the simulated reporting game,
+    (c) exact training dynamics, (d) partial observation, analytic and simulated, and (e) natural vs. vanilla
+    policy gradient on sampled episodes of the whole game (violate? report?), ``n_runs`` runs each, with CIs.
+    All agents are scripted."""
     from so_arena.domains.synthetic import SyntheticTeam, team_worker
     from so_arena.games import EmpiricalGameExperiment
     from so_arena.games.learning import policy_gradient
@@ -129,7 +135,7 @@ def demo_swarm(out: str | Path = "runs/demo_swarm") -> Path:
     # (a) analytic: basin boundary vs bounty ratio
     sw = wb.sweep(np.linspace(0.02, 1.0, 50), ns=(2, 5, 20), delta=1.0)
     th = plots.threshold_curves(sw, x="ratio", y="p_threshold", series="n", title="When does reporting take over?",
-                                subtitle="Team of n; bounty s for a verified report; hack worth Δ to everyone",
+                                subtitle="n witnesses; bounty s for a verified report; hack worth Δ to everyone",
                                 xlabel="bounty / value of the hack (s/Δ)", ylabel="report propensity threshold p*",
                                 below="Start below a curve → training ends with everyone silent",
                                 above="above → everyone reports", vline=1.0, vline_label="reporting dominant")
@@ -172,7 +178,7 @@ def demo_swarm(out: str | Path = "runs/demo_swarm") -> Path:
     rep = Report("Swarms: shared rewards vs. reporting incentives", "analytic model, simulated team game, training dynamics (demo)")
     rep.section("Equilibrium structure", charts=plots.dual_mode(
         plots.threshold_curves, sw, x="ratio", y="p_threshold", series="n", title="When does reporting take over?",
-        subtitle="Team of n; bounty s for a verified report; hack worth Δ to everyone",
+        subtitle="n witnesses; bounty s for a verified report; hack worth Δ to everyone",
         xlabel="bounty / value of the hack (s/Δ)", ylabel="report propensity threshold p*",
         below="Start below a curve → training ends with everyone silent", above="above → everyone reports",
         vline=1.0, vline_label="reporting dominant"),
@@ -184,8 +190,165 @@ def demo_swarm(out: str | Path = "runs/demo_swarm") -> Path:
     rep.section("Training dynamics", charts=plots.dual_mode(
         plots.line_chart, tr, x="step", ys=list(tr.columns[1:]), title="Training on a small bounty (s/Δ = 1/3)",
         subtitle="two reporters; threshold p* = 2/3", xlabel="policy-gradient step", ylabel="P(report)", ylim=(0, 1)))
+    _swarm_partial_observation(out, figs, rep)
+    _swarm_training(out, figs, rep, n_runs)
     rep.write(out / "report.html")
     return out
+
+
+SWARM_STAKE, SWARM_PENALTY, SWARM_OBSERVE = 0.3, 0.3, 0.8  # the synthetic team: hack worth 0.3 to everyone
+
+
+def _swarm_partial_observation(out: Path, figs: Path, rep: Report) -> None:
+    """Regimes vs. bounty when each teammate sees the hack only with probability o (analytic and simulated)."""
+    from so_arena.domains.synthetic import SyntheticTeam, team_worker
+    from so_arena.games import EmpiricalGameExperiment
+    from so_arena.mechanisms import Team
+    from so_arena.theory import whistleblower as wb
+
+    team = dict(R=0.9, delta=SWARM_STAKE, split="shared")
+    os_ = np.round(np.linspace(0.3, 1.0, 36), 3)
+    th = pd.DataFrame({"o": os_,
+                       "b_R, team of 3": [wb.report_equilibrium_bounty(2, o=o, **team) / SWARM_STAKE for o in os_],
+                       "b_R, team of 6": [wb.report_equilibrium_bounty(5, o=o, **team) / SWARM_STAKE for o in os_],
+                       "reporting dominant": [wb.dominance_bounty(2, o=o, **team) / SWARM_STAKE for o in os_]})
+    th.to_csv(out / "bounty_thresholds.csv", index=False)
+    kw = dict(x="o", ys=list(th.columns[1:]), title="Partial observation: how large must a bounty be?",
+              subtitle="bounty shared among verified reporters; below b_R silence is the only equilibrium, between b_R "
+                       "and the stake both are, above the stake reporting is dominant",
+              xlabel="probability that a teammate sees the hack (o)", ylabel="bounty / stake (s/Δ)", ylim=(0, 1.05))
+    plots.line_chart(th, **kw).save(figs / "snitch_observation.png")
+    # the simulated reporting game with o = 0.8: hacker fixed, two potential witnesses
+    dom = SyntheticTeam(n_items=200)
+    items, ctx = dom.load(), dom.context()
+    strategies = {w: {"silent": team_worker(report="silent"), "report": team_worker(report="report")}
+                  for w in ("worker_2", "worker_3")}
+    rows = []
+    b_r = wb.report_equilibrium_bounty(2, o=SWARM_OBSERVE, **team)
+    for bounty in (0.05, 0.2, 0.45):
+        mech = Team(n_workers=3, observe_prob=SWARM_OBSERVE, regrade_on_report=True,
+                    reward=soa.Whistleblower(bounty=bounty, split="shared"), name=f"team(o={SWARM_OBSERVE:g},b={bounty:g})")
+        exp = EmpiricalGameExperiment(mech, items, strategies, symmetric=["worker_2", "worker_3"], ctx=ctx,
+                                      fixtures={"worker_1": team_worker(work="hack"), "grader": dom.grader()},
+                                      ground_truth=dom.ground_truth_scorers())
+        exp.run()
+        g = exp.game()
+        strict = [g.profile_names(p) for p in g.strict_nash()]
+        analytic = wb.whistleblower_game(2, s=bounty, o=SWARM_OBSERVE, **team)
+        rows.append({"bounty": bounty, "bounty / stake": round(bounty / SWARM_STAKE, 2),
+                     "regime (theory)": wb.regime(2, s=bounty, o=SWARM_OBSERVE, **team),
+                     "strict equilibria (simulated)": "; ".join("/".join(v for v in x.values()) for x in strict) or "none",
+                     "strict equilibria (theory)": "; ".join("/".join(v for v in analytic.profile_names(p).values())
+                                                             for p in analytic.strict_nash()),
+                     "max payoff gap to theory": float(max(np.nanmax(np.abs(g.payoffs[a] - analytic.payoffs[b]))
+                                                           for a, b in zip(g.players, analytic.players)))})
+    table = pd.DataFrame(rows)
+    table.to_csv(out / "partial_observation_equilibria.csv", index=False)
+    rep.section("Partial observation", charts=plots.dual_mode(plots.line_chart, th, **kw), table=table,
+                info=f"Each teammate sees the hack only with probability o, so a witness may be the only one. Then "
+                     f"'everyone reports' is an equilibrium only above b_R (Proposition 5): with o = {SWARM_OBSERVE:g} and "
+                     f"two potential witnesses, b_R = {b_r / SWARM_STAKE:.2f} of the stake, so a bounty of 0.05 buys "
+                     f"nothing although with full observation it would create a coordination game.",
+                note=f"Simulated game ({len(items)} items; who sees what is a chance move, identical across profiles): "
+                     f"one teammate hacks, two choose whether to report what they see. Payoffs match the analytic "
+                     f"ex-ante game up to the sampling noise of the observation draws.")
+
+
+def _t_ci(values: np.ndarray, lo: float = -math.inf, hi: float = math.inf) -> tuple[float, float, float]:
+    """Mean and 95% t-interval over independent runs, clipped to the quantity's range [lo, hi]."""
+    from scipy.stats import t
+
+    v = np.asarray(values, float)
+    m = float(v.mean())
+    if len(v) < 2:
+        return m, math.nan, math.nan
+    h = float(t.ppf(0.975, len(v) - 1) * v.std(ddof=1) / math.sqrt(len(v)))
+    return m, max(lo, m - h), min(hi, m + h)
+
+
+def _swarm_training(out: Path, figs: Path, rep: Report, n_runs: int) -> None:
+    """Natural vs. vanilla policy gradient on sampled episodes of the whole game, averaged over runs."""
+    from so_arena.domains.synthetic import SyntheticTeam, team_worker
+    from so_arena.games.learning import StrategyGradient, policy_gradient
+    from so_arena.mechanisms import Team
+    from so_arena.theory import whistleblower as wb
+
+    dom = SyntheticTeam(n_items=60, opportunity="one")  # one random worker per task can hack
+    items, ctx = dom.load(), dom.context()
+    workers = ["worker_1", "worker_2", "worker_3"]
+    strategies = {w: {s: team_worker(work="hack" if s.startswith("violate") else "honest",
+                                     report="report" if s.endswith("report") else "silent")
+                      for s in wb.TEAM_STRATEGIES} for w in workers}
+    iterations, batch, lr = 60, 24, 2.0
+    outcomes = {k: (lambda ep, k=k: ep.ground_truth.get(k)) for k in ("violation", "true_score")}
+    settings = [(0.45, 0.1, "bounty above the stake; teammates start out mostly silent"),
+                (0.05, 0.9, "bounty below b_R; teammates start out mostly reporting")]
+    all_rows, summary = [], []
+    for bounty, p0, what in settings:
+        theory = dict(R=0.9, delta=SWARM_STAKE, split="shared", s=bounty, P=SWARM_PENALTY, o=SWARM_OBSERVE)
+        mech = Team(n_workers=3, observe_prob=SWARM_OBSERVE, regrade_on_report=True,
+                    reward=soa.Whistleblower(bounty=bounty, split="shared", violation_penalty=SWARM_PENALTY),
+                    name=f"team(b={bounty:g})")
+        init = {w: wb.team_mix(0.5, p0) for w in workers}
+        game = wb.team_game(2, **theory)
+        curves = {}
+        for natural, algo in ((True, "natural PG"), (False, "REINFORCE")):
+            finals = []
+            for run in range(n_runs):
+                df = StrategyGradient(mech, items, strategies, fixtures={"grader": dom.grader()}, shared=[workers],
+                                      init=init, natural=natural, lr=lr, batch=batch, iterations=iterations, seed=run,
+                                      ground_truth=dom.ground_truth_scorers(), ctx=ctx, outcomes=outcomes).run()
+                for _, r in df.iterrows():
+                    x, p = wb.team_marginals([r[f"p_worker_1_{s}"] for s in wb.TEAM_STRATEGIES])
+                    all_rows.append({"bounty": bounty, "algorithm": algo, "run": run, "iteration": int(r["iteration"]),
+                                     "P(violate)": x, "P(report)": p, "violation rate": r["violation"],
+                                     "true score": r["true_score"]})
+                finals.append(all_rows[-1]["P(violate)"])
+            exact = policy_gradient(game, init=[wb.team_mix(0.5, p0)] * 3, shared=[game.players], lr=lr,
+                                    steps=iterations, natural=natural)
+            curves[algo] = [wb.team_marginals([r[f"p_worker_1_{s}"] for s in wb.TEAM_STRATEGIES])[0]
+                            for _, r in exact.iterrows()]
+            m, lo, hi = _t_ci(np.array(finals), 0.0, 1.0)
+            summary.append({"bounty": bounty, "setting": what, "algorithm": algo, "start P(report)": p0,
+                            f"P(violate) after {iterations} iterations": round(m, 3), "95% CI": f"{lo:.3f} to {hi:.3f}",
+                            "runs deterring (P(violate) < 0.5)": f"{sum(f < 0.5 for f in finals)}/{n_runs}",
+                            "expected-update prediction": round(curves[algo][-1], 3)})
+        d = pd.DataFrame([r for r in all_rows if r["bounty"] == bounty])
+        agg = []
+        for it, g in d.groupby("iteration"):
+            row = {"iteration": it}
+            for algo in ("natural PG", "REINFORCE"):
+                m, lo, hi = _t_ci(g.loc[g["algorithm"] == algo, "P(violate)"].to_numpy(), 0.0, 1.0)
+                row |= {algo: m, f"{algo} lo": lo, f"{algo} hi": hi, f"{algo} (expected update)": curves[algo][it]}
+            agg.append(row)
+        agg = pd.DataFrame(agg)
+        kw = dict(x="iteration", ys=["natural PG", "REINFORCE", "natural PG (expected update)", "REINFORCE (expected update)"],
+                  bands={a: (f"{a} lo", f"{a} hi") for a in ("natural PG", "REINFORCE")},
+                  dashed=["natural PG (expected update)", "REINFORCE (expected update)"],
+                  title=f"Training the whole game: bounty {bounty:g} (stake {SWARM_STAKE:g})",
+                  subtitle=f"{what}; start P(violate) = 0.5, P(report) = {p0:g}; mean of {n_runs} runs, 95% CI; dashed: "
+                           f"the exact expected update on the analytic game",
+                  xlabel="training iteration (batches of sampled episodes)", ylabel="P(violate)", ylim=(0, 1))
+        name = f"snitch_npg_vs_reinforce_{'high' if bounty > SWARM_STAKE else 'low'}.png"
+        plots.line_chart(agg, **kw).save(figs / name)
+        rep.section(f"Natural vs. vanilla policy gradient: bounty {bounty:g}", charts=plots.dual_mode(plots.line_chart, agg, **kw),
+                    info="Scripted workers choose among four strategies (violate if you can? report what you see?); each "
+                         "worker's softmax policy is trained on sampled episodes of the mechanism." if bounty == settings[0][0] else None)
+    pd.DataFrame(all_rows).to_csv(out / "npg_vs_reinforce.csv", index=False)
+    table = pd.DataFrame(summary)
+    table.to_csv(out / "npg_vs_reinforce_summary.csv", index=False)
+    rep.section("Equilibrium selection depends on the training algorithm", table=table,
+                note=f"Team of 3; one random worker per task can hack the grader (+{SWARM_STAKE:g} to everyone if it stands); "
+                     f"each teammate sees it with probability {SWARM_OBSERVE:g}; a caught violator pays {SWARM_PENALTY:g}; "
+                     f"{batch} episodes per iteration, learning rate {lr:g}. Both algorithms have the same rest points, but "
+                     f"vanilla gradient moves a strategy's logit in proportion to its probability, so a rarely played "
+                     f"strategy (reporting, when nobody does) learns slowly and misconduct entrenches first. Below b_R, "
+                     f"training that starts from a reporting culture ends with nobody violating: a Nash equilibrium "
+                     f"whose threat is never tested - after an actual violation a witness would rather stay silent (it is "
+                     f"not subgame perfect), so the outcome is fragile. The natural-gradient estimate weights a sampled "
+                     f"strategy by 1/P(strategy), so once misconduct is rare a single sampled violation that went unseen "
+                     f"can move its logit a long way: its runs spread more than REINFORCE's. All agents are scripted: these "
+                     f"numbers illustrate the dynamics, not language-model behaviour.")
 
 
 ACCESS_LEVELS = {"report": "report only", "diff": "+ diffs", "query": "+ queries"}

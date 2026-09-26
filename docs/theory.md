@@ -124,7 +124,7 @@ checkpoints, scripted behaviours - by simulation (*empirical game-theoretic anal
 * **Which equilibrium training selects**: basins of attraction under replicator dynamics or
   policy-gradient training from different initial propensities (`NormalFormGame.basin`,
   `games.learning`). Equilibrium selection is decided by where training starts - pretraining
-  propensities matter.
+  propensities matter - and by the training algorithm (natural vs. vanilla policy gradient, section 8).
 * **Zero-sum vs. general-sum.** Two-player zero-sum mechanisms (debate with zero-sum rewards) have a
   unique value (minimax theorem), which removes equilibrium-selection ambiguity *for the players'
   payoffs* - though not necessarily for $W$. General-sum mechanisms (teams, markets) typically have
@@ -350,40 +350,140 @@ A common objective is team production. Holmström (1982) showed that budget-bala
 output cannot give efficient individual incentives; and his informativeness principle (1979) says any
 signal informative about an agent's action should enter its contract. A teammate's *report* is such a
 signal - but under a purely shared reward nobody has a reason to send it when the misconduct raises the
-shared reward. Antitrust leniency programmes (Motta & Polo 2003; Spagnolo 2004; Harrington 2008)
-destabilize cartels by paying the first informant, turning collusion into a race.
+shared reward. Supervisors and agents can collude, so mechanisms must be collusion-proof (Tirole 1986;
+Laffont & Martimort 1997). Antitrust leniency programmes (Motta & Polo 2003; Spagnolo 2004; Harrington
+2008) destabilize cartels by paying the first informant and forgiving the first confessor, turning
+collusion into a race.
 
-`theory.whistleblower` makes the swarm question precise. A violation (e.g. a reward hack) adds
-$\Delta$ to every agent's reward if it stands; each of $n$ agents reports or stays silent; a verified
-report reverts the violation and pays the reporter a bounty $s$. With $k$ other reporters, a silent
-agent earns $R - \Delta\,\mathbb 1[k\ge1]$ and a reporter earns $R - \Delta + s$. Then:
+**Model** (`theory.whistleblower`). One member of a team commits a violation (e.g. a reward hack) that
+adds $\Delta$ to every member's reward if it stands: $\Delta$ is each member's *stake* in it. Each of the
+offender's $n$ teammates *witnesses* it independently with probability $o$ - in a swarm an agent sees
+only part of the others' work, and does not know how many others saw it - and a witness reports it or
+stays silent. A verified report reverts the violation and earns a bounty $s$, paid to each verified
+reporter or shared among them. If no report is verified, an independent audit catches the violation
+with probability $q$, and every member without a verified report pays $c$ (collective liability). Once
+the violation is caught, every witness without a verified report pays $m$ (misprision) and the offender
+pays $P$; $\beta$ is the offender's private benefit. In the library: `Team(observe_prob=o,
+random_audit=q, self_reports=...)` and `Whistleblower(bounty=s, split=..., silence_penalty=c,
+misprision=m, violation_penalty=P, leniency=...)`; `Team` records who witnessed whose work, and the
+domain `synthetic_team` has `gain` ($\Delta$), `damage` (the ground-truth cost of a hack that stands) and
+`opportunity` (who can hack).
 
-* **Common reward** ($s = 0$): silence is weakly dominant - training on the shared objective pushes
-  every agent to stay silent about a hack that helps the team.
-* **Large bounty** ($s > \Delta$): reporting is dominant; the unique equilibrium reverts the hack.
-* **Small bounty** ($0 < s < \Delta$): two strict equilibria, all-silent and all-report, separated
-  by an unstable mixed equilibrium in which each agent reports with probability
-  $$p^* = 1 - (s/\Delta)^{1/(n-1)}.$$
-  Whether reporting pays depends on whether an agent expects others to report. Training that starts
-  with report propensity below $p^*$ converges to universal silence; above it, to universal reporting
-  (reproduced by policy-gradient simulation in the tests and `demos.demo_swarm`). For two agents,
-  silence is risk-dominant iff $s < \Delta/2$. The silent basin *shrinks with team size*
-  ($p^* \to 0$ as $n \to \infty$): in a large team someone else will probably report, so you should too.
-* **Collective liability**: if an independent audit catches unreported violations with probability
-  $q$ and penalizes silent agents by $c$, reporting becomes dominant once
-  $s + (\Delta + c)q > \Delta$ even with a small bounty (the $k=0$ condition). In the library the audit
-  is `Team(random_audit=q)` and the penalty `Whistleblower(silence_penalty=c)`: every member who did not
-  report pays $c$ when an audit catches a violation that no verified report revealed. Only a verified
-  report counts: a refuted or unverifiable accusation does not spare its author (who also pays any
-  false-report penalty) - otherwise blaming a teammate at random, or for the violator blaming anyone,
-  would escape the liability for free.
-* **Verification** matters: with unreliable audits (verification probability $\rho$), bounties, reverts
-  and the exemption from collective liability go only to verified reports; false-accusation penalties
-  are needed once reports can be wrong.
+Let every report be verified (reliability $\rho = 1$; the code handles $\rho < 1$, below) and let $K$ be
+the number of *other* witnesses who report. Reporting gains a witness
+$$A(K) = \begin{cases} s - T, & K = 0,\\ m + s_K, & K \ge 1,\end{cases} \qquad T = (1-q)\,\Delta - (c+m)\,q,$$
+with $s_K = s/(1+K)$ for a shared bounty and $s_K = s$ for one paid to each reporter. $T$ is the stake net
+of what an audit would cost the silent: exposing a violation that nobody else would have exposed costs
+$\Delta$ unless the audit would have found it anyway. If every witness reports with probability $p$, a
+witness faces $K \sim \mathrm{Bin}(n-1, op)$. Write $P_k = \Pr[\mathrm{Bin}(n-1, o) = k]$ and
+$\bar A(p) = \mathbb E\,A(K)$ (`report_gain`).
 
-The simulated team game in `domains.synthetic_team` reproduces these payoffs exactly, and the same code
-runs with LLM agents (the code domain provides a team task whose grader runs only visible tests, so a
-teammate can hard-code them).
+**Proposition 5 (reporting under partial observation).** Let the bounty be shared (for one paid to each
+reporter, replace $s/(1+k)$ by $s$), and let $s > 0$ or $m > 0$.
+
+1. If $s > T$, reporting is a best response to whatever the others do, and everyone reporting is the
+   unique equilibrium (`dominance_bounty`).
+2. If $s < T$, universal silence is a strict equilibrium. Everyone reporting is an equilibrium iff
+   $s \ge b_R$ (`report_equilibrium_bounty`), where
+   $$b_R = \frac{P_0\,T - (1 - P_0)\,m}{P_0 + \sum_{k \ge 1} P_k/(1+k)}.$$
+   - For $b_R < s < T$ both are strict equilibria, separated by exactly one mixed equilibrium. Whether
+     snitching pays depends entirely on whether a witness expects others to snitch.
+   - For $s < b_R$ silence is the *only* equilibrium, although the bounty is positive. A witness may be
+     the only one ($P_0 = (1-o)^{n-1} > 0$), and the bounty does not pay for the risk of reporting
+     alone. In a team of three ($n = 2$ witnesses) with $o = 0.8$ and $q = m = 0$, $b_R = \Delta/3$.
+3. With full observation ($o = 1$) $P_0 = 0$, so everyone reporting is an equilibrium at any bounty
+   (weakly at $s = m = 0$). With a bounty paid to each reporter and $q = c = m = 0$, the mixed equilibrium
+   is $p^* = 1 - (s/\Delta)^{1/(n-1)}$, and training that starts with report propensity below $p^*$ ends
+   in universal silence. The silent basin *shrinks with team size* ($p^* \to 0$ as $n \to \infty$): in a
+   large team someone else will probably report, so you should too. For two witnesses the game is a
+   $2 \times 2$ coordination game in which reporting is risk dominant (Harsanyi & Selten 1988) iff
+   $\tfrac32 s + m > T$ (`risk_dominant`). For $n \ge 3$ there is no comparable selection result:
+   $A(K)$ *falls* in $K \ge 1$ when bounties are shared, so the game lacks the strategic complementarity
+   that global-games selection needs (Carlsson & van Damme 1993; Morris & Shin 2003). Which equilibrium
+   training reaches is then a question of basins (Proposition 6).
+4. **Common reward** ($s = c = m = 0$). Silence weakly dominates reporting, strictly when nobody else
+   reports ($A(0) = -(1-q)\Delta$): training on the shared objective pushes every agent to stay silent
+   about a hack that helps the team. Anticipating silence, a member with the opportunity violates
+   whenever $\beta + (1-q)\Delta - qP > 0$; under a purely shared reward ($P = 0$) that is always.
+   Every member is a stakeholder in undetected misconduct.
+
+*Proof.* (1) $A(0) = s - T > 0$, and $A(k) = m + s/(1+k) > 0$ for $k \ge 1$. (2) $\bar A(0) = A(0) < 0$,
+and $\bar A(1) = \sum_k P_k A(k)$ is affine and increasing in $s$ with root $b_R$. For the mixed
+equilibrium, put $r = op$, $N = n - 1$ and $t = r/(1-r)$. Then
+$\bar A = (1-r)^N \sum_{k=0}^{N} \binom Nk A(k)\,t^k$, whose coefficients change sign exactly once
+($A(0) < 0 < A(k)$ for $k \ge 1$). By Descartes' rule of signs $\bar A$ has at most one zero with $t > 0$,
+and it has one in $0 < p < 1$ iff $\bar A(1) > 0$. (The expected advantage need not be monotone in $p$.)
+(3) $P_0 = 0$ gives $\bar A(1) = \sum_{k \ge 1} P_k A(k) \ge 0$; with each-reporter bounties
+$\bar A(p) = s - \Delta (1-p)^{n-1}$. In the $2\times2$ game a deviation from (report, report) costs
+$A(1) = m + s/2$ and one from (silent, silent) costs $-A(0) = T - s$; the equilibrium with the larger
+product of the two players' losses risk-dominates. (4) Substitute; a violator's gain when nobody
+reports is $\beta + (1-q)\Delta - qP$. $\square$
+
+So a bounty must exceed each agent's *stake* in the undetected violation, not merely be positive, to make
+reporting safe whatever the others do. Below the stake it creates a coordination game only if a witness
+is unlikely to be alone; otherwise it achieves nothing. The stake is the full team score when everyone is
+paid the team score. Audits, collective liability and misprision lower both thresholds (collective
+liability alone makes reporting dominant once $s + (\Delta + c)q > \Delta$). Only a *verified* report
+counts: a refuted or unverifiable accusation does not spare its author from $c$ or $m$ (and pays any
+false-report penalty) - otherwise blaming a teammate at random, or for the violator blaming anyone,
+would escape the liability for free. Paying only the first reporter and forgiving a violator who
+reports itself (`leniency`) turns a cover-up into a race.
+
+With unreliable verification ($\rho < 1$, $\bar\rho = 1 - \rho$) and a false-report penalty $f$ for a
+refuted report, $A(k) = \rho\bar\rho^{k}\,[cq - (\Delta + m)(1-q)] + \rho m - \bar\rho f + B(k)$, where
+$B(k) = s\rho$ (each) or $s(1 - \bar\rho^{k+1})/(k+1)$ (shared) is the expected bounty. With each-reporter
+bounties $A$ is monotone in $k$, so there is still at most one mixed equilibrium; with shared bounties and
+$f > 0$ it can change sign twice, and `symmetric_equilibria` and `regime` find the equilibria numerically.
+
+**Nobody violating can be a Nash equilibrium without being subgame perfect.** Proposition 5 is about the
+*reporting subgame*, played after a violation. In the whole game, where each member fixes its strategy
+(violate if you can? report what you see?) in advance (`team_game`), "nobody violates and everyone would
+report" is a Nash equilibrium whenever the threat deters, $G(1) < 0$ below - even for $s < b_R$, since
+on the equilibrium path no report is ever made. It is not subgame perfect (Selten 1975): a witness who
+actually sees a violation prefers silence. With the synthetic team's numbers ($\Delta = P = 0.3$,
+$o = 0.8$, two witnesses, shared bounty) and $s = 0.05 < b_R = 0.1$, the profile is a Nash equilibrium of `team_game`
+while everyone reporting is not one of the reporting subgame (tested). Training that only sees episodes
+where nobody violates never tests the threat, and nothing in the training signal maintains it, so such an
+honest outcome is fragile.
+
+**Proposition 6 (the whole game's learning dynamics are two-dimensional).** Let members be symmetric;
+each holds the opportunity to violate with probability $\pi$ ($\pi = 1/(n+1)$ when one random member of
+the $n + 1$ does) and then violates with probability $x$; a witness reports with probability $p$. A
+violation is caught with probability $d(p) = 1 - (1-q)(1-op)^n$, so violating gains the offender
+$$G(p) = \beta + \Delta\,(1 - d(p)) - P\,d(p) - c\,q\,(1-op)^n$$
+(`offender_gain`). Natural policy gradient (Kakade 2001) on a softmax over the four strategies
+(exponential weights, whose mean-field limit is the replicator dynamics) keeps the two decisions
+independent, and the marginals follow
+$$\operatorname{logit} x \mathrel{+}= \eta\,\pi\,G(p), \qquad
+  \operatorname{logit} p \mathrel{+}= \eta\,(1-\pi)\,x\,o\,\bar A(p).$$
+
+*Proof.* A member's payoff is additively separable in its two decisions: the first matters only when it
+holds the opportunity, the second only when a teammate violated and it saw it. So the update multiplies a
+strategy's weight by $e^{\eta(u_V(v) + u_R(r))} = e^{\eta u_V(v)}\,e^{\eta u_R(r)}$, and a product
+distribution stays a product. Summing over the other decision gives the marginal updates, with
+$u_V(\text{violate}) - u_V(\text{honest}) = \pi\,G(p)$ and
+$u_R(\text{report}) - u_R(\text{silent}) = (1-\pi)\,x\,o\,\bar A(p)$. $\square$
+
+`games.learning.policy_gradient(team_game(n), natural=True)` with shared logits reproduces
+`whistleblower.mean_field` exactly (tested); `basin_of_deterrence` is the share of initial report
+propensities from which misconduct ends deterred.
+
+**Equilibrium selection depends on the training algorithm.** Vanilla policy gradient (the expected
+REINFORCE update; Williams 1992) has the same rest points, but moves a strategy's logit by $\eta\,\pi_a(u_a - \bar u)$
+instead of $\eta\,(u_a - \bar u)$: a rarely played strategy - reporting, when nobody reports - learns
+slowly, and the path of the whole game depends on the race between its two decisions. With the numbers
+above and $s = 0.45$ (above the stake), starting from $x = 0.5$ and $p = 0.1$ with step size 2, natural
+gradient deters misconduct ($x < 0.5$) after 29 steps. Vanilla gradient first entrenches it ($x$ peaks
+at 0.89) and brings $x$ below 0.5 only after 227 steps (tested). In the coordination region the basins
+differ: at $s = 0.15$, from $x = 0.5$ and $p = 0.6$, natural gradient deters misconduct while vanilla
+gradient ends in "violate and stay silent" (tested). `games.learning.StrategyGradient` trains on sampled
+episodes instead, with unbiased estimates of either update, and `demo_swarm` averages it over runs.
+Robustness to training is a property of the mechanism *and* the training algorithm.
+
+The simulated team game in `domains.synthetic_team` reproduces these payoffs: exactly with full
+observation, and in expectation over who sees what with `Team(observe_prob=o)`. The same code runs with
+LLM agents (the code domain provides a team task whose grader runs only visible tests, so a teammate can
+hard-code them).
 
 ## 9. Robustness to training
 
@@ -453,6 +553,7 @@ Bergemann & Morris (2005), Robust mechanism design, *Econometrica*.
 Brown-Cohen, Irving & Piliouras (2023), Scalable AI safety via doubly-efficient debate.
 Brown-Cohen et al. (2025), Avoiding obfuscation with prover-estimator debate.
 Bull & Watson (2007), Hard evidence and mechanism design, *GEB*.
+Carlsson & van Damme (1993), Global games and equilibrium selection, *Econometrica*.
 Chen, McCauley & Singh (2016), Rational proofs with multiple provers, *ITCS*.
 Chen, Dimitrov, Sami, Reeves, Pennock, Hanson, Fortnow & Gonen (2010), Gaming prediction markets, *Algorithmica*.
 Dasgupta & Ghosh (2013), Crowdsourced judgement elicitation with endogenous proficiency, *WWW*.
@@ -470,6 +571,8 @@ Holmström (1979), Moral hazard and observability, *Bell J. Econ.*; (1982) Moral
 Holmström & Milgrom (1991), Multitask principal-agent analyses, *JLEO*.
 Hubinger (2020), AI safety via market making, *AI Alignment Forum*.
 Irving, Christiano & Amodei (2018), AI safety via debate.
+Kakade (2001), A natural policy gradient, *NeurIPS*.
+Laffont & Martimort (1997), Collusion under asymmetric information, *Econometrica*.
 Lanctot et al. (2017), A unified game-theoretic approach to multiagent reinforcement learning, *NeurIPS*.
 Manheim & Garrabrant (2018), Categorizing variants of Goodhart's law.
 Maskin (1999), Nash equilibrium and welfare optimality, *RES*.
@@ -478,12 +581,16 @@ Milgrom (1981), Good news and bad news: representation theorems and applications
 Miller, Resnick & Zeckhauser (2005), Eliciting informative feedback: the peer-prediction method, *Management Science*.
 Mookherjee & Png (1989), Optimal auditing, insurance, and redistribution, *QJE*.
 Moore & Repullo (1988), Subgame perfect implementation, *Econometrica*.
+Morris & Shin (2003), Global games: theory and applications, in *Advances in Economics and Econometrics*.
 Motta & Polo (2003), Leniency programs and cartel prosecution, *IJIO*.
 Paleka, Pallavi Sudhir et al. (2025), Consistency checks for language model forecasters, *ICLR*.
 Pallavi Sudhir, Kaunismaa & Panickssery (2025), A benchmark for scalable oversight mechanisms (ASD), arXiv:2504.03731.
 Prelec (2004), A Bayesian truth serum for subjective data, *Science*.
 Prelec, Seung & McCoy (2017), A solution to the single-question crowd wisdom problem, *Nature*.
+Selten (1975), Reexamination of the perfectness concept for equilibrium points in extensive games, *IJGT*.
 Shnayder, Agarwal, Frongillo & Parkes (2016), Informed truthfulness in multi-task peer prediction, *EC*.
 Spagnolo (2004), Divide et impera: optimal leniency programmes.
+Tirole (1986), Hierarchies and bureaucracies: on the role of collusion in organizations, *JLEO*.
 Townsend (1979), Optimal contracts and competitive markets with costly state verification, *JET*.
 Wellman (2006), Methods for empirical game-theoretic analysis, *AAAI*.
+Williams (1992), Simple statistical gradient-following algorithms for connectionist reinforcement learning, *Machine Learning*.
