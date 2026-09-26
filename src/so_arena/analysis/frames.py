@@ -63,6 +63,33 @@ def mechanism_labels(episodes: Sequence[Episode]) -> dict[tuple[str, str], str]:
     return labels
 
 
+OVERSIGHT_KINDS = ("judge", "monitor", "auditor", "grader")
+
+
+def judgment_status(ep: Episode) -> bool | None:
+    """Whether every judgment in ``ep`` parsed: False if a turn of an overseer role (judge, monitor, auditor,
+    grader) or the outcome's ``judge_parse_ok`` flag says one did not, True if every recorded one did, None if
+    the episode records no judgment (e.g. converted from another framework's logs, whose monitors parse their
+    own output) - unknown, rather than a claim that nothing failed.
+
+    A judgment that does not parse falls back to a default - uniform probabilities, the middle of a
+    score range - so the rewards computed from it are the same for honest and dishonest behaviour: a
+    broken judge quietly pulls ASD toward 0. Frames carry this as ``judge_parse_ok``.
+    """
+    flag = ep.outcome.data.get("judge_parse_ok")
+    if flag is False:
+        return False
+    oks = [t.parse_ok for t in ep.turns if ep.role_kinds.get(t.role, "agent") in OVERSIGHT_KINDS]
+    if not oks and flag is None:
+        return None
+    return all(oks)
+
+
+def judgment_parsed(ep: Episode) -> bool:
+    """Whether no judgment in ``ep`` failed to parse (:func:`judgment_status` is not False)."""
+    return judgment_status(ep) is not False
+
+
 def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, *,
                include_errors: bool = False, include_fixtures: bool = False) -> pd.DataFrame:
     """One row per (episode, role).
@@ -71,8 +98,9 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
     share one: :func:`mechanism_labels`) and ``mechanism_config`` (the config hash), ``reward`` (mechanism
     reward), ``value`` (ground-truth value of the role's behaviour), ``label`` (behaviour label),
     ``stance`` (assigned) and ``position`` (final),
-    ``judge_p_true``/``judge_correct`` (control-style measures of the outcome), claim statistics and
-    cost. Tags are added as ``tag_<name>`` columns.
+    ``judge_p_true``/``judge_correct`` (control-style measures of the outcome), ``judge_parse_ok``
+    (whether the episode's judgments parsed, :func:`judgment_status` - so every ASD reports its
+    parse-failure rate), claim statistics and cost. Tags are added as ``tag_<name>`` columns.
     """
     rows: list[dict[str, Any]] = []
     labels = mechanism_labels(episodes)
@@ -83,6 +111,7 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
         rv = gt.get("role_values") or {}
         manip = gt.get("manipulation_ok") or {}
         total = ep.total_usage
+        parsed = judgment_status(ep)
         role_list = roles if roles is not None else [
             r for r in ep.players
             if include_fixtures or r in ep.trainable_roles or r in rv
@@ -119,6 +148,7 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
                 "decision": ep.outcome.decision,
                 "judge_p_true": gt.get("judge_p_true"),
                 "judge_correct": gt.get("judge_correct"),
+                "judge_parse_ok": parsed,
                 "outcome_value": gt.get("outcome_value"),
                 "manipulation_ok": manip.get(role),
                 "n_turns": sum(1 for t in ep.turns if t.role == role),
@@ -143,7 +173,7 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
 
 
 def episode_frame(episodes: Sequence[Episode]) -> pd.DataFrame:
-    """One row per episode (outcome-level)."""
+    """One row per episode (outcome-level), with ``judge_parse_ok`` as in :func:`role_frame`."""
     rows = []
     labels = mechanism_labels(episodes)
     for ep in episodes:
@@ -151,7 +181,8 @@ def episode_frame(episodes: Sequence[Episode]) -> pd.DataFrame:
         row = {
             "episode_id": ep.id, "item_id": ep.item_id, "mechanism": labels[(ep.mechanism, config_key(ep))],
             "mechanism_config": config_key(ep), "profile": ep.profile,
-            "repeat": ep.repeat, "decision": ep.outcome.decision, "error": ep.error is not None,
+            "repeat": ep.repeat, "decision": ep.outcome.decision, "judge_parse_ok": judgment_status(ep),
+            "error": ep.error is not None,
             "cost_usd": ep.total_usage.cost_usd, "tokens": ep.total_usage.total_tokens,
             **{f"reward_{r}": v for r, v in ep.rewards.items()},
             **{f"label_{r}": p.label for r, p in ep.players.items()},

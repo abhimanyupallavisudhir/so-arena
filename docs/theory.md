@@ -295,10 +295,13 @@ agent earns $R - \Delta\,\mathbb 1[k\ge1]$ and a reporter earns $R - \Delta + s$
   $q$ and penalizes silent agents by $c$, reporting becomes dominant once
   $s + (\Delta + c)q > \Delta$ even with a small bounty (the $k=0$ condition). In the library the audit
   is `Team(random_audit=q)` and the penalty `Whistleblower(silence_penalty=c)`: every member who did not
-  report pays $c$ when an audit catches a violation that no verified report revealed.
-* **Verification** matters: with unreliable audits (verification probability $\rho$), bounties and
-  reverts are paid only on verified reports; false-accusation penalties are needed once reports can be
-  wrong.
+  report pays $c$ when an audit catches a violation that no verified report revealed. Only a verified
+  report counts: a refuted or unverifiable accusation does not spare its author (who also pays any
+  false-report penalty) - otherwise blaming a teammate at random, or for the violator blaming anyone,
+  would escape the liability for free.
+* **Verification** matters: with unreliable audits (verification probability $\rho$), bounties, reverts
+  and the exemption from collective liability go only to verified reports; false-accusation penalties
+  are needed once reports can be wrong.
 
 The simulated team game in `domains.synthetic_team` reproduces these payoffs exactly, and the same code
 runs with LLM agents (the code domain provides a team task whose grader runs only visible tests, so a

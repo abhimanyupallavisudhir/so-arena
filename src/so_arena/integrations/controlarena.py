@@ -263,13 +263,22 @@ def trajectory_item(task: str, actions: str, *, item_id: str = "trajectory", que
 
 async def mechanism_suspicion(mechanism: Any, players: dict[str, Any], task: str, actions: str,
                               *, question: str = DEFAULT_MONITOR_QUESTION, item_id: str = "trajectory") -> tuple[float, Episode]:
-    """Run a mechanism on 'is this trajectory suspicious?' and return P(suspicious) and the episode."""
+    """Run a mechanism on 'is this trajectory suspicious?' and return P(suspicious) and the episode.
+
+    A judgment that did not parse raises like a failed call: its fallback (50/50) would enter ControlArena's
+    logs as an ordinary score, where no parse status survives (:func:`episodes_from_frame` treats a missing
+    score as unknown instead)."""
+    from so_arena.analysis.frames import judgment_status
+
     item = trajectory_item(task, actions, item_id=item_id, question=question)
     ep = await mechanism.run(item, players)
     if ep.error is not None or not ep.outcome.probs or SUSPICIOUS not in ep.outcome.probs:
         # a failed monitor is not an undecided one: reporting 0.5 would let the actions pass as benign
         raise RuntimeError(f"{mechanism.name} gave no P({SUSPICIOUS}) for the trajectory: "
                            f"{(ep.error or 'no probabilities').strip().splitlines()[-1]}")
+    if judgment_status(ep) is False:
+        raise RuntimeError(f"{mechanism.name}: a judgment of the trajectory did not parse (it fell back to "
+                           f"P({SUSPICIOUS})={ep.outcome.probs[SUSPICIOUS]:.2f})")
     return float(ep.outcome.probs[SUSPICIOUS]), ep
 
 

@@ -15,7 +15,9 @@ names, tags, behaviour labels, policy ids and configurations, and the policies' 
 account is the ground truth: in profile ``arm=true`` (label ``argue_true``) the agent's position is
 the correct answer. These are replaced by keyed pseudonyms that do not link episodes across items;
 episodes are ordered by pseudonym within each item and keep only the date they were created, so
-neither order nor timestamps reveal the arm either.
+neither order nor timestamps reveal the arm either. Token counts and costs are withheld per turn and per
+episode (a longer directive in one arm's system prompt shows in its input tokens); the manifest records
+the whole release's total.
 
 ``resolve`` takes the release plus ground truth when it arrives, verifies the manifest, fills in
 deferred rewards (e.g. market scoring rules), scores every episode, and writes metrics and a report.
@@ -45,6 +47,7 @@ from so_arena.core.mechanism import Episode
 from so_arena.core.rewards import RewardRule
 from so_arena.core.runner import run_sync, score_episode
 from so_arena.core.store import RunStore
+from so_arena.core.types import Usage
 
 log = logging.getLogger("so_arena")
 
@@ -65,9 +68,11 @@ def _pseudonym(salt: str, *parts: Any) -> str:
 # returned - is ground truth (often simulated from it), and so is any detail a future rule adds: allowlist
 PUBLIC_REWARD_DETAILS = ("audited",)
 # turn fields safe to publish: what the agents did and what the mechanism saw; a field added later is reset to
-# its default until it is listed here
+# its default until it is listed here. Not ``usage``: input tokens count the prompt, whose directive (the arm's
+# instructions) is not shown - arms whose directives differ in length would be told apart by it; likewise the
+# usage of a turn's verifications and of the episode (the manifest keeps the release's total)
 PUBLIC_TURN_FIELDS = ("index", "slot", "role", "phase", "kind", "text", "shown", "reasoning", "visible_to", "choice",
-                      "probs", "score", "data", "verifications", "tool_calls", "usage", "parse_ok", "node",
+                      "probs", "score", "data", "verifications", "tool_calls", "parse_ok", "node",
                       "candidate", "group", "state")
 # Turn metadata holds the policies' annotations, among them the experimenter's account of how behaviour was
 # produced: ``mixture_component`` names the component a MixturePolicy drew (in arm designs, the arm) and
@@ -107,8 +112,9 @@ def _public_config(ep: Episode, salt: str) -> dict[str, Any]:
 
 def _public_turn(t: Turn, *, public_labels: bool) -> Turn:
     keep = PUBLIC_TURN_METADATA + (LABEL_TURN_METADATA if public_labels else ())
-    return Turn(**{f: getattr(t, f) for f in PUBLIC_TURN_FIELDS},
-                metadata={k: v for k, v in t.metadata.items() if k in keep})
+    fields = {f: getattr(t, f) for f in PUBLIC_TURN_FIELDS}
+    fields["verifications"] = [v.model_copy(update={"usage": Usage()}) for v in t.verifications]
+    return Turn(**fields, metadata={k: v for k, v in t.metadata.items() if k in keep})
 
 
 def _strip(ep: Episode, *, salt: str | None = None, public_labels: bool = False) -> Episode:
@@ -122,6 +128,7 @@ def _strip(ep: Episode, *, salt: str | None = None, public_labels: bool = False)
     e.gt_status = "pending" if ep.gt_status in ("pending", "unscored") else "unknown"
     e.reward_details = {k: v for k, v in ep.reward_details.items() if k in PUBLIC_REWARD_DETAILS}
     e.turns = [_public_turn(t, public_labels=public_labels) for t in e.turns]
+    e.usage = {}  # token counts reveal prompt lengths, i.e. directives (see PUBLIC_TURN_FIELDS)
     salt = salt if salt is not None else secrets.token_hex(16)
     e.mechanism_config = _public_config(ep, salt)
     if public_labels:
@@ -178,6 +185,7 @@ class Manifest(BaseModel):
     n_episodes: int
     notes: str = ""
     mechanisms: list[str] = Field(default_factory=list)
+    usage: Usage = Field(default_factory=Usage)  # model usage of all released episodes together (never per episode)
 
 
 def _digest(files: dict[str, str]) -> str:
@@ -226,6 +234,7 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
     if missing := [k for k in private_keys if k not in have]:
         raise ValueError(f"private_keys {missing} occur in no released item (private keys: {sorted(have)})")
     salt = salt if salt is not None else secrets.token_hex(16)
+    total = sum((e.total_usage for e in episodes), Usage())
     released = [_strip(e, salt=salt, public_labels=public_labels) for e in episodes]
     # configurations of a mechanism are kept (and listed) apart, by labels made from what is published
     labels = mechanism_labels(released)
@@ -255,7 +264,7 @@ def release(episodes: Sequence[Episode], items: Sequence[TaskItem], out_dir: str
     files = {name: _sha(out / name) for name in names}
     man = Manifest(title=title, created_at=_dt.datetime.now(_dt.timezone.utc).isoformat(), files=files,
                    digest=_digest(files), n_items=len(items), n_episodes=len(eps), notes=notes,
-                   mechanisms=sorted(set(labels.values())))
+                   mechanisms=sorted(set(labels.values())), usage=total)
     (out / "MANIFEST.json").write_text(man.model_dump_json(indent=2))
     return man
 

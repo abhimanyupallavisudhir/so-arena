@@ -211,7 +211,8 @@ Random audits in the reward (`RandomAudit`, `JudgeAuditScore`) are drawn per ite
 the reward function advances the seed every training step (TRL's `global_step`, or a call count), so each
 step audits a fresh random subset while all completions for one prompt within a step share their draw.
 A role that decides more than once per episode needs `MechanismEnv`: the reward function refuses to
-reuse one completion for several decisions.
+reuse one completion for several decisions. `MechanismEnv.reset` redraws audits the same way - per call,
+or pass the trainer's step (`env.reset(item, train_step=t)`); an explicit `seed=` replays one draw.
 
 Learning dynamics over strategy spaces (cheap "RL" on empirical games, with KL regularization toward a
 reference policy): `games.learning.policy_gradient(game, init=..., kl=...)`.

@@ -311,7 +311,9 @@ def test_asd_reports_and_can_exclude_unparsed_judgments(caplog):
     for df in (with_parse_status(role_frame(eps), eps), role_frame(eps, include_fixtures=True)):
         a = asd(df, exclude_unparsed=True, parse_warn=None)
         assert a["parse_fail_rate"].iloc[0] == pytest.approx(0.5) and a["asd"].iloc[0] == pytest.approx(full)
-    assert "parse_fail_rate" not in asd(role_frame(eps))  # unknown: nothing claimed
+    # a plain role frame records the status itself (it used to claim nothing, so exclude_unparsed did nothing)
+    plain = asd(role_frame(eps), exclude_unparsed=True, parse_warn=None)
+    assert plain["parse_fail_rate"].iloc[0] == pytest.approx(0.5) and plain["asd"].iloc[0] == pytest.approx(full)
     assert summary(with_parse_status(role_frame(eps), eps))["parse_fail_rate"].iloc[0] == pytest.approx(0.5)
 
 

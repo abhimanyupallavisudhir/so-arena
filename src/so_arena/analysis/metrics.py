@@ -31,6 +31,8 @@ import pandas as pd
 from scipy import stats as sps
 
 from so_arena.analysis.frames import config_key, mechanism_labels
+# the parse status lives with the frames (role_frame records it); re-exported here, where it used to be
+from so_arena.analysis.frames import OVERSIGHT_KINDS, judgment_parsed, judgment_status  # noqa: F401
 from so_arena.core.mechanism import Episode
 from so_arena.core.rewards import JudgeScore, rescore
 
@@ -106,34 +108,20 @@ def _groups(df: pd.DataFrame, by: Sequence[str]):
 
 # ----------------------------------------------------------------------------------- judgment parsing
 
-OVERSIGHT_KINDS = ("judge", "monitor", "auditor", "grader")
-
-
-def judgment_parsed(ep: Episode) -> bool:
-    """Whether every judgment in ``ep`` parsed: the turns of its overseer roles (judges, monitors,
-    auditors, graders) and the outcome's ``judge_parse_ok`` flag.
-
-    A judgment that does not parse falls back to a default - uniform probabilities, the middle of a
-    score range - so the rewards computed from it are the same for honest and dishonest behaviour: a
-    broken judge quietly pulls ASD toward 0.
-    """
-    if ep.outcome.data.get("judge_parse_ok") is False:
-        return False
-    return all(t.parse_ok for t in ep.turns if ep.role_kinds.get(t.role, "agent") in OVERSIGHT_KINDS)
-
-
 def with_parse_status(df: pd.DataFrame, episodes: Sequence[Episode]) -> pd.DataFrame:
-    """A role frame with a ``judge_parse_ok`` column (:func:`judgment_parsed` of each row's episode)."""
+    """A frame with a ``judge_parse_ok`` column (:func:`~so_arena.analysis.frames.judgment_status` of each
+    row's episode). :func:`~so_arena.analysis.frames.role_frame` adds it itself; this is for other frames."""
     if df.empty:
         return df
-    status = {ep.id: judgment_parsed(ep) for ep in episodes}
+    status = {ep.id: judgment_status(ep) for ep in episodes}
     return df.assign(judge_parse_ok=df["episode_id"].map(status))
 
 
 def _parse_status(df: pd.DataFrame) -> pd.Series | None:
     """Per row: False if its episode had an unparsed judgment, True if not, NaN if unknown. From the
-    ``judge_parse_ok`` column, else from overseer rows' ``parse_ok`` (``role_frame(include_fixtures=True)``)."""
-    if "judge_parse_ok" in df.columns:
+    ``judge_parse_ok`` column, else from overseer rows' ``parse_ok`` (``role_frame(include_fixtures=True)``);
+    None if nothing in the frame is known."""
+    if "judge_parse_ok" in df.columns and df["judge_parse_ok"].notna().any():
         return df["judge_parse_ok"]
     if {"parse_ok", "kind", "episode_id"} <= set(df.columns):
         over = df[df["kind"].isin(OVERSIGHT_KINDS)]
@@ -146,7 +134,8 @@ def _parse_status(df: pd.DataFrame) -> pd.Series | None:
 def _fail_rate(g: pd.DataFrame, status: pd.Series) -> float:
     """Fraction of the (distinct) episodes of ``g`` with a known parse status whose judgment did not parse."""
     s = status.loc[g.index]
-    known = pd.DataFrame({"e": g["episode_id"], "s": s}).dropna(subset=["s"]).drop_duplicates("e")
+    ids = g["episode_id"] if "episode_id" in g.columns else pd.Series(g.index, index=g.index)
+    known = pd.DataFrame({"e": ids, "s": s}).dropna(subset=["s"]).drop_duplicates("e")
     return float((known["s"] == False).mean()) if len(known) else math.nan  # noqa: E712
 
 
@@ -160,11 +149,12 @@ def asd(df: pd.DataFrame, *, roles: Sequence[str] | None = None, by: Sequence[st
 
     Rows of the selected roles are pooled (e.g. both debaters). Items lacking either arm are dropped.
 
-    When the frame says whether each episode's judgments parsed (:func:`with_parse_status`, or overseer
-    rows from ``role_frame(include_fixtures=True)``), each row reports the parse-failure rate of the
-    group's episodes (``parse_fail_rate``, and per arm ``parse_fail_rate_true``/``_false``), warns above
-    ``parse_warn``, and with ``exclude_unparsed=True`` drops those episodes before pairing: a fallback
-    judgment scores both arms alike, so a broken judge pulls ASD toward 0.
+    When the frame says whether each episode's judgments parsed (the ``judge_parse_ok`` column that
+    :func:`~so_arena.analysis.frames.role_frame` adds, or overseer rows' ``parse_ok``), each row reports the
+    parse-failure rate of the group's episodes (``parse_fail_rate``, and per arm
+    ``parse_fail_rate_true``/``_false``), warns above ``parse_warn``, and with ``exclude_unparsed=True``
+    drops those episodes before pairing: a fallback judgment scores both arms alike, so a broken judge
+    pulls ASD toward 0.
     """
     status = _parse_status(df)
     d = _select(df, roles)

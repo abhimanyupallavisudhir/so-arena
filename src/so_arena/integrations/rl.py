@@ -31,7 +31,10 @@ group-relative advantage then compares behaviours, not audit luck). With one fix
 would be audited at every step - over epochs the trainee could learn which items are never checked. The
 reward function therefore runs step $t$ under its own seed (the trainer's ``global_step`` when TRL passes
 ``trainer_state``, an explicit ``step=``, else a count of calls): one shared draw within a step, fresh draws
-across steps. Stances still resolve from the base seed, as in :func:`rollout_prompts`.
+across steps. :class:`MechanismEnv` does the same per episode: ``reset(item, train_step=t)`` runs under the
+seed of step $t$ (pass it to every rollout of a group so they share the draw), and without it each reset
+counts as a new step; only an explicit ``reset(seed=...)`` fixes the draw (reproducible evaluation). Stances
+still resolve from the base seed, as in :func:`rollout_prompts`.
 """
 
 from __future__ import annotations
@@ -88,6 +91,13 @@ class StepResult(BaseModel):
     episode: Episode | None = None
 
 
+def training_step_seed(seed: int, step: int) -> int:
+    """The episode seed of training step ``step`` under base seed ``seed``: ``seed`` itself at step 0 (so a
+    first step matches an evaluation run with ``seed``), a hash of (seed, step) after it - unrelated across
+    base seeds. Shared by :class:`RewardFunction` and :class:`MechanismEnv`."""
+    return seed if step == 0 else stable_hash("rl-step", seed, step) % 2**31
+
+
 def trainee_rng(seed: int, item_id: str) -> random.Random:
     """RNG resolving a trainee's stance spec (e.g. which false answer ``"false"`` picks) on an item -
     shared by :class:`MechanismEnv` and :class:`RewardFunction`, so both assign the same answer."""
@@ -101,19 +111,28 @@ class MechanismEnv:
     buffered and served one per observation, in arrival order; none of them sees the others' actions.
     ``pending_roles`` lists the trainees currently waiting for an action.
 
+    Audits and other chance moves are redrawn per training step, as in :class:`RewardFunction` (one fixed
+    seed would audit the same items in every epoch): an episode runs under :meth:`step_seed` of
+    ``reset(train_step=t)``, or, without it, of the number of earlier resets. ``reset(seed=s)`` fixes the
+    seed instead.
+
     Args:
         players: policies (and stances) for non-trainee roles.
         trainees: trainee roles, optionally with stances ``{role: stance_label_or_None}``.
         ground_truth: scorers applied to finished episodes (values are logged, never rewards).
+        seed: the base seed (of step 0, and of the trainees' stances).
+        redraw_per_step: False runs every episode under ``seed`` (the audits of an evaluation run, frozen).
     """
 
     def __init__(self, mechanism: Mechanism, players: dict[str, Player], trainees: dict[str, str | None], *,
                  ctx: RunContext | None = None, ground_truth: Sequence[GroundTruthScorer] | None = None,
-                 system_note: str | None = None):
+                 system_note: str | None = None, seed: int = 0, redraw_per_step: bool = True):
         self.mechanism, self.players, self.trainees = mechanism, dict(players), dict(trainees)
         self.ctx = ctx or RunContext()
         self.scorers = list(ground_truth) if ground_truth is not None else default_scorers()
         self.system_note = system_note
+        self.seed, self.redraw_per_step = seed, redraw_per_step
+        self.resets = 0  # the default training step of the next reset
         self._task: asyncio.Task | None = None
         self._externals: dict[str, ExternalPolicy] = {}
         self._queue: collections.deque[tuple[str, ActionRequest, asyncio.Future]] = collections.deque()
@@ -125,14 +144,27 @@ class MechanismEnv:
     def pending_roles(self) -> list[str]:
         return [r for r, _, _ in self._queue]
 
-    async def reset(self, item: TaskItem, *, episode_id: str | None = None, seed: int = 0) -> StepResult:
+    def step_seed(self, step: int) -> int:
+        """The episode seed of training step ``step`` (the base seed at step 0; see :func:`training_step_seed`)."""
+        return training_step_seed(self.seed, step) if self.redraw_per_step else self.seed
+
+    async def reset(self, item: TaskItem, *, episode_id: str | None = None, seed: int | None = None,
+                    train_step: int | None = None) -> StepResult:
+        """Start an episode on ``item``. It runs under ``seed`` if given (reproducible: the same seed, the
+        same audits and stances), else under the seed of training step ``train_step`` - by default the number
+        of earlier resets, so that audits are redrawn every episode."""
+        step = self.resets if train_step is None else int(train_step)
+        self.resets += 1
+        stance_seed = self.seed if seed is None else seed
+        if seed is None:
+            seed = self.step_seed(step)
         if self._task is not None and not self._task.done():
             self._task.cancel()
         self._queue.clear()
         self._item = item
         self._externals = {r: ExternalPolicy(label="trainee") for r in self.trainees}
         players = dict(self.players)
-        rng = trainee_rng(seed, item.id)
+        rng = trainee_rng(stance_seed, item.id)
         self.stances = {r: resolve_stance(stance, item, rng) for r, stance in self.trainees.items()}  # per item
         for r in self.trainees:
             players[r] = Player(policy=self._externals[r], stance=self.stances[r], label="trainee")
@@ -182,11 +214,13 @@ class MechanismEnv:
         return await self._advance()
 
 
-async def rollout(env: MechanismEnv, item: TaskItem, policy: Policy) -> Episode:
-    """Drive an env with an ordinary policy (useful for testing an RL setup end to end)."""
+async def rollout(env: MechanismEnv, item: TaskItem, policy: Policy, *, seed: int | None = None,
+                  train_step: int | None = None) -> Episode:
+    """Drive an env with an ordinary policy (useful for testing an RL setup end to end); ``seed`` and
+    ``train_step`` are passed to :meth:`MechanismEnv.reset`."""
     from so_arena.core.policy import ActContext
 
-    res = await env.reset(item)
+    res = await env.reset(item, seed=seed, train_step=train_step)
     while not res.done:
         obs = res.observation
         assert obs is not None
@@ -251,9 +285,7 @@ class RewardFunction:
     def step_seed(self, step: int) -> int:
         """The episode seed of training step ``step``: the base seed at step 0 (so a first call matches
         an evaluation run with ``seed``), a hash of (seed, step) after it - unrelated across base seeds."""
-        if not self.redraw_per_step or step == 0:
-            return self.seed
-        return stable_hash("rl-step", self.seed, step) % 2**31
+        return training_step_seed(self.seed, step) if self.redraw_per_step else self.seed
 
     @staticmethod
     def _text(completion: Any) -> str:

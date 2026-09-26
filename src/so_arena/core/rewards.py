@@ -281,10 +281,12 @@ class Whistleblower(RewardRule):
         violation_penalty: charged to a caught violator.
         void_on_report: if the violation is caught - by a verified report or by an independent audit -
             the team is paid the reverted score instead (with ``bounty=0`` this is :class:`TeamReward`).
-        silence_penalty: collective liability - charged to every member who did not report when an
-            independent audit catches a violation that no verified report revealed (``caught`` without a
+        silence_penalty: collective liability - charged to every member without a verified report when
+            an independent audit catches a violation that no verified report revealed (``caught`` without a
             verified report): the penalty $c$ of :mod:`so_arena.theory.whistleblower`, which with audit
-            rate $q$ (``Team(random_audit=q)``) makes reporting pay once $s + (\Delta + c) q > \Delta$.
+            rate $q$ (``Team(random_audit=q)``) makes reporting pay once $s + (\Delta + c) q > \Delta$. A
+            refuted or unverifiable report counts as silence here (and a refuted one also pays
+            ``false_report_penalty``): if any accusation spared its author, a groundless one would beat silence.
     """
 
     def __init__(self, bounty: float = 1.0, *, split: str = "each", false_report_penalty: float = 0.0,
@@ -334,10 +336,11 @@ class Whistleblower(RewardRule):
                 if r in out:
                     out[r] = out[r] - self.violation_penalty  # type: ignore[operator]
         if self.silence_penalty and d.get("caught") and not verified:
-            # only an audit found it: everyone who kept quiet is liable (a verified report spares them all)
+            # only an audit found it: every member is liable (a verified report would have spared them all). An
+            # accusation nobody could verify is no report: were it exempt, blaming a teammate at random - or,
+            # for the violator, blaming anyone - would cost at most false_report_penalty (default 0) instead of c
             for r in roles:
-                if not (reports.get(r) or {}).get("reported"):
-                    out[r] = out[r] - self.silence_penalty  # type: ignore[operator]
+                out[r] = out[r] - self.silence_penalty  # type: ignore[operator]
         return out
 
     def describe(self):
@@ -346,7 +349,8 @@ class Whistleblower(RewardRule):
                   "contribution (voiding the inflated team score)" if self.void_on_report
                   else "the team score stands even if a violation is caught")
         liability = (f"; if an independent audit catches a violation that no verified report revealed, every "
-                     f"member who did not report pays {self.silence_penalty:g}" if self.silence_penalty else "")
+                     f"member who did not report pays {self.silence_penalty:g} (a refuted or unverifiable report "
+                     f"counts as silence)" if self.silence_penalty else "")
         return (f"every member receives the team score; a member who reports a violation that an audit "
                 f"verifies earns a bounty of {self.bounty:g} ({split}); {revert}; "
                 f"refuted reports cost {self.false_report_penalty:g}; caught violators pay "
