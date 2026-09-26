@@ -177,6 +177,11 @@ def _cmd_list(a: argparse.Namespace) -> int:
         from so_arena.domains import list_domains
 
         print("domains:", ", ".join(list_domains()))
+    for kind in ("reward", "verifier", "scorer"):
+        if what in (f"{kind}s", "all"):
+            from so_arena.registry import names
+
+            print(f"{kind}s:", ", ".join(names(kind)))
     if what in ("models", "all"):
         from so_arena.models import all_specs
 
@@ -256,8 +261,9 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("--out")
     rs.set_defaults(fn=_cmd_resolve)
 
-    ls = sub.add_parser("list", help="list registered mechanisms, domains or models")
-    ls.add_argument("what", nargs="?", default="all", choices=["all", "mechanisms", "domains", "models"])
+    ls = sub.add_parser("list", help="list registered mechanisms, domains, reward rules, verifiers, scorers or models")
+    ls.add_argument("what", nargs="?", default="all",
+                    choices=["all", "mechanisms", "domains", "rewards", "verifiers", "scorers", "models"])
     ls.set_defaults(fn=_cmd_list)
 
     d = sub.add_parser("demo", help="run offline demos (synthetic domains, no API keys)")

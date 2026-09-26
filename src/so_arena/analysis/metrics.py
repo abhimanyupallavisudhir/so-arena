@@ -13,6 +13,8 @@ behaviours with higher $v$ receive higher $u$.
 * **Covariance / first-order policy improvement**: $\\mathrm{Cov}(u, v)$ under the sampling
   distribution is exactly $\\frac{d}{d\\beta} E_{\\pi_\\beta}[v]$ at $\\beta = 0$ for the
   exponentially tilted policy $\\pi_\\beta \\propto \\pi_0 e^{\\beta u}$ (see docs/theory.md).
+* **Ground-truth regret** (continuous ground truth): the best value among a set of strategies minus the
+  value of the reward-maximizing one - what a perfect optimizer of the reward gives up.
 * **Incentive gap recovered**: $(\\mathrm{ASD}_P - \\mathrm{ASD}_{\\text{naive}})/(\\mathrm{ASD}_{\\max} - \\mathrm{ASD}_{\\text{naive}})$.
 * **Label efficiency**: $1/(1-\\rho^2)$, how many ground-truth labels one audited episode is worth
   when the mechanism reward is used as a control variate for audits.
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -344,6 +347,72 @@ def incentive_gap_recovered(asd_protocol: float, asd_naive: float, asd_max: floa
     """
     denom = asd_max - asd_naive
     return (asd_protocol - asd_naive) / denom if denom else math.nan
+
+
+# ----------------------------------------------------------------------------------- ground-truth regret
+
+def _regret_parts(g: pd.DataFrame, strategy_col: str, value_col: str, reward_col: str, min_coverage: float,
+                  rtol: float, atol: float) -> dict[str, Any]:
+    """The reward-argmax strategies of ``g`` and the ground-truth regret of choosing them (see :func:`gt_regret`)."""
+    g = g[g[reward_col].notna()]
+    per_item = g.groupby(["item_id", strategy_col]).size().unstack(strategy_col)
+    common = per_item.dropna().index  # items on which every strategy was evaluated: strategies compared alike
+    g = g[g["item_id"].isin(common)]
+    if g.empty:
+        return {}
+    val = pd.to_numeric(g[value_col], errors="coerce")
+    s = g.assign(_v=val, _has=np.isfinite(val.to_numpy(dtype=float))).groupby(strategy_col).agg(
+        reward=(reward_col, "mean"), value=("_v", "mean"), coverage=("_has", "mean"))
+    s.loc[s["coverage"] < min_coverage, "value"] = math.nan  # too few labels to say what the strategy is worth
+    top = s[np.isclose(s["reward"], s["reward"].max(), rtol=rtol, atol=atol)]
+    labelled = s[s["value"].notna()]
+    # an optimizer of the reward cannot tell tied strategies apart: their values are averaged; if one of them
+    # has no value, the regret is unknown (a missing label is never read as a good one)
+    argmax_value = float(top["value"].mean()) if top["value"].notna().all() else math.nan
+    best = float(labelled["value"].max()) if len(labelled) else math.nan
+    return {"regret": best - argmax_value, "argmax_value": argmax_value, "best_value": best,
+            "argmax_strategy": " | ".join(map(str, sorted(top.index))), "n_argmax": len(top),
+            "best_strategy": str(labelled["value"].idxmax()) if len(labelled) else None,
+            "n_strategies": len(s), "n_unlabelled": int(s["value"].isna().sum()), "n_items": len(common)}
+
+
+def gt_regret(df: pd.DataFrame, *, roles: Sequence[str] | None = None, by: Sequence[str] = ("mechanism",),
+              strategy_col: str = "label", value_col: str = "value", reward_col: str = "reward",
+              min_coverage: float = 0.5, rtol: float = 1e-9, atol: float = 1e-12, n_boot: int = 500,
+              seed: int = 0) -> pd.DataFrame:
+    """Ground-truth regret of optimizing the reward over a set of strategies: the best mean ground-truth value
+    among them minus the value of the strategy with the highest mean reward - how much ground truth a
+    perfect optimizer of the mechanism's reward gives up within the sampled strategy class. 0: the reward's
+    argmax is also the best behaviour. Meaningful for any (continuous) ground truth, unlike ASD's two arms.
+
+    Strategies are the values of ``strategy_col`` (a behaviour label, a prompt-search candidate id, a
+    parameter setting) and are compared on the items all of them were evaluated on (``n_items``). Strategies
+    tied for the highest reward (within ``rtol``/``atol``) are averaged, since an optimizer cannot tell them
+    apart. A strategy whose value is known for less than ``min_coverage`` of its episodes has no value: if it
+    is among the argmax the regret is NaN; otherwise the best value is taken over the labelled strategies
+    (``n_unlabelled`` counts the others, for which it is a lower bound). The CI resamples items and repeats
+    the selection, so it includes the uncertainty about which strategy wins. A frame without ``item_id``
+    (one row per strategy, e.g. candidates' mean reward and value) is one item.
+    """
+    d = df if "item_id" in df.columns else df.assign(item_id="all")
+    if roles is not None:
+        d = d[d["role"].isin(list(roles))]
+    elif {"kind", "trainable"} <= set(d.columns):
+        d = d[(d["kind"] == "agent") & d["trainable"].astype(bool)]
+    d = d[d[strategy_col].notna()]
+    out = []
+    for key, g in _groups(d, by):
+        parts = _regret_parts(g, strategy_col, value_col, reward_col, min_coverage, rtol, atol)
+        if not parts:
+            continue
+        clusters = [gi for _, gi in g.groupby("item_id")]
+        lo, hi = cluster_bootstrap(
+            clusters, lambda s: _regret_parts(s, strategy_col, value_col, reward_col, min_coverage, rtol, atol).get(
+                "regret", math.nan), n_boot=n_boot, seed=seed) if len(clusters) > 1 and n_boot else (math.nan, math.nan)
+        row = dict(zip([b for b in by if b in d.columns], key))
+        row.update({"gt_regret": parts.pop("regret"), "ci_low": lo, "ci_high": hi, **parts})
+        out.append(row)
+    return pd.DataFrame(out)
 
 
 # ----------------------------------------------------------------------------------- expected scores

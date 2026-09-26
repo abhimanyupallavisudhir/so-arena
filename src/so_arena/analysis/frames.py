@@ -100,7 +100,8 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
     ``stance`` (assigned) and ``position`` (final),
     ``judge_p_true``/``judge_correct`` (control-style measures of the outcome), ``judge_parse_ok``
     (whether the episode's judgments parsed, :func:`judgment_status` - so every ASD reports its
-    parse-failure rate), claim statistics and cost. Tags are added as ``tag_<name>`` columns.
+    parse-failure rate), ``n_words`` (words in the role's text turns), claim statistics and cost. Tags
+    are added as ``tag_<name>`` columns.
     """
     rows: list[dict[str, Any]] = []
     labels = mechanism_labels(episodes)
@@ -152,6 +153,7 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
                 "outcome_value": gt.get("outcome_value"),
                 "manipulation_ok": manip.get(role),
                 "n_turns": sum(1 for t in ep.turns if t.role == role),
+                "n_words": sum(len(t.text.split()) for t in ep.turns if t.role == role and t.kind == "text"),
                 "n_claims": len(verifs),
                 "n_verified": sum(v.status == "verified" for v in verifs),
                 "n_failed": sum(v.status == "refuted" for v in verifs),
@@ -173,7 +175,10 @@ def role_frame(episodes: Sequence[Episode], roles: Sequence[str] | None = None, 
 
 
 def episode_frame(episodes: Sequence[Episode]) -> pd.DataFrame:
-    """One row per episode (outcome-level), with ``judge_parse_ok`` as in :func:`role_frame`."""
+    """One row per episode (outcome-level), with ``judge_parse_ok`` as in :func:`role_frame`, the outcome's
+    probabilities as ``p_<option>`` and its ``confidence`` (the largest of them), and what oversight consumed: ``oversight_tokens`` (judges, monitors,
+    auditors, graders), ``n_claims`` (claims sent to verifiers) and the mechanism's uses of ground truth
+    (``n_gt_access``, ``gt_access_cost``)."""
     rows = []
     labels = mechanism_labels(episodes)
     for ep in episodes:
@@ -184,12 +189,16 @@ def episode_frame(episodes: Sequence[Episode]) -> pd.DataFrame:
             "repeat": ep.repeat, "decision": ep.outcome.decision, "judge_parse_ok": judgment_status(ep),
             "error": ep.error is not None,
             "cost_usd": ep.total_usage.cost_usd, "tokens": ep.total_usage.total_tokens,
+            "oversight_tokens": sum(u.total_tokens for r, u in ep.usage.items() if ep.role_kinds.get(r) in OVERSIGHT_KINDS),
+            "n_claims": len(ep.verifications()),
+            "n_gt_access": len(ep.gt_access), "gt_access_cost": sum(float(a.get("cost", 0.0)) for a in ep.gt_access),
             **{f"reward_{r}": v for r, v in ep.rewards.items()},
             **{f"label_{r}": p.label for r, p in ep.players.items()},
             **{f"position_{r}": v for r, v in ep.positions.items()},
             **{k: v for k, v in gt.items() if isinstance(v, (int, float, str, bool))},
             **{f"tag_{k}": v for k, v in ep.tags.items()},
         }
+        row["confidence"] = max(ep.outcome.probs.values()) if ep.outcome.probs else None
         if ep.outcome.probs:
             row.update({f"p_{k}": v for k, v in ep.outcome.probs.items()})
         rows.append(row)

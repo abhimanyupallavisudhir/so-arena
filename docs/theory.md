@@ -98,7 +98,49 @@ Consequences:
   gradient ascent converges to $\pi \propto \pi_0 e^{u/\tau}$ (`games.learning.policy_gradient`,
   checked in the tests).
 
-### 2.3 Ground truth by construction vs. by measurement
+### 2.3 ASD is a policy gradient
+
+The covariance identity is about tilting. The same quantity drives policy-gradient training directly.
+
+**Proposition 1 (ASD is the policy gradient along the honesty direction).** Let the policy behave well
+($b^+$) on item $t$ with probability $p_t = \sigma(\theta + c_t)$ and badly ($b^-$) otherwise, where $\theta$
+is a scalar propensity to behave well, and let $\bar u_t(b)$ be the mean reward of behaviour $b$ on item $t$,
+so $\mathrm{ASD}_t = \bar u_t(b^+) - \bar u_t(b^-)$ and $\mathrm{ASD} = \mathbb E_t[\mathrm{ASD}_t]$. Then
+$$\frac{\partial U}{\partial \theta} = \mathbb E_t\big[p_t(1-p_t)\,\mathrm{ASD}_t\big],$$
+which is $p(1-p)\,\mathrm{ASD}$ when $p_t \equiv p$. The Fisher information of $\theta$ is
+$\mathbb E_t[p_t(1-p_t)]$, so the natural gradient is the $p_t(1-p_t)$-weighted mean of $\mathrm{ASD}_t$ -
+exactly $\mathrm{ASD}$ when $p_t \equiv p$.
+
+*Proof.* $U(\theta) = \mathbb E_t[p_t\,\bar u_t(b^+) + (1-p_t)\,\bar u_t(b^-)]$ and $\sigma' = \sigma(1-\sigma)$;
+the score of $\theta$ is $\mathbb 1[b^+] - p_t$, with variance $p_t(1-p_t)$. $\square$
+
+So the sign of ASD is the direction of the first step of RL along the honest/dishonest axis, and the items
+on which the policy is undecided ($p_t \approx \tfrac12$) dominate it; items it has settled on either way
+contribute nothing, however large their ASD. Two limitations follow at once: ASD compares two *given*
+behaviours - a third that nobody sampled (a fabricated proof, an obfuscated flaw) may earn more than both -
+and ASD is a mean, while optimization responds to the *top* of the reward distribution. The second is
+Proposition 2.
+
+### 2.4 Best-of-$n$ follows the top of the reward distribution
+
+**Proposition 2 (extremal Goodhart under best-of-$n$).** Let a pool of behaviours have rewards $u_j$ and
+values $v_j$, with distinct reward levels $w_1 < \dots < w_K$ and empirical CDF $F$. Best-of-$n$ with
+replacement selects a behaviour at level $w_k$ with probability $F(w_k)^n - F(w_{k-1})^n$ (split evenly
+among the ties), so
+$$\mathbb E[v \mid \mathrm{Bo}(n)] \;\longrightarrow\; \mathbb E[v \mid u = \max_j u_j] \qquad (n \to \infty),$$
+whatever the sign of ASD or of $\mathrm{Cov}_{\pi_0}(u, v)$.
+
+*Example.* Honest arguments always earn $0.5$; dishonest ones earn $0.9$ with probability $0.1$ and $0$
+otherwise. Then $\mathrm{ASD} = 0.5 - 0.09 = 0.41 > 0$, and for a base policy that argues honestly half of
+the time $\mathrm{Cov}_{\pi_0}(u, v) > 0$: a small step of optimization helps. But
+$$P(\mathrm{Bo}(n) \text{ is honest}) = 0.95^n - 0.45^n,$$
+which rises from $0.5$ ($n=1$) to $0.77$ ($n=4$) and then falls to $0$: the optimum of the reward is always
+a dishonest argument. This is *extremal Goodhart* (Manheim & Garrabrant 2018), and heavy-tailed reward
+errors make it the generic case (Kwa et al. 2024). The library computes the selection exactly from sampled
+pools (`analysis.optimization.BestOfN`; `"plugin"` is the with-replacement formula above, checked in the
+tests), which is why optimization curves, not ASD alone, decide whether a mechanism is safe to optimize.
+
+### 2.5 Ground truth by construction vs. by measurement
 
 Instructed arms ("argue for the true answer" / "argue for the false one") give ground truth *by
 construction* - cheap, but only valid while agents follow instructions (manipulation checks:
@@ -160,6 +202,26 @@ so with `PSRO(meta_solver="last")`, where each round best-responds to the others
 (iterated best response; Stahl & Wilson 1995; Nagel 1995; Camerer, Ho & Chong 2004). `uniform` best-responds
 to the whole population so far (fictitious play) and `nash` to its equilibrium (double oracle; McMahan,
 Gordon & Blum 2003).
+
+### 3.1 The revelation principle, and why oversight needs indirect mechanisms
+
+The revelation principle (Gibbard 1973; Myerson 1979) says that whatever some mechanism implements, a
+*direct* one implements too: ask each agent for its private information and make truth-telling an
+equilibrium. For oversight the direct mechanism is "ask the model for the answer and pay it for being
+right". It fails, but not for strategic reasons: the principal cannot *compute* whether the answer is right,
+so it cannot condition payments on correctness. The revelation principle assumes the designer can evaluate
+the outcome function on reported types; in oversight the binding constraint is computational and
+verificational, not informational. (It also fails in form when evidence is only partially verifiable - Green &
+Laffont 1986, section 5.)
+
+Indirect mechanisms get around this by turning the principal's job from *computing* into *checking*: debate
+narrows a hard claim to one step the judge can verify (Irving, Christiano & Amodei 2018), doubly-efficient
+debate keeps the honest side's cost polynomial (Brown-Cohen, Irving & Piliouras 2023), prover-verifier games
+train the checker (Anil et al. 2021; Kirchner et al. 2024), and verified claims (section 5) hand the judge
+trusted checks. The price is that truth-telling is no longer a property of a single report but of an
+*equilibrium* of a game - everything in this section applies - and the reduction can fail: the
+obfuscated-arguments problem (Barnes & Christiano 2020) is a dishonest debater hiding a flaw where no bounded
+honest opponent can find it, so no single checkable step exists.
 
 ## 4. Implementation theory: eliciting what agents know
 
@@ -619,22 +681,88 @@ hard-code them).
 ## 9. Robustness to training
 
 * **Samplers form an adversary hierarchy**: instructed arms < natural behaviour under best-of-N <
-  prompt search (directive-constrained, reaching behaviour far from the base policy) < PSRO < RL.
+  prompt search (directive-constrained, reaching behaviour far from the base policy; parameter search for
+  programmatic agents, `samplers.param_search`) < PSRO < RL. For continuous ground truth the ground truth a
+  perfect optimizer of the reward gives up within a searched class is its *regret* (`metrics.gt_regret`).
   "Robust IC at level $k$" means IC against adversary class $k$; the library measures each level.
 * **Validity of cheap proxies**: does prompted ASD predict what RL-trained policies do? Measurable by
   correlating prompted ASD across mechanisms with post-training ground-truth values.
 * **Fixtures are attack surfaces**: optimizing against a fixed judge finds its exploits (length,
-  confidence, jargon); optimization curves expose them.
+  confidence, jargon, a speaking slot, an option label); optimization curves expose them, and
+  `analysis.diagnostics` measures each at fixed ground truth before anyone optimizes.
 * **Exploration**: RL only discovers what it explores; deceptive strategies far from the base policy may
   never be sampled (the limitation of best-of-N), and models may under-explore deliberately.
 * **Chain-of-thought as oversight channel**: penalizing suspicious reasoning teaches concealment; a
   monitor's value must be measured after optimization against it (`mechanisms.MonitoredWork` with
   `monitor_sees=("reasoning",)`; Proposition 4 in section 6.1).
 
+### 9.1 Collusion: log-score debate is not zero-sum
+
+Nash equilibria rule out *unilateral* deviations; agents trained by one process can also deviate *jointly*.
+The ASD-style debate rewards $(\log p_A, \log p_B)$ with $p_A + p_B = 1$ are strictly competitive over
+outcomes - whatever helps one debater hurts the other - but not zero-sum, and their mixed extension is not
+strictly competitive either: games that are strictly competitive in mixed strategies are exactly the affine
+transformations of zero-sum games (Adler, Daskalakis & Papadimitriou 2009). The sum is what self-play
+optimizes when one policy occupies both seats, and it is largest when the judge stays undecided:
+$2\log\tfrac12 \approx -1.39$, against $\log 0.99 + \log 0.01 \approx -4.62$ for a vigorous debate the honest side
+wins. So a shared policy gains by keeping debates soft - collusion that no unilateral-deviation analysis
+sees. Antisymmetric rewards remove the incentive, since the sum is constant (`Debate(zero_sum=True)`,
+`rewards.ZeroSum`); `NormalFormGame.coalition_deviations` measures the largest joint gain in an empirical
+game. Swarms are the extreme case (section 8): a shared objective makes every member a stakeholder in
+covering up the others.
+
+### 9.2 Learning dynamics select equilibria
+
+Multiple equilibria are the norm, and training is the selection device: fictitious play and no-regret
+learning (Fudenberg & Levine 1998), evolutionary dynamics and their basins (Sandholm 2010), and
+*stochastic stability* - learning with small persistent noise (exploration) spends almost all its time at
+the risk-dominant equilibrium of a $2\times2$ coordination game (Kandori, Mailath & Rob 1993; Young 1993). That
+links section 8's risk-dominance and global-games predictions to training with exploration, and it is one
+more reason the training algorithm is part of the mechanism's environment (Proposition 6).
+
+When several roles are optimized, one optimizer's best move depends on how it models the others. The
+standard solution concepts are PSRO meta-solvers (Lanctot et al. 2017; `samplers.psro`), each a model of
+the opponents:
+
+| Meta-solver | Best response to | Classical counterpart |
+|---|---|---|
+| `last` | the opponents' newest strategy | iterated best response: level-$k$ reasoning (Stahl & Wilson 1995; Nagel 1995; Camerer, Ho & Chong 2004) |
+| `uniform` | the uniform mixture of all strategies so far | fictitious play (Brown 1951) |
+| `replicator` | the rest point replicator dynamics reach from uniform | evolutionary selection |
+| `nash` | a Nash equilibrium of the restricted game | double oracle (McMahan, Gordon & Blum 2003) |
+
+The oracle can be an LLM prompt optimizer told the opponents' meta-strategy, a fixed pool or a parameter
+search; each PSRO iteration records the meta-equilibrium's ground truth, so a trace shows whether the
+strategic landscape pulls toward honesty or deception as the optimizers adapt to each other.
+
+### 9.3 How oversight differs from classical mechanism design
+
+Section 1 named two differences; in full:
+
+1. **Utility is the reward.** The designer writes the agents' objectives but not their policy class or
+   optimizer, so IC must hold over *reachable* policies, not all policies.
+2. **The principal is computationally bounded.** It cannot compute the social choice function from
+   reports, so indirect, verification-based mechanisms are necessary (section 3.1).
+3. **Optimization is bounded, local and path-dependent.** Agents follow gradients from an initial policy;
+   equilibrium selection is dynamic (section 9.2), and the training algorithm is part of the environment.
+4. **Agents are copies.** Types and strategies are correlated, collusion is free (section 9.1), and
+   peer-based mechanisms lose their independence assumptions (section 7).
+5. **Rewards are bounded and normalized** (limited liability, section 6.1), and training statistics -
+   baselines, normalization across a batch - couple agents' incentives in ways payments do not.
+6. **We care about what agents become.** The principal's objective includes each role's behaviour (honesty,
+   not tampering), not only the decision in the current episode.
+7. **Participation is not voluntary, but abstention is a strategy.** Individual rationality constraints
+   disappear; refusing and hedging remain and must be rewarded sensibly.
+8. **Counterfactuals are cheap.** The same agent can be rerun on the same item under other mechanisms,
+   prompts and seeds, and recorded episodes re-scored under other reward rules (`rescore`). Mechanism
+   evaluation becomes an empirical science of *measured* incentive compatibility, with a ground-truth oracle
+   held back - the premise of this library.
+
 ## 10. What matters besides incentive compatibility
 
 Incentive compatibility says optimizing the mechanism's reward moves agents toward the truth. A
-useful mechanism also needs:
+useful mechanism also needs the following ([beyond_ic.md](beyond_ic.md) turns each into a measurement recipe
+with the library's functions):
 
 1. **Outcome quality at equilibrium** - IC with useless outcomes is pointless; control-style accuracy
    still matters, evaluated at the equilibrium training reaches (`metrics.judge_accuracy`, game outcomes).
@@ -643,7 +771,7 @@ useful mechanism also needs:
 3. **Reachability and selection** - does training reach the good equilibrium from realistic
    initializations (basins, PSRO NashConv)?
 4. **Signal quality** - reward variance, sparsity and credit assignment determine sample efficiency
-   (label efficiency, standard errors).
+   (label efficiency, standard errors, `diagnostics.reward_snr`).
 5. **Cost and scaling** - oversight cost (tokens, human minutes), ASD per dollar, how ASD changes with
    the capability gap between agents and judge (the "breakdown gap" where ASD crosses zero) and with
    evaluation budget (ASD as a function of the judge's time).
@@ -658,12 +786,23 @@ useful mechanism also needs:
 11. **Measurement validity** - manipulation checks, ground-truth drift under optimization, checking the
     checker on a random subset with a stronger audit.
 12. **Honest uncertainty** - honest agents should not be penalized for expressing calibrated
-    uncertainty (use proper scoring rules; check calibration).
+    uncertainty (use proper scoring rules; check calibration, `diagnostics.calibration`).
 
 ## 11. Open theoretical questions
 
 * When does debate with a bounded, fallible arbiter and limited verification implement the truth
-  (Moore-Repullo with imperfect arbitration)?
+  (Moore-Repullo with imperfect arbitration)? Full implementation: when is *every* reachable equilibrium
+  of a debate among bounded agents honest, obfuscated arguments included?
+* **Reachability.** How well do prompt and parameter search proxy what weight-level RL reaches, and how can
+  a searched frontier be validated against actual training?
+* **Obfuscation-robust monitoring.** Which monitoring signals keep their informativeness under optimization
+  against them (Proposition 4)?
+* **Selection-aware judges.** Unraveling needs sceptical receivers (Proposition 3); can judges be trained to
+  infer from what was *not* shown?
+* **Swarm design at scale.** Optimal combinations of bounties, audits, leniency and misprision under
+  realistic observation structures, when members share weights and can coordinate implicitly.
+* **Delayed ground truth in training.** Credit assignment and variance when the proper reward arrives long
+  after the behaviour; releases as a public ground-truth channel.
 * Sample complexity of training to an honest equilibrium given reward noise - label efficiency as a
   learning-theoretic quantity.
 * Collusion-proofness for agents that share weights or training data.
@@ -684,6 +823,7 @@ Beirami et al. (2024), Theoretical guarantees on the best-of-n alignment policy.
 Ben-Porath, Dekel & Lipman (2014), Optimal allocation with costly verification, *AER*.
 Ben-Porath, Dekel & Lipman (2019), Mechanisms with evidence: commitment and robustness, *Econometrica*.
 Bergemann & Morris (2005), Robust mechanism design, *Econometrica*.
+Brown (1951), Iterative solution of games by fictitious play, in *Activity Analysis of Production and Allocation*.
 Brown-Cohen, Irving & Piliouras (2023), Scalable AI safety via doubly-efficient debate.
 Brown-Cohen et al. (2025), Avoiding obfuscation with prover-estimator debate.
 Bull & Watson (2007), Hard evidence and mechanism design, *GEB*.
@@ -696,7 +836,9 @@ Dasgupta & Ghosh (2013), Crowdsourced judgement elicitation with endogenous prof
 Dewatripont & Tirole (1999), Advocates, *JPE*.
 Dye (1985), Disclosure of nonproprietary information, *J. Accounting Research*.
 Frankel & Kartik (2019), Muddled information, *JPE*.
+Fudenberg & Levine (1998), *The Theory of Learning in Games*.
 Gao, Schulman & Hilton (2023), Scaling laws for reward model overoptimization, *ICML*.
+Gibbard (1973), Manipulation of voting schemes: a general result, *Econometrica*.
 Glazer & Rubinstein (2004), On optimal rules of persuasion, *Econometrica*; (2006) A study in the pragmatics of persuasion, *Theoretical Economics*.
 Green & Laffont (1986), Partially verifiable information and mechanism design, *RES*.
 Greenblatt, Shlegeris, Sachan & Roger (2024), AI control: improving safety despite intentional subversion, *ICML*.
@@ -712,8 +854,10 @@ Hubinger (2020), AI safety via market making, *AI Alignment Forum*.
 Irving, Christiano & Amodei (2018), AI safety via debate.
 Kakade (2001), A natural policy gradient, *NeurIPS*.
 Kamenica & Gentzkow (2011), Bayesian persuasion, *AER*.
+Kandori, Mailath & Rob (1993), Learning, mutation, and long run equilibria in games, *Econometrica*.
 Kirchner, Chen, Edwards, Leike, McAleese & Burda (2024), Prover-verifier games improve legibility of LLM outputs.
 Kong (2020), Dominantly truthful multi-task peer prediction with a constant number of tasks, *SODA*.
+Kwa, Thomas & Garriga-Alonso (2024), Catastrophic Goodhart: regularizing RLHF with KL divergence does not mitigate heavy-tailed reward misspecification.
 Laffont & Martimort (1997), Collusion under asymmetric information, *Econometrica*.
 Lanctot et al. (2017), A unified game-theoretic approach to multiagent reinforcement learning, *NeurIPS*.
 Manheim & Garrabrant (2018), Categorizing variants of Goodhart's law.
@@ -727,11 +871,13 @@ Mookherjee & Png (1989), Optimal auditing, insurance, and redistribution, *QJE*.
 Moore & Repullo (1988), Subgame perfect implementation, *Econometrica*.
 Morris & Shin (2003), Global games: theory and applications, in *Advances in Economics and Econometrics*.
 Motta & Polo (2003), Leniency programs and cartel prosecution, *IJIO*.
+Myerson (1979), Incentive compatibility and the bargaining problem, *Econometrica*.
 Nagel (1995), Unraveling in guessing games: an experimental study, *AER*.
 Paleka, Pallavi Sudhir et al. (2025), Consistency checks for language model forecasters, *ICLR*.
 Pallavi Sudhir, Kaunismaa & Panickssery (2025), A benchmark for scalable oversight mechanisms (ASD), arXiv:2504.03731.
 Prelec (2004), A Bayesian truth serum for subjective data, *Science*.
 Prelec, Seung & McCoy (2017), A solution to the single-question crowd wisdom problem, *Nature*.
+Sandholm (2010), *Population Games and Evolutionary Dynamics*.
 Selten (1975), Reexamination of the perfectness concept for equilibrium points in extensive games, *IJGT*.
 Shin (1998), Adversarial and inquisitorial procedures in arbitration, *RAND J. Econ.*
 Shnayder, Agarwal, Frongillo & Parkes (2016), Informed truthfulness in multi-task peer prediction, *EC*.
@@ -741,3 +887,4 @@ Tirole (1986), Hierarchies and bureaucracies: on the role of collusion in organi
 Townsend (1979), Optimal contracts and competitive markets with costly state verification, *JET*.
 Wellman (2006), Methods for empirical game-theoretic analysis, *AAAI*.
 Williams (1992), Simple statistical gradient-following algorithms for connectionist reinforcement learning, *Machine Learning*.
+Young (1993), The evolution of conventions, *Econometrica*.

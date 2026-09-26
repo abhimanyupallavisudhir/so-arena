@@ -350,12 +350,13 @@ class _Tree:
                 out[c] = out[nid] * np.where(mine, 1.0, self.sigma[node.key][i])
         return out
 
-    def payoffs(self, key: str, reach: dict[str, np.ndarray]) -> np.ndarray:
-        """Expected reward of each candidate of an information set: over its nodes, weighted by reach."""
+    def payoffs(self, key: str, reach: dict[str, np.ndarray], component: int | None = None) -> np.ndarray:
+        """Expected reward of each candidate of an information set: over its nodes, weighted by reach (or of
+        another component of the value vectors: ``component`` indexes rewards, then values)."""
         ids = self.sets[key]
         role = self.tree.nodes[ids[0]].role
         k = len(self.sigma[key])
-        j = self.ridx.get(role)
+        j = self.ridx.get(role) if component is None else component
         if j is None:
             return np.full(k, math.nan)
         w = np.array([reach[n][self.roles.index(role)] for n in ids])

@@ -13,7 +13,16 @@ python scripts/pilots.py --estimate               # small pilots of every experi
 In Python, `so_arena.configure(cache_dir=".cache/so_arena")` caches every model call, and
 `so_arena.configure(simulate=True)` turns any script into a dry run. Specs are validated before anything
 runs (a misspelled key is an error naming the closest valid one), and a run directory holds one spec:
-re-running a changed spec into it is refused unless `--force`.
+re-running a changed spec into it is refused unless `--force`. Reward rules, verifiers and ground-truth
+scorers in a spec are built from `{type: ...}` mappings, nested as deep as needed (`so-arena list
+rewards|verifiers|scorers`):
+
+```yaml
+mechanisms:
+  - {name: debate, rounds: 2, label: debate+zs, reward: {type: zero_sum, transform: prob},
+     verification: {verifiers: [fact, {type: python, timeout: 2}], budget_per_role: 2}}
+ground_truth: [domain, {type: manipulation_check, roles: [debater_a, debater_b]}]   # optional
+```
 
 ## 1. Define a mechanism
 
@@ -170,11 +179,36 @@ that produced them - a "deceptive" search whose winner argues honestly is listed
 rather than counted as deception beating honesty (`by="directive"` gives the label-based margin).
 Strategy values come with `value_coverage` and are NaN when fewer than half of their episodes have a
 label.
- The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
+The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
 `arms=[None]` on open protocols so the agent picks its side; then "deceptive" directives must be
 checked by measured values (optimized liars may turn honest). Any external optimizer (DSPy/GEPA,
 OpenEvolve, an autoresearch-style agent) can use `PromptSearch.evaluate_strategy(text, items)` as a
 black-box objective.
+
+Programmatic agents have parameters instead of prompts; `ParamSearch` searches them with the same records,
+fixed minibatches and held-out re-evaluation, and can be restricted to candidates whose *measured* value
+qualifies them as honest or deceptive, to map both frontiers (*offline*):
+
+```python
+from so_arena.analysis.metrics import gt_regret
+from so_arena.domains.synthetic import SyntheticPersuasion, synthetic_reviewer, synthetic_worker
+from so_arena.samplers.param_search import ParamSearch
+from so_arena.samplers.prompt_search import honesty_margin
+
+dom = SyntheticPersuasion(n_items=24)
+items, ctx = dom.load(), dom.context()
+train, test = items[:16], items[16:]
+
+search = lambda constraint: ParamSearch(
+    ReviewedWork(transform="prob", affordances={"agents": ["answer_key"]}), train, role="worker",
+    factory=lambda **p: synthetic_worker(sophistry_boost=2.5, **p),
+    space={"honest_choice_rate": (0.0, 1.0), "sophistry_rate": (0.0, 1.0)},
+    others={"reviewer": synthetic_reviewer()}, eval_items=test, ctx=ctx, constraint=constraint).run()
+results = {c or "unconstrained": search(c) for c in (None, "honest", "deceptive")}
+honesty_margin(results)            # best measured-honest minus best measured-deceptive reward
+held_out = results["unconstrained"].frame().query("split == 'eval'")
+gt_regret(held_out.rename(columns={"id": "label", "mean_reward": "reward", "mean_value": "value"}))
+```
 
 ## 5. Several agents optimized at once: equilibria and PSRO
 
@@ -231,6 +265,11 @@ step audits a fresh random subset while all completions for one prompt within a 
 A role that decides more than once per episode needs `MechanismEnv`: the reward function refuses to
 reuse one completion for several decisions. `MechanismEnv.reset` redraws audits the same way - per call,
 or pass the trainer's step (`env.reset(item, train_step=t)`); an explicit `seed=` replays one draw.
+
+Offline preference data (DPO, reward models): `preference_pairs(episodes_or_trees, role)` pairs a role's
+behaviours in the same context only - mechanism configuration, item, opponents, stance and what the role saw
+before moving - ranked by the mechanism's reward; `gt_agrees` says whether ground truth ranks them the same
+way (None when a value is missing or tied), so its mean is the quality of the data before training on it.
 
 Learning dynamics over strategy spaces (cheap "RL" on empirical games, with KL regularization toward a
 reference policy): `games.learning.policy_gradient(game, init=..., kl=...)`.
@@ -535,6 +574,11 @@ breakdown_point(df, x="gap")       # where each protocol's fitted ASD crosses ze
 
 Evaluation-budget curves (ASD as a function of the judge's time) are the same sweep over the judge's
 `max_tokens`, number of judge questions, or a human judge's `HumanModel(time_budget_s=...)`.
+
+**Diagnostics.** Before optimizing, check what else the reward pays for and whether the arms behaved
+(`analysis.diagnostics`; the HTML report shows a summary): `reward_snr`, `length_bias`, `position_bias`,
+`option_label_bias`, `calibration`, `compliance`, `cost_summary`. [beyond_ic.md](beyond_ic.md) maps every
+property beyond IC to its measurement.
 
 ## 13. Human judges
 

@@ -10,6 +10,16 @@ Policy entries::
     {synthetic: judge, skill: 1.0}
     {scripted: ["text 1", "text 2"]}
 
+Mechanism entries name a registered mechanism (``name:`` or ``type:``), an optional display ``label``
+and constructor arguments; reward rules, verifiers and ground-truth scorers inside them are built from
+``{type: ...}`` mappings by :mod:`so_arena.registry` (``so-arena list rewards|verifiers|scorers``)::
+
+    {name: debate, rounds: 2, label: debate+zs, reward: {type: zero_sum, transform: prob},
+     verification: {verifiers: [fact, {type: python, timeout: 2}], budget_per_role: 2}}
+
+``ground_truth:`` (optional) lists the scorers to use instead of the domain's: ``domain`` for the domain's
+own, types or ``{type: ...}`` mappings for others.
+
 Experiment types (their keys: :data:`EXPERIMENT_KEYS`): ``asd`` (instructed arms), ``pools``
 (best-of-N game trees), ``prompt_search`` (directive-constrained searches), ``game`` (empirical game
 over strategies), ``paired`` (behaviour arms on stateful tasks, reviewed by each mechanism; behaviours
@@ -23,12 +33,10 @@ to resume a directory that holds a different spec unless forced.
 
 from __future__ import annotations
 
-import difflib
 import hashlib
-import inspect
 import json
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -39,8 +47,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from so_arena.core.policy import LLMPolicy, Policy, ScriptedPolicy
 from so_arena.core.store import RunStore
 from so_arena.core.types import Usage
-from so_arena.core.verification import VerificationPolicy
 from so_arena.models.base import Model
+from so_arena.registry import RegistryError, build, params as _params, spec_errors, unknown as _unknown
 
 log = logging.getLogger("so_arena")
 
@@ -60,6 +68,7 @@ class Spec(BaseModel):
     policies: dict[str, dict[str, Any]] = Field(default_factory=dict)
     mechanisms: list[dict[str, Any]] = Field(default_factory=list)
     experiment: dict[str, Any] = Field(default_factory=lambda: {"type": "asd"})
+    ground_truth: list[Any] | None = None  # scorers replacing the domain's ("domain" = the domain's own)
     report: bool = True
     concurrency: int | None = None
     cache_dir: str | None = None
@@ -80,21 +89,8 @@ ITEMS_KEYS = ("split", "limit", "seed")
 POLICY_KINDS = ("model", "synthetic", "scripted")
 # what decides a run's results; output, report, concurrency and cache settings do not
 RESULT_KEYS = ("name", "seed", "domain", "items", "policies", "mechanisms", "experiment")
-
-
-def _unknown(what: str, key: Any, valid: Iterable[Any]) -> str:
-    names = sorted(map(str, valid))
-    close = difflib.get_close_matches(str(key), names, n=1, cutoff=0.6)
-    return (f"unknown {what} {key!r}" + (f" - did you mean {close[0]!r}?" if close else "")
-            + f" (valid: {', '.join(names) or 'none'})")
-
-
-def _params(fn: Callable[..., Any]) -> set[str] | None:
-    """Keyword arguments ``fn`` accepts (None: any, it takes ``**kwargs``)."""
-    ps = inspect.signature(fn).parameters.values()
-    if any(p.kind == p.VAR_KEYWORD for p in ps):
-        return None
-    return {p.name for p in ps if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)} - {"self"}
+# also decide results, but are hashed only when set, so specs written before they existed keep their hash
+OPTIONAL_RESULT_KEYS = ("ground_truth",)
 
 
 def _synthetic_factories() -> dict[str, Callable[..., Policy]]:
@@ -202,31 +198,40 @@ def _reference_errors(spec: Spec, kind: str) -> list[str]:
     return errs
 
 
+def mechanism_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """A spec's mechanism entry as a registry spec: ``name`` (the registered mechanism, as ``type``) and
+    ``label`` (its display name, as ``name``); a reward written ``{name: judge_score, ...}`` (the older
+    form) as ``{type: judge_score, ...}``."""
+    e = dict(entry)
+    if "type" not in e and "name" in e:
+        e["type"] = e.pop("name")
+    if "label" in e:
+        e["name"] = e.pop("label")
+    r = e.get("reward")
+    if isinstance(r, Mapping) and "type" not in r and "name" in r:
+        e["reward"] = {"type": r["name"], **{k: v for k, v in r.items() if k != "name"}}
+    return e
+
+
 def _mechanism_errors(entries: list[dict[str, Any]]) -> list[str]:
-    from so_arena.core.rewards import JudgeScore, TeamReward, Whistleblower
     from so_arena.mechanisms import MECHANISMS
 
     if not entries:
         return ["the spec lists no mechanisms (key 'mechanisms')"]
-    rules = {"judge_score": JudgeScore, "team": TeamReward, "whistleblower": Whistleblower, "zero_sum": None}
     errs = []
     for i, m in enumerate(entries):
         where = f"mechanisms[{i}]"
-        if not isinstance(m, Mapping) or "name" not in m:
-            errs.append(f"{where} needs a 'name' (one of {', '.join(sorted(MECHANISMS))})")
+        if not isinstance(m, Mapping) or ("name" in m) == ("type" in m):
+            errs.append(f"{where} needs a 'name' (one of {', '.join(sorted(MECHANISMS))}); a display name goes in 'label'")
             continue
-        if m["name"] not in MECHANISMS:
-            errs.append(_unknown(f"mechanism in {where}", m["name"], MECHANISMS))
-        r = m.get("reward")
-        if isinstance(r, Mapping):
-            kind = r.get("name")
-            if kind not in rules:
-                errs.append(_unknown(f"reward in {where}", kind, rules))
-                continue
-            valid = {"transform", "a", "b"} if kind == "zero_sum" else _params(rules[kind].__init__)
-            if valid is not None:
-                errs.extend(_unknown(f"key in {where}.reward", k, valid | {"name"}) for k in r if k not in valid | {"name"})
+        errs += spec_errors("mechanism", mechanism_entry(m), where)
     return errs
+
+
+def _ground_truth_errors(entries: Any) -> list[str]:
+    if entries is None:
+        return []
+    return [e for i, g in enumerate(entries) if g != "domain" for e in spec_errors("scorer", g, f"ground_truth[{i}]")]
 
 
 def _invalid(source: str, errs: list[str]) -> SpecError:
@@ -271,6 +276,7 @@ def _spec_errors(spec: Spec) -> list[str]:
     for name, entry in spec.policies.items():
         errs += _policy_errors(f"policy {name!r}", entry)
     errs += _mechanism_errors(spec.mechanisms)
+    errs += _ground_truth_errors(spec.ground_truth)
     domains = list_domains()
     if spec.domain.get("name") not in domains:
         errs.append(_unknown("domain", spec.domain.get("name"), domains))
@@ -308,6 +314,7 @@ def load_spec(path: str | Path) -> Spec:
 def _result_part(d: Mapping[str, Any]) -> dict[str, Any]:
     # items.limit only changes how many items run, like --limit (reports cover this run's episodes)
     part = {k: d.get(k) for k in RESULT_KEYS}
+    part.update({k: d[k] for k in OPTIONAL_RESULT_KEYS if d.get(k) is not None})
     part["items"] = {k: v for k, v in (part["items"] or {}).items() if k != "limit"}
     return part
 
@@ -362,26 +369,22 @@ def build_policy(entry: dict[str, Any] | str, label: str | None = None) -> Polic
 
 
 def build_mechanism(entry: dict[str, Any]):
-    from so_arena.core.rewards import JudgeScore, TeamReward, Whistleblower, ZeroSum
-    from so_arena.mechanisms import get_mechanism
+    """A mechanism from a spec entry (:func:`mechanism_entry`), its reward rule, verification policy and
+    any nested components built by :func:`so_arena.registry.build`."""
+    try:
+        return build("mechanism", mechanism_entry(entry))
+    except RegistryError as e:
+        raise SpecError(str(e)) from None
 
-    e = dict(entry)
-    name = e.pop("name")
-    label = e.pop("label", None)
-    if "verification" in e and isinstance(e["verification"], dict):
-        e["verification"] = VerificationPolicy(**e["verification"])
-    reward = e.pop("reward", None)
-    if isinstance(reward, dict):
-        r = dict(reward)
-        kind = r.pop("name")
-        rules = {"judge_score": JudgeScore, "team": TeamReward, "whistleblower": Whistleblower}
-        if kind == "zero_sum":
-            e["reward"] = ZeroSum(JudgeScore(r.get("transform", "log")), r.get("a", "debater_a"), r.get("b", "debater_b"))
-        else:
-            e["reward"] = rules[kind](**r)
-    if label:
-        e["name"] = label
-    return get_mechanism(name, **e)
+
+def build_ground_truth(entries: Sequence[Any] | None, dom: Any) -> list[Any]:
+    """The scorers a spec's ``ground_truth`` lists (``"domain"``: the domain's own), else the domain's."""
+    if entries is None:
+        return dom.ground_truth_scorers()
+    out: list[Any] = []
+    for g in entries:
+        out += dom.ground_truth_scorers() if g == "domain" else [build("scorer", g)]
+    return out
 
 
 def _resolve_players(spec: Spec, mapping: dict[str, Any]) -> dict[str, Any]:
@@ -467,7 +470,7 @@ def run_spec(spec: Spec, *, out: str | Path | None = None, limit: int | None = N
     items = dom.load(**load_kw)
     stateful = dom.environment() is not None
     ctx = dom.context(run_id=spec.name, seed=spec.seed, **({"states": run_dir / "states"} if stateful else {}))
-    gt = dom.ground_truth_scorers()
+    gt = build_ground_truth(spec.ground_truth, dom)
     mechs = [build_mechanism(m) for m in spec.mechanisms]
     exp = dict(spec.experiment)
     kind = exp.pop("type", "asd")
