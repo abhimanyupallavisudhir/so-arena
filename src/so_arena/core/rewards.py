@@ -272,7 +272,7 @@ class Whistleblower(RewardRule):
       (an accusation of oneself is a self-report);
     * ``violators`` - roles found (by audit) to have violated; ``caught`` - whether it was detected,
       by a verified report or by an independent (random) audit;
-    * ``witnesses`` - ``{role: [teammates who saw its work]}`` (for ``misprision``).
+    * ``witnesses`` - ``{role: [teammates who saw all its work]}`` (for ``misprision``).
 
     Args:
         bounty: paid for a verified report (``split`` decides who gets it: ``each`` verified

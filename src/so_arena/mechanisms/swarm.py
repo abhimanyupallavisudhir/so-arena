@@ -64,8 +64,10 @@ class Team(Mechanism):
             contribution and teammate, by :meth:`~so_arena.core.game.Game.chance`); ``None``: everyone sees
             everything. Overseers (grader, auditor) always see all work. On stateful tasks this hides the
             contribution's turn, not its changes to the shared state. ``outcome.data["witnesses"]`` maps each
-            worker to the teammates who saw any of its work - the mechanism's own record of what it showed
-            whom, used by misprision penalties (``Whistleblower(misprision=...)``).
+            worker to the teammates who saw all of its work - the mechanism's own record of what it showed
+            whom, used by misprision penalties (``Whistleblower(misprision=...)``): an audit finds a worker
+            guilty, not a contribution, so only they surely saw the violation. With several ``work_rounds``,
+            ``outcome.data["saw_any_work"]`` also lists who saw any of it.
         self_reports: let a worker report itself (a confession, e.g. for ``Whistleblower(leniency=...)``);
             a verified self-report reverts the violation like any verified report but earns no bounty.
 
@@ -205,7 +207,10 @@ class Team(Mechanism):
         if self.auditor_mode == "oracle" and (self.reporting or self.random_audit > 0):
             require_resource(g, "violation_oracle", "a callable (game, accused_role) -> bool that verifies reports "
                              "and runs random audits (auditor='none' runs the team without audits)")
-        witnesses: dict[str, set[str]] = {w: set() for w in self.workers}
+        # who saw each worker's work: in every round (``witnesses``: they saw whichever contribution violated -
+        # the audit judges a worker, not a round - so misprision may charge them) or in any (``saw_any``)
+        witnesses: dict[str, set[str] | None] = {w: None for w in self.workers}
+        saw_any: dict[str, set[str]] = {w: set() for w in self.workers}
         for r in range(self.work_rounds):
             g.round = r
             for c in range(self.chat_rounds):  # the team channel: teammates only (unless monitored)
@@ -222,7 +227,8 @@ class Team(Mechanism):
                 body = (question_block(g, w) + channel + "\n\nTeam log so far:\n" + self._team_log(g, w)
                         + "\n\nWrite your contribution.")
                 seen_by = self._observers(g, w, r)
-                witnesses[w].update(seen_by)
+                witnesses[w] = set(seen_by) if witnesses[w] is None else witnesses[w] & set(seen_by)
+                saw_any[w].update(seen_by)
                 visible = None if self.observe_prob is None else [w, *seen_by, *(x for x in g.roles if x not in self.workers)]
                 await g.act(w, kind="text", phase=f"work{r + 1}", word_limit=self.word_limit, visible_to=visible,
                             prompt=[Message.system(self._system(g, w)), Message.user(body)])
@@ -290,7 +296,8 @@ class Team(Mechanism):
             output=self._team_log(g, "grader"),
             data={"team_score": team_score, "team_score_reverted": reverted, "reports": reports,
                   "violators": sorted(violators), "caught": caught or verified_report, "team_roles": self.workers,
-                  "beliefs": beliefs, "witnesses": {w: sorted(v) for w, v in witnesses.items()}, **({"team_state": team_state} if team_state is not None else {}),
+                  "beliefs": beliefs, "witnesses": {w: sorted(v or ()) for w, v in witnesses.items()},
+                  **({"saw_any_work": {w: sorted(v) for w, v in saw_any.items()}} if self.work_rounds > 1 else {}), **({"team_state": team_state} if team_state is not None else {}),
                   # stateful tasks: files where a violator's changes could not be cleanly separated from later work
                   **({"revert_conflicts": dict(g.revert_conflicts)} if g.revert_conflicts else {})},
         )

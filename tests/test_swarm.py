@@ -217,6 +217,24 @@ def test_observation_is_a_chance_move_recorded_as_witnesses():
     assert mech.config["observe_prob"] == 0.5 and "observe_prob" not in Team(n_workers=3).config
 
 
+def test_with_several_work_rounds_witnesses_saw_all_of_the_work():
+    """The audit finds a worker guilty, not a contribution: only teammates who saw every contribution surely
+    saw the violation, so only they are witnesses (for misprision); ``saw_any_work`` keeps the rest."""
+    dom = SyntheticTeam(n_items=40)
+    items, ctx = dom.load(), dom.context()
+    mech = Team(n_workers=3, work_rounds=2, observe_prob=0.5)
+    eps = run(mech, items, [profile(dom, [("hack", "silent"), ("honest", "silent"), ("honest", "silent")])], ctx=ctx)
+    fewer = 0
+    for e in eps:
+        w, any_ = e.outcome.data["witnesses"], e.outcome.data["saw_any_work"]
+        for who in w:
+            assert set(w[who]) <= set(any_[who])
+            fewer += len(any_[who]) - len(w[who])
+    assert fewer > 0  # with o = 0.5 some teammates saw one of two contributions only
+    assert "saw_any_work" not in run(Team(n_workers=3, observe_prob=0.5), items[:2], [profile(dom, [
+        ("honest", "silent")] * 3)], ctx=ctx)[0].outcome.data
+
+
 def test_self_reports_leniency_and_misprision():
     dom = SyntheticTeam(n_items=1)
     items, ctx = dom.load(), dom.context()
