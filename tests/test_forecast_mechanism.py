@@ -133,3 +133,16 @@ def test_default_reward_waits_for_resolution():
     items = SyntheticForecasting(n_items=2).load()
     ep = run(Forecast(affordances={"agents": ["forecast_info"]}), items, [Profile(name="p", players={"forecaster": synthetic_forecaster()})])[0]
     assert ep.rewards == {"forecaster": None} and ep.reward_status == "pending"
+
+
+def test_demo_release_runs(tmp_path):
+    from so_arena.demos import demo_release
+    from so_arena.release import verify
+
+    out = demo_release(tmp_path / "rel", n_items=40)
+    assert (out / "report.html").exists() and (out / "figures" / "release_proxy.png").exists()
+    assert verify(out / "release") and (out / "release" / "resolved" / "episodes.jsonl").exists()
+    import pandas as pd
+
+    table = pd.read_csv(out / "forecasters.csv").set_index("forecaster")
+    assert table.loc["extremizing", "released rank"] < table.loc["calibrated", "released rank"]
