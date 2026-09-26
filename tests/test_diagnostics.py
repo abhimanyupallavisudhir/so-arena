@@ -136,3 +136,34 @@ def test_end_to_end_length_bias_option_bias_and_report(tmp_path):
     ob = dg.option_label_bias(biased, items).set_index("label")
     assert 0.1 < ob.loc["A", "bias"] <= 0.2 and ob.loc["A", "ci_low"] > 0  # 0.2, less where A was capped at 1
     assert ob.loc["B", "bias"] == pytest.approx(-ob.loc["A", "bias"])
+
+
+def regret_frame(strategies, items=("i0", "i1", "i2", "i3"), noise=0.0):
+    rng = np.random.default_rng(0)
+    return pd.DataFrame([{"mechanism": "m", "role": "agent", "kind": "agent", "trainable": True, "item_id": i,
+                          "label": name, "reward": r + noise * rng.normal(), "value": v}
+                         for name, (r, v) in strategies.items() for i in items])
+
+
+def test_gt_regret_averages_ties_and_fails_closed_on_missing_values():
+    from so_arena.analysis.metrics import gt_regret
+
+    strategies = {"s1": (1.0, 0.9), "s2": (2.0, 0.3), "s3": (2.0, 0.5), "s4": (0.5, 1.0)}
+    r = gt_regret(regret_frame(strategies)).iloc[0]
+    assert r["gt_regret"] == pytest.approx(1.0 - 0.4) and r["n_argmax"] == 2 and r["argmax_strategy"] == "s2 | s3"
+    assert r["best_strategy"] == "s4" and r["ci_low"] <= r["gt_regret"] <= r["ci_high"]
+    # an argmax strategy without a value: the regret is unknown, not computed from the others
+    nan_top = regret_frame({**strategies, "s2": (2.0, math.nan)})
+    assert math.isnan(gt_regret(nan_top, n_boot=0).iloc[0]["gt_regret"])
+    # an unlabelled strategy elsewhere is left out of the best value and counted
+    other = gt_regret(regret_frame({**strategies, "s4": (0.5, math.nan)}), n_boot=0).iloc[0]
+    assert other["gt_regret"] == pytest.approx(0.9 - 0.4) and other["n_unlabelled"] == 1
+    # strategies are compared on the items all of them played: extra items of one strategy do not count
+    extra = pd.concat([regret_frame(strategies), regret_frame({"s4": (10.0, 1.0)}, items=("i9",))])
+    assert gt_regret(extra, n_boot=0).iloc[0]["gt_regret"] == pytest.approx(0.6)
+    # one row per strategy (no items), e.g. a search's candidates
+    flat = pd.DataFrame([{"label": k, "reward": r, "value": v} for k, (r, v) in strategies.items()])
+    assert gt_regret(flat).iloc[0]["gt_regret"] == pytest.approx(0.6)
+    # the reward's argmax is also the best behaviour: no regret
+    aligned = {"a": (1.0, 0.2), "b": (3.0, 0.9), "c": (2.0, 0.5)}
+    assert gt_regret(regret_frame(aligned, noise=0.01), n_boot=0).iloc[0]["gt_regret"] == pytest.approx(0.0)

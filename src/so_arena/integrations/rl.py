@@ -15,6 +15,8 @@ A mechanism is a reward function over multi-agent interactions. Two ways to trai
   completes each episode with the other roles' policies and returns the trainee's reward.
   :func:`rollout_prompts` builds the matching prompt dataset; its ``stance`` column carries the
   answer each prompt assigned, so the reward scores the stance the trainee was told to argue.
+* :func:`preference_pairs` - offline preference data (DPO, reward models) from episodes or sampled game
+  trees: same-context pairs ranked by the mechanism's reward, with whether ground truth agrees.
 
 Rewards that do not exist yet or at all (a pending market, an unscored trainable monitor) are
 ``None``, never a made-up 0: TRL's ``GRPOTrainer`` reads ``None`` as "not applicable" (NaN, dropped by
@@ -41,10 +43,15 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import hashlib
+import json
+import math
 import random
 from collections.abc import Sequence
 from typing import Any
 
+import numpy as np
+import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 from so_arena.core.actions import ActionRequest
@@ -381,3 +388,174 @@ def rollout_prompts(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
 
 def _as_messages(msgs: list[dict[str, str]]) -> list[Message]:
     return [Message(role=m["role"], content=m["content"]) for m in msgs]  # type: ignore[arg-type]
+
+
+# ------------------------------------------------------------------------------------------------
+# Preference data (DPO / reward-model training)
+# ------------------------------------------------------------------------------------------------
+
+def _finite(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def _agrees(v_chosen: Any, v_rejected: Any) -> bool | None:
+    """Whether ground truth prefers the behaviour the reward chose: None if either value is unknown (None or
+    NaN) or they are equal - no ground-truth preference to agree with."""
+    if not (_finite(v_chosen) and _finite(v_rejected)) or v_chosen == v_rejected:
+        return None
+    return bool(v_chosen > v_rejected)
+
+
+def _render_item(item: TaskItem | None) -> str:
+    if item is None:
+        return ""
+    opts = "\n".join(f"({a.label}) {a.text}" for a in item.answers or [])
+    return item.question + ("\n\n" + opts if opts else "")
+
+
+def _seen_before(ep: Episode, role: str, turn: Any) -> str:
+    """The turns ``role`` saw before ``turn`` (its own included), as it saw them: visibility, verdict display
+    (``show_to``) and simultaneous moves - a partner's move in the same group is not seen - as in the game."""
+    lines = []
+    for t in sorted(ep.turns, key=lambda t: t.slot):
+        if t.slot >= turn.slot or (turn.group is not None and t.group == turn.group):
+            continue
+        if not (t.visible_to is None or role in t.visible_to or t.role == role):
+            continue
+        if t.role == role:
+            text = t.text
+        elif t.verdicts_to is None or t.unmarked is None:
+            text = t.shown
+        else:
+            text = t.shown if role in t.verdicts_to or ep.role_kinds.get(role) in t.verdicts_to else t.unmarked
+        lines.append(f"[{t.role}{'/' + t.phase if t.phase else ''}] {text}")
+    return "\n\n".join(lines)
+
+
+def _prompt(ep: Episode, role: str, turn: Any, item: TaskItem | None) -> str:
+    stance = ep.players[role].stance if role in ep.players else None
+    parts = [_render_item(item), f"You are {role}" + (f", arguing for ({stance})." if stance else "."),
+             _seen_before(ep, role, turn)]
+    return "\n\n".join(p for p in parts if p)
+
+
+def _episode_pairs(episodes: Sequence[Episode], role: str, items: dict[str, TaskItem], min_gap: float) -> list[dict[str, Any]]:
+    from so_arena.analysis.frames import config_key, mechanism_labels
+
+    labels = mechanism_labels(episodes)
+    groups: dict[str, list[tuple[Episode, str]]] = {}
+    for ep in episodes:
+        r = ep.rewards.get(role)
+        turns = ep.turns_of(role)
+        if ep.error is not None or ep.reward_status != "final" or not _finite(r) or not turns:
+            continue
+        first = min(turns, key=lambda t: t.slot)
+        prompt = _prompt(ep, role, first, items.get(ep.item_id))
+        me = ep.players.get(role)
+        # the context: the same mechanism configuration, item, opponents and fixtures, the same assigned stance,
+        # and the same transcript before the role's first move - so a pair differs only in how the role behaved
+        others = sorted((q, p.policy_id, p.stance, p.label) for q, p in ep.players.items() if q != role)
+        ctx = hashlib.sha256(json.dumps([ep.domain, ep.mechanism, config_key(ep), ep.item_id, me.stance if me else None,
+                                         others, _seen_before(ep, role, first)], default=str).encode()).hexdigest()[:16]
+        groups.setdefault(ctx, []).append((ep, prompt))
+    rows = []
+    for ctx, members in groups.items():
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                (a, prompt), (b, _) = members[i], members[j]
+                ra, rb = float(a.rewards[role]), float(b.rewards[role])  # type: ignore[arg-type]
+                if abs(ra - rb) <= min_gap:
+                    continue
+                ch, rj = (a, b) if ra > rb else (b, a)
+                vc, vr = ch.value(role), rj.value(role)
+                rows.append({
+                    "context": ctx, "mechanism": labels[(ch.mechanism, config_key(ch))], "mechanism_config": config_key(ch),
+                    "item_id": ch.item_id, "role": role, "stance": ch.players[role].stance if role in ch.players else None,
+                    "prompt": prompt,
+                    "chosen": "\n\n".join(t.text for t in ch.turns_of(role)),
+                    "rejected": "\n\n".join(t.text for t in rj.turns_of(role)),
+                    "reward_chosen": ch.rewards[role], "reward_rejected": rj.rewards[role],
+                    "reward_gap": abs(ra - rb), "value_chosen": vc, "value_rejected": vr, "gt_agrees": _agrees(vc, vr),
+                    "chosen_label": ch.label(role), "rejected_label": rj.label(role),
+                    "chosen_episode": ch.id, "rejected_episode": rj.id,
+                })
+    return rows
+
+
+def _tree_pairs(trees: Sequence[Any], role: str, items: dict[str, TaskItem], min_gap: float, value_key: str | None,
+                episodes: Sequence[Episode]) -> list[dict[str, Any]]:
+    from so_arena.analysis.optimization import _Tree
+
+    vkey = value_key or f"value_{role}"
+    by_node: dict[tuple[str, str], tuple[Episode, Any]] = {}  # (episode's item, information set) -> a turn deciding it
+    texts: dict[tuple[str, str, int], str] = {}
+    for ep in episodes:
+        for t in ep.turns:
+            if t.role == role and t.node is not None:
+                by_node.setdefault((ep.item_id, t.node), (ep, t))
+                texts.setdefault((ep.item_id, t.node, t.candidate or 0), t.text)
+    rows = []
+    for tree in trees:
+        t_ = _Tree(tree)
+        reach = t_.reach()  # every pool sampled uniformly: the base policy
+        comp = len(t_.rkeys) + t_.vkeys.index(vkey) if vkey in t_.vkeys else None
+        for key, ids in t_.sets.items():
+            node = tree.nodes[ids[0]]
+            if node.role != role or role not in t_.ridx:
+                continue
+            u = t_.payoffs(key, reach)
+            v = t_.payoffs(key, reach, comp) if comp is not None else np.full(len(u), math.nan)
+            found = by_node.get((tree.item_id, key))
+            prompt = _prompt(found[0], role, found[1], items.get(tree.item_id)) if found else None
+            for i in range(len(u)):
+                for j in range(i + 1, len(u)):
+                    if not (math.isfinite(u[i]) and math.isfinite(u[j])) or abs(u[i] - u[j]) <= min_gap:
+                        continue
+                    c, r = (i, j) if u[i] > u[j] else (j, i)
+                    vc, vr = float(v[c]), float(v[r])
+                    rows.append({
+                        "context": f"{tree.config}:{tree.item_id}:{key}", "mechanism": tree.mechanism,
+                        "mechanism_config": tree.config, "item_id": tree.item_id, "role": role, "stance": None,
+                        "prompt": prompt,
+                        "chosen": texts.get((tree.item_id, key, c), node.candidates[c] if c < len(node.candidates) else ""),
+                        "rejected": texts.get((tree.item_id, key, r), node.candidates[r] if r < len(node.candidates) else ""),
+                        "reward_chosen": float(u[c]), "reward_rejected": float(u[r]), "reward_gap": float(abs(u[c] - u[r])),
+                        "value_chosen": vc, "value_rejected": vr, "gt_agrees": _agrees(vc, vr),
+                        "chosen_candidate": c, "rejected_candidate": r,
+                    })
+    return rows
+
+
+def preference_pairs(source: Sequence[Any], role: str, *, items: Sequence[TaskItem] | dict[str, TaskItem] | None = None,
+                     min_gap: float = 0.0, value_key: str | None = None,
+                     episodes: Sequence[Episode] = ()) -> pd.DataFrame:
+    """Preference data a mechanism would feed to DPO or a reward model: (prompt, chosen, rejected) pairs of
+    ``role``'s behaviour ranked by the mechanism's reward, with ``gt_agrees`` - whether ground truth ranks
+    them the same way (None when either value is unknown or they are equal) - so the share of pairs whose
+    preference is wrong measures the data's quality before anyone trains on it.
+
+    Pairs never mix contexts: two behaviours are paired only if everything but the role's own behaviour is
+    the same - mechanism configuration, item, the other roles' policies and stances, the role's assigned
+    stance and the transcript it saw before its first move (``context``). Pairs whose rewards differ by at
+    most ``min_gap`` are left out; so are episodes that errored or whose reward is missing or pending.
+
+    ``source`` is either episodes (a multi-turn role's texts are all its turns) or sampled game trees
+    (:class:`~so_arena.analysis.optimization.GameTree`): then the candidates of each of the role's
+    information sets are paired, each scored by its expected reward and value (``value_key``, default
+    ``value_<role>``) over the rest of the tree under the base policy (every pool sampled uniformly) -
+    what one step of RL from the base policy compares. Trees keep a short summary of each candidate; pass the
+    trees' leaf episodes (``expand_tree(..., keep_episodes=True)``) as ``episodes`` for the full texts and
+    the prompts. ``items`` (uncensored or not; only the question and options are shown) put the question in
+    the prompt.
+    """
+    from so_arena.analysis.optimization import GameTree
+
+    src = list(source)
+    by_id = dict(items) if isinstance(items, dict) else {it.id: it for it in items or []}
+    if src and all(isinstance(x, GameTree) for x in src):
+        rows = _tree_pairs(src, role, by_id, min_gap, value_key, episodes)
+    else:
+        rows = _episode_pairs(src, role, by_id, min_gap)
+    cols = ["context", "mechanism", "mechanism_config", "item_id", "role", "stance", "prompt", "chosen", "rejected",
+            "reward_chosen", "reward_rejected", "reward_gap", "value_chosen", "value_rejected", "gt_agrees"]
+    return pd.DataFrame(rows, columns=list(dict.fromkeys([*cols, *(k for r in rows for k in r)])))
