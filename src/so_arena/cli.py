@@ -189,12 +189,18 @@ def _cmd_list(a: argparse.Namespace) -> int:
 
 def _cmd_demo(a: argparse.Namespace) -> int:
     from so_arena import demos
+    from so_arena.domains.chess import find_stockfish
 
     fns = {"asd": demos.demo_asd, "optimization": demos.demo_optimization, "swarm": demos.demo_swarm,
            "work": demos.demo_work, "monitoring": demos.demo_monitoring, "hiddenbits": demos.demo_hiddenbits,
-           "bon_budget": demos.demo_bon_budget, "release": demos.demo_release}
+           "bon_budget": demos.demo_bon_budget, "release": demos.demo_release, "chess": demos.demo_chess}
     names = list(fns) if a.name == "all" else [a.name]
     for n in names:
+        if n == "chess" and find_stockfish() is None:
+            print("chess: skipped - needs Stockfish (install it or set SO_ARENA_STOCKFISH)", file=sys.stderr)
+            if a.name == "chess":
+                return 1
+            continue
         out = fns[n](Path(a.out) / n)
         print(f"{n}: {out / 'report.html'}")
     return 0
@@ -262,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
 
     d = sub.add_parser("demo", help="run offline demos (synthetic domains, no API keys)")
     d.add_argument("name", nargs="?", default="all", choices=["all", "asd", "optimization", "swarm", "work", "monitoring",
-                                                             "hiddenbits", "bon_budget", "release"])
+                                                             "hiddenbits", "bon_budget", "release", "chess"])
     d.add_argument("--out", default="runs/demos")
     d.set_defaults(fn=_cmd_demo)
 

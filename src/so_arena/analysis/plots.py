@@ -281,12 +281,14 @@ def parametric_curves(df: pd.DataFrame, *, x: str, y: str, series: str | None = 
 def line_chart(df: pd.DataFrame, *, x: str, ys: Sequence[str], labels: Sequence[str] | None = None,
                title: str = "", subtitle: str | None = None, xlabel: str = "", ylabel: str = "",
                ylim: tuple[float, float] | None = None, bands: dict[str, tuple[str, str]] | None = None,
-               vlines: Sequence[tuple[float, str]] = (), dashed: Sequence[str] = (), mode: str = "light") -> Chart:
+               vlines: Sequence[tuple[float, str]] = (), dashed: Sequence[str] = (), xticks: Sequence[float] | None = None,
+               mode: str = "light") -> Chart:
     """Multi-series lines (<= 4 per chart), direct-labelled at the right end, with a legend.
 
     ``bands`` maps a series to its (low, high) columns, drawn as a light band in the series' colour (e.g. a
     95% CI across seeds); ``vlines`` are labelled reference lines ``(x, label)`` (e.g. a theoretical threshold);
-    ``dashed`` series are drawn dashed (e.g. a theoretical prediction next to its simulation).
+    ``dashed`` series are drawn dashed (e.g. a theoretical prediction next to its simulation); ``xticks`` fixes the
+    ticks (e.g. integer levels).
     """
     if len(ys) > 4:
         raise ValueError("at most 4 series per line chart; facet into several charts")
@@ -322,6 +324,8 @@ def line_chart(df: pd.DataFrame, *, x: str, ys: Sequence[str], labels: Sequence[
     ax.set_ylabel(ylabel)
     if ylim:
         ax.set_ylim(*ylim)
+    if xticks is not None:
+        ax.set_xticks(list(xticks))
     _title(ax, t, title, subtitle)
     fig.tight_layout()
     cols = [x, *ys, *(c for col in ys if col in bands for c in bands[col])]
