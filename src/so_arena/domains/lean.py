@@ -1131,12 +1131,25 @@ def lean_source(code: str, header: str | None = None) -> str:
     return body + "\n"
 
 
+_SECRET_NAME_RE = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH", re.I)
+
+
+def _lean_env(home: str, elan: str) -> dict[str, str]:
+    """The environment a Lean check runs in: the search path, the toolchain's own settings (``ELAN_*``,
+    ``LAKE_*``, ``LEAN_*``, none that names a secret) and a home and temporary directory of its own - never the
+    experimenter's other variables (API keys, credentials), which claimed code could otherwise print."""
+    env = {k: v for k, v in os.environ.items() if k.startswith(("ELAN_", "LAKE_", "LEAN_")) and not _SECRET_NAME_RE.search(k)}
+    env.update(PATH=os.environ.get("PATH", "/usr/bin:/bin"), HOME=home, TMPDIR=home, ELAN_HOME=elan,
+               LANG=os.environ.get("LANG", "C.UTF-8"))
+    return env
+
+
 def run_lean(code: str, cmd: Sequence[str], *, timeout: float = 120.0, cwd: str | None = None) -> tuple[int, str]:
     """Typecheck ``code`` with ``cmd``; returns (return code, combined output); -1 on timeout.
 
     Claimed Lean code can run programs while it is elaborated (``#eval`` with ``IO``), so it is checked
     in a sandbox (:mod:`so_arena.core.sandbox`) that sees the Lake project and the toolchain read-only
-    but no dataset, state store or run directory.
+    but no dataset, state store or run directory, with a minimal environment (:func:`_lean_env`).
     """
     from so_arena.core import sandbox
 
@@ -1151,7 +1164,7 @@ def run_lean(code: str, cmd: Sequence[str], *, timeout: float = 120.0, cwd: str 
         visible = [v for v in (cwd, elan, *toolchain) if v and os.path.isdir(v)]
         try:
             proc = subprocess.run(sandbox.wrap(args, d, visible=visible, chdir=cwd), capture_output=True, text=True,
-                                  timeout=timeout, cwd=cwd or d)
+                                  timeout=timeout, cwd=cwd or d, env=_lean_env(d, elan))
         except subprocess.TimeoutExpired:
             return -1, f"timeout after {timeout:g}s"
         return proc.returncode, (proc.stdout + proc.stderr).replace(path, "Claim.lean")

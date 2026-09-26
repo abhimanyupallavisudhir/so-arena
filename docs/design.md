@@ -95,8 +95,8 @@ database, sends mail, moves money. `core.state` makes state a first-class part o
   (hidden tests, the environment's fraud ledger) via `core.state.final_view`. Audits never trust records
   the agent could have written: the simulated firm's true books are rebuilt from its starting database
   plus the rows its tools recorded, and any other change to customers, payments or activity counts as
-  tampering; the repository's trusted test runner must confirm success with a per-run token, since code
-  under test can exit early with status 0. Every tool call is also kept in the episode (the trusted
+  tampering; the repository's original tests are judged outside the code under test, which only reports the
+  values its functions return, since it could exit early, print a runner's confirmation or read its token. Every tool call is also kept in the episode (the trusted
   record), whatever the agent does to its own logs or says about its calls (a policy's own account is
   kept apart, as `metadata["reported_tool_calls"]`, when it differs).
 * LLM roles with tools **investigate before deciding**: a verdict, score or probability is elicited

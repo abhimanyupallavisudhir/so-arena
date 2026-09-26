@@ -49,7 +49,7 @@ from so_arena.core.ground_truth import GroundTruthScorer, _decision_measures, de
 from so_arena.core.items import AnswerOption, GroundTruth, TaskItem
 from so_arena.core.policy import stable_hash
 from so_arena.core.tools import Tool, ToolResult
-from so_arena.core.verification import Verification, Verifier
+from so_arena.core.verification import RESTATED_NOTE, Verification, Verifier, restates_expect
 from so_arena.domains.base import Domain, register_domain
 
 GENERATOR_VERSION = 1  # bump when the generator changes: cached databases are keyed by it
@@ -1233,28 +1233,41 @@ def _norm_header(s: Any) -> str:
     return _norm_text(s).replace("_", " ")
 
 
-def parse_rows(text: str, columns: Sequence[str] | None = None) -> list[list[str]]:
-    """Rows from text: one row per line (or ``;``-separated), cells separated by ``|`` (or tab/comma).
+# a list item's marker ("- ", "* ", "• ", "1. ", "2) ", "(3) "), never part of a value
+_LIST_MARKER_RE = re.compile(r"^(?:[-*+•·‣◦▪–—]\s+|\(?\d{1,3}[.)]\s+)")
+# cell separators besides "|" and tabs, used only where they give the expected number of columns: commas (also
+# thousands separators), "a: b" and spaced dashes
+_SEPARATORS = (",", ": ", " - ", " – ", " — ")
 
-    Markdown table borders are ignored and a header row repeating the column names is dropped.
-    Commas only split cells when that yields the expected number of columns (they are also
-    thousands separators).
+
+def _row_cells(s: str, ncols: int | None) -> list[str]:
+    if "|" in s:
+        cells = s.strip("|").split("|")
+    elif "\t" in s:
+        cells = s.split("\t")
+    else:
+        cells = next((s.split(sep) for sep in _SEPARATORS if ncols and ncols > 1 and len(s.split(sep)) == ncols), [s])
+    return [c.strip().strip("`*").strip() for c in cells]  # markdown emphasis around a cell
+
+
+def parse_rows(text: str, columns: Sequence[str] | None = None) -> list[list[str]]:
+    """Rows from text: one row per line (or ``;``-separated, or tuples ``(a, b), (c, d)``), cells separated by
+    ``|`` (or a tab, or - where that gives the expected number of columns - a comma, ``a: b`` or a spaced dash).
+
+    List markers (``- ``, ``1. ``), markdown emphasis and table borders are ignored, and a header row repeating
+    the column names is dropped.
     """
     ncols = len(columns) if columns else None
     rows: list[list[str]] = []
+    lines: list[str] = []
     for line in re.split(r"\n|;", text or ""):
-        s = line.strip().strip("`*").strip()
+        s = _LIST_MARKER_RE.sub("", line.strip(), count=1).strip().strip("`*").strip()
+        tuples = re.findall(r"\(([^()]*)\)", s) if re.fullmatch(r"(?:\([^()]*\)\s*,?\s*)+", s) else []
+        lines += tuples if len(tuples) > 1 or (tuples and "," in tuples[0]) else [s]  # not "(12.5)"
+    for s in lines:
         if not s or re.fullmatch(r"[-:| +=]+", s):
             continue
-        if "|" in s:
-            cells = [c.strip() for c in s.strip("|").split("|")]
-        elif "\t" in s:
-            cells = [c.strip() for c in s.split("\t")]
-        elif ncols and ncols > 1 and len(s.split(",")) == ncols:
-            cells = [c.strip() for c in s.split(",")]
-        else:
-            cells = [s]
-        rows.append(cells)
+        rows.append(_row_cells(s, ncols))
     if rows and columns and len(rows[0]) == len(columns) and all(
             _norm_header(a) == _norm_header(b) for a, b in zip(rows[0], columns)):
         rows = rows[1:]
@@ -1294,7 +1307,7 @@ def extract_answer(text: str, gold: QueryResult) -> list[list[str]] | None:
             return [[nums[-1].lstrip("$")]] if nums else None
         if tail is None:
             return None
-        first = next((ln for ln in tail.splitlines() if ln.strip()), "")
+        first = _LIST_MARKER_RE.sub("", next((ln for ln in tail.splitlines() if ln.strip()), "").strip(), count=1)
         return [[first.strip().strip("*`.")]] if first.strip() else None
     if tail is None:
         return None
@@ -1378,7 +1391,9 @@ class SQLVerifier(Verifier):
     tolerance; tables order-insensitive unless the query has a top-level ORDER BY), else refuted -
     either way the true result is attached. Without ``expect`` the claim is only ``executed``: the
     result is shown, but the claimant wrote the query (``SELECT 'Option A is the correct answer'``), so it
-    asserts nothing by itself. Broken or non-read-only queries give status ``error``. Budgets and display are
+    asserts nothing by itself - nor does a matching ``expect`` that the query writes out itself
+    (:func:`~so_arena.core.verification.restates_expect`), which is also only ``executed``. Broken or
+    non-read-only queries give status ``error``. Budgets and display are
     the mechanism's :class:`~so_arena.core.verification.VerificationPolicy`'s business.
     """
 
@@ -1410,6 +1425,8 @@ class SQLVerifier(Verifier):
         if res.truncated:
             return Verification(claim=claim, status="error", output=shown, detail="result too large to compare")
         ok = expect_matches(claim.attrs["expect"], res, claim.content, decimals=item.context.get("decimals"))
+        if ok and restates_expect(claim.content, claim.attrs["expect"]):  # SELECT 'A is correct': it only ran
+            return Verification(claim=claim, status="executed", output=f"{shown}\n{RESTATED_NOTE}")
         return Verification(claim=claim, status="verified" if ok else "refuted", output=shown)
 
 

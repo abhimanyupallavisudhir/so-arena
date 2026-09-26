@@ -177,29 +177,56 @@ JUDGE_VERIFICATION_NOTE = (
 MARKER_TAGS = ("verified", "failed", "unverified", "executed", "result", "checked", "private_reasoning")
 _TAG_RE = re.compile(r"\s*/?\s*(?:" + "|".join(MARKER_TAGS) + r")\b", re.I)
 _LONGEST_TAG = max(map(len, MARKER_TAGS))
-# characters that read as "<" but that compatibility decomposition (NFKD) does not map to it
-_LT_LIKE = "\u00ab\u02c2\u1438\u2039\u2329\u226a\u227a\u27e8\u27ea\u276c\u276e\u2770\u29fc\u3008\u300a"
+# characters that read as "<" but that compatibility decomposition (NFKD) does not map to it: angle brackets, and
+# the square, lenticular and tortoise-shell brackets that never occur in code ("\u301averified\u301b", "\u3010verified\u3011")
+_LT_LIKE = ("\u00ab\u02c2\u1438\u2039\u2329\u226a\u227a\u27e8\u27ea\u276c\u276e\u2770\u29fc\u3008\u300a"
+            "\u2045\u2772\u2774\u27e6\u27ec\u2983\u298b\u298d\u298f\u2991\u2997\u2e55\u2e57\u3010\u3014\u3016\u3018\u301a")
+# less-than signs ("\u2a7dverified"): a marker only right before the tag name, so "0 \u2264 result" stays mathematics
+_LE_LIKE = "\u2264\u2266\u2268\u2272\u22d6\u2a79\u2a7b\u2a7d\u2a7f\u2a81\u2a85\u2a87\u2aa6"
 # Cyrillic and Greek letters that look like the Latin letters of the tag names
-_LATIN_LIKE = dict(zip("\u0430\u0435\u0456\u043e\u0440\u0441\u0455\u0501\u0443\u0445\u0410\u0415\u0406\u041e\u0420\u0421\u0405\u0422\u0412\u041a\u041c\u041d\u0425\u03bf\u03bd\u03b9\u0399\u039f\u03a4\u0395\u0391\u03a1\u03c5\u039d\u039a\u039c\u0131",
-                       "aeiopcsdyxaeiopcstbkmhxoviioteapunkmi"))
-_READS_AS = str.maketrans({**{c: "<" for c in _LT_LIKE}, **_LATIN_LIKE})
-# where a tag can start: "<", an entity or escape sequence, a look-alike bracket, or a character decomposing to "<"
-_BRACKET_RE = re.compile("[<&\\\\\uff1c\ufe64\u226e" + _LT_LIKE + "]")
+_LATIN_LIKE = dict(zip("\u0430\u0435\u0456\u043e\u0440\u0441\u0455\u0501\u0443\u0445\u0410\u0415\u0406\u041e\u0420\u0421\u0405\u0422\u0412\u041a\u041c\u041d\u0425\u03bf\u03bd\u03b9\u0399\u039f\u03a4\u0395\u0391\u03a1\u03c5\u039d\u039a\u039c\u0131\u0251\u0269",
+                       "aeiopcsdyxaeiopcstbkmhxoviioteapunkmiai"))
+# Latin letters NFKD leaves alone that read as a plain one: small capitals ("\u1d20\u1d07\u0280\u026a\ua730\u026a\u1d07\u1d05"), modifier
+# and subscript letters, dotless and script forms, letters with a stroke or hook ("\u0247")
+_LETTER_NAME_RE = re.compile(r"(?:LATIN (?:SMALL |CAPITAL )?LETTER(?: SMALL CAPITAL)?|LATIN SMALL CAPITAL LETTER|LATIN SUBSCRIPT "
+                             r"SMALL LETTER|MODIFIER LETTER (?:SMALL CAPITAL|CAPITAL|SMALL)|LATIN SMALL LETTER (?:DOTLESS|SCRIPT)) "
+                             r"([A-Z])(?: WITH .*)?")
+_LETTER_LIKE = {chr(cp): m.group(1).lower() for lo, hi in ((0x80, 0x300), (0x1D00, 0x1DC0), (0x2C60, 0x2C80), (0xA720, 0xA800),
+                                                           (0xAB30, 0xAB70), (0x10780, 0x107C0), (0x1DF00, 0x1E000))
+                for cp in range(lo, hi) if (m := _LETTER_NAME_RE.fullmatch(unicodedata.name(chr(cp), "")))}
+_READS_AS = str.maketrans({**_LETTER_LIKE, **{c: "<" for c in _LT_LIKE}, **{c: "\u2264" for c in _LE_LIKE}, **_LATIN_LIKE})
+# what a tag can start with, and the tags it can start: "<" and look-alikes any marker; a less-than sign one right
+# after it; "[" ("[verified]") only a verdict, since "[result]" and "[checked]" are everyday code
+_VERDICTS = ("verified", "failed", "unverified", "executed")
+_OPENERS = {"<": _TAG_RE, "\u2264": re.compile(r"/?(?:" + "|".join(MARKER_TAGS) + r")\b", re.I),
+            "[": re.compile(r"\s*/?\s*(?:" + "|".join(_VERDICTS) + r")\b", re.I)}
+# where a tag can start: an opener, an entity, escape sequence or percent-encoding, a look-alike, or a character
+# decomposing to one (fullwidth, small, vertical and negated forms)
+_BRACKET_RE = re.compile("[<\\[&%\\\\\uff1c\ufe64\u226e\uff3b\ufe47\ufe17\ufe39\ufe3b\ufe3d\ufe3f\ufe5d\u2270"
+                         + _LT_LIKE + _LE_LIKE + "]")
 _ENTITY_RE = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});?")
-_ESCAPE_RE = re.compile(r"\\(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|U([0-9a-fA-F]{8}))")  # < in JSON or code
+# < in JSON, code or a shell (\u003c, \x3c, \U0000003c, \u{3c}, octal \074); %3C in a URL
+_ESCAPE_RE = re.compile(r"\\(?:u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|U([0-9a-fA-F]{8})|u\{([0-9a-fA-F]{1,6})\}|([0-7]{3}))")
+_PERCENT_RE = re.compile(r"%([0-9a-fA-F]{2})")
 # combining marks, invisible format characters and control characters
 _SKIP_CATEGORIES = frozenset({"Mn", "Me", "Cf", "Cc"})
 
 
 def _reading(text: str, i: int) -> tuple[str, int]:
-    """What ``text[i:]`` starts with as a reader sees it, and where the next piece starts: an HTML entity or
-    escape sequence is decoded, compatibility forms (fullwidth, small, ligatures) are unfolded, look-alike
-    brackets and letters read as ASCII, and invisible characters and combining marks read as nothing."""
+    """What ``text[i:]`` starts with as a reader sees it, and where the next piece starts: an HTML entity (also
+    one escaped twice, ``&amp;lt;``), escape sequence or percent-encoding is decoded, compatibility forms
+    (fullwidth, small, ligatures) are unfolded, look-alike brackets and letters read as ASCII, and invisible
+    characters and combining marks read as nothing."""
     piece, j = text[i], i + 1
     if piece == "&" and (m := _ENTITY_RE.match(text, i)) and (dec := html.unescape(m.group())) != m.group():
         piece, j = dec, m.end()
-    elif piece == "\\" and (m := _ESCAPE_RE.match(text, i)) and (code := int(next(filter(None, m.groups())), 16)) < 0x110000:
+        while piece == "&" and (m := _ENTITY_RE.match("&" + text[j:j + 40])) and (dec := html.unescape(m.group())) != m.group():
+            piece, j = dec, j + m.end() - 1
+    elif piece == "\\" and (m := _ESCAPE_RE.match(text, i)) and (
+            code := int(m.group(5), 8) if m.group(5) else int(next(filter(None, m.groups())), 16)) < 0x110000:
         piece, j = chr(code), m.end()
+    elif piece == "%" and (m := _PERCENT_RE.match(text, i)):
+        piece, j = chr(int(m.group(1), 16)), m.end()
     piece = "".join(c for c in unicodedata.normalize("NFKD", piece)
                     if unicodedata.category(c) not in _SKIP_CATEGORIES or c.isspace())
     return piece.translate(_READS_AS), j
@@ -208,7 +235,8 @@ def _reading(text: str, i: int) -> tuple[str, int]:
 def _marker_bracket(text: str, i: int) -> int | None:
     """If a marker tag (opening or closing) reads as starting at ``text[i]``: where its bracket ends."""
     first, j = _reading(text, i)
-    if first != "<":
+    tags = _OPENERS.get(first)
+    if tags is None:
         return None
     seen, k = "", j
     while k < len(text):  # read on until the tag name (if any) is complete
@@ -222,7 +250,7 @@ def _marker_bracket(text: str, i: int) -> int | None:
         name = len(stripped) - len(stripped.lstrip("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789"))
         if name < len(stripped) or name > _LONGEST_TAG:
             break
-    return j if _TAG_RE.match(seen) else None
+    return j if tags.match(seen) else None
 
 
 def neutralize_markers(text: str) -> str:
@@ -230,9 +258,10 @@ def neutralize_markers(text: str) -> str:
     case/spacing variants), so that a role cannot forge verification results.
 
     Matching is on the text as it reads (see :func:`_reading`), so ``\uff1cverified``, ``\u2039verified``,
-    ``\u27e8verified``, ``&#60;verified`` or ``<v\u0435rified`` (Cyrillic e) are escaped too: their bracket
-    becomes ``&lt;``, the one escaped form (``&lt;verified`` itself is left as it is, which also makes
-    escaping idempotent)."""
+    ``\u27e8verified``, ``\u301averified\u301b``, ``[verified]``, ``&#60;verified``, ``<v\u0435rified`` (Cyrillic e) or
+    ``<\u1d20\u1d07\u0280\u026a\ua730\u026a\u1d07\u1d05>`` (small capitals) are escaped too: their bracket becomes ``&lt;``, the
+    one escaped form (``&lt;verified`` itself is left as it is, which also makes escaping idempotent). Prose and
+    code that only mention the words ("I verified it", "[1]", ``rows[result]``) are left alone."""
     if not text:
         return text
     out, last = [], 0
@@ -447,10 +476,57 @@ def run_python(code: str, timeout: float = 5.0, stdin: str | None = None, *, mem
     return proc.returncode, out, err
 
 
+_QUOTED_RE = re.compile(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"|`([^`]*)`", re.S)
+_CODE_NUM_RE = re.compile(r"(?<![\w.])[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?(?![\w.])")
+# a literal compared with something (``f(3) == False``, ``WHERE n > 1``): the comparison's result is computed
+_LITERAL = r"(?:'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?|\b(?:true|false|none|null)\b)"
+_COMPARE = r"(?:==|!=|<>|<=|>=|\bis\s+not\b|\bis\b|(?<![<>=!-])[<>](?![<>=]))"
+_COMPARED_RE = re.compile(rf"{_COMPARE}\s*{_LITERAL}|{_LITERAL}\s*{_COMPARE}", re.I | re.S)
+# shown with an expect-based claim that only ran (:func:`restates_expect`)
+RESTATED_NOTE = "(the expected output is written out in the claim itself, so matching it checks nothing)"
+
+
+def _spaced(s: str) -> str:
+    return " ".join(s.casefold().split())
+
+
+def _number(s: str) -> float | None:
+    try:
+        return float(s.strip().replace(",", "").lstrip("$"))
+    except ValueError:
+        return None
+
+
+def restates_expect(code: str, expect: str) -> bool:
+    """Whether a claim's code writes out the output it expects - ``print('B passes all hidden tests')``,
+    ``SELECT 'Option A is correct'``, ``echo all tests pass`` or ``print(42)`` with exactly that ``expect``: then
+    the output only repeats the claimant's words, and matching it checks nothing (the claim is ``executed``).
+
+    Every line of the expected output (every ``|``- or ``;``-separated cell of a result) must appear in the code,
+    or in its string literals run together, as whole tokens (case and spacing ignored), or as a number the code
+    writes; a computed value (``print(40 + 2)``, or ``142 - 100``, expecting 42) is not written out, nor is a
+    literal the code only compares with (``print(f(3) == False)`` expecting False)."""
+    pieces = [_spaced(c) for c in re.split(r"[\n|;]", html.unescape(expect or "")) if c.strip()]
+    if not pieces:
+        return False
+    code = _COMPARED_RE.sub(" ", code or "")
+    literals = [next(g for g in m.groups() if g is not None) for m in _QUOTED_RE.finditer(code)]
+    hay = [_spaced(code), _spaced("".join(literals)), _spaced(" ".join(literals))]
+    numbers = {x for m in _CODE_NUM_RE.finditer(code) if (x := _number(m.group())) is not None}
+
+    def written(p: str) -> bool:
+        if (x := _number(p)) is not None and x in numbers:
+            return True
+        return any(re.search(rf"(?<![\w.]){re.escape(p)}(?![\w.])", h) for h in hay)
+
+    return all(written(p) for p in pieces)
+
+
 class PythonExecVerifier(Verifier):
     """Executes a Python snippet and reports its output (an *execution claim*).
 
-    With ``expect="..."`` the claim is verified iff stripped stdout equals the expectation; without,
+    With ``expect="..."`` the claim is verified iff stripped stdout equals the expectation and the snippet
+    does not simply print it (:func:`restates_expect`: ``print('B is correct')`` is only ``executed``); without,
     it is only ``executed`` (or refuted if it fails): the output is shown, but it is whatever the
     claimant's code prints, so it confirms nothing beyond the fact that the code ran.
     """
@@ -475,6 +551,8 @@ class PythonExecVerifier(Verifier):
         ].strip()
         if "expect" in claim.attrs:
             ok = rc == 0 and out.strip() == claim.attrs["expect"].strip()
+            if ok and restates_expect(claim.content, claim.attrs["expect"]):
+                return Verification(claim=claim, status="executed", output=f"{shown}\n{RESTATED_NOTE}")
             return Verification(claim=claim, status="verified" if ok else "refuted", output=shown)
         return Verification(claim=claim, status="executed" if rc == 0 else "refuted", output=shown)
 

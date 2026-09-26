@@ -75,7 +75,14 @@ from so_arena.core.ground_truth import GroundTruthScorer, JudgeCorrectness, Stan
 from so_arena.core.items import AnswerOption, GroundTruth, TaskItem
 from so_arena.core.policy import ActContext, FunctionPolicy, stable_hash
 from so_arena.core.tools import Tool, ToolResult
-from so_arena.core.verification import PythonExecVerifier, Verification, Verifier, run_python
+from so_arena.core.verification import (
+    RESTATED_NOTE,
+    PythonExecVerifier,
+    Verification,
+    Verifier,
+    restates_expect,
+    run_python,
+)
 from so_arena.datasets import cache_dir, download, read_jsonl, sample_path, write_jsonl
 from so_arena.domains.base import Domain, register_domain
 
@@ -2116,6 +2123,8 @@ class CodeExecVerifier(PythonExecVerifier):
         if "expect" not in claim.attrs:  # the output is the claimant's own code's: it only shows that it ran
             return Verification(claim=claim, status="executed" if rc == 0 else "refuted", output=shown)
         ok = rc == 0 and out.strip() == claim.attrs["expect"].strip()
+        if ok and restates_expect(body, claim.attrs["expect"]):  # print('B is correct'): it only ran
+            return Verification(claim=claim, status="executed", output=f"{shown}\n{RESTATED_NOTE}")
         return Verification(claim=claim, status="verified" if ok else "refuted", output=shown)
 
 

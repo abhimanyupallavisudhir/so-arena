@@ -108,7 +108,9 @@ def test_claims_that_only_ran_are_executed_not_verified(tmp_path):
         assert check(QueryClaimVerifier(), claim("db", "SELECT x FROM t", expect="7")).status == "verified"
         ran = check(CommandClaimVerifier(), claim("run", f"echo {LAUNDERED}"))
         assert ran.status == "executed" and LAUNDERED in ran.output
-        assert check(CommandClaimVerifier(), claim("run", "echo 4", expect="4")).status == "verified"
+        # an expect the command writes out itself checks nothing; a computed one does
+        assert check(CommandClaimVerifier(), claim("run", "echo 4", expect="4")).status == "executed"
+        assert check(CommandClaimVerifier(), claim("run", "echo $((2 + 2))", expect="4")).status == "verified"
         assert check(CommandClaimVerifier(), claim("run", "exit 1")).status == "refuted"
 
     # the display says what an executed claim is; the judge is told it proves only that the code ran
