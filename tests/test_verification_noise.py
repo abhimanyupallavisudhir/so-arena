@@ -182,6 +182,28 @@ def test_expect_verifiers_forge_the_genuine_format():
     assert cmd.forge(failed, rng).output == "12\n[exit code 0]"
 
 
+def test_a_forged_match_of_a_restated_expectation_looks_like_a_genuine_one():
+    """A claim whose code writes out its own ``expect`` is never ``verified`` by a correct check (only
+    ``executed``, with a note); an erring check must not show it verified either, or the error gives itself away."""
+    import asyncio
+
+    from so_arena.core.items import TaskItem
+    from so_arena.core.verification import RESTATED_NOTE, parse_claims
+
+    py, item = PythonExecVerifier(), TaskItem(id="x", domain="d", question="q")
+    crash = parse_claims('<claim kind="python" expect="42">print(42); raise SystemExit(1)</claim>')[0]
+    genuine = asyncio.run(py.verify(crash, item))
+    assert genuine.status == "refuted"
+    forged = py.forge(genuine, random.Random(0))
+    assert forged.status == "executed" and forged.output == f"42\n{RESTATED_NOTE}"
+    honest = parse_claims('<claim kind="python" expect="42">print(42)</claim>')[0]
+    assert asyncio.run(py.verify(honest, item)).model_dump(include={"status", "output"}) == \
+        {"status": "executed", "output": f"42\n{RESTATED_NOTE}"}  # the genuine format the forgery copies
+    cmd = CommandClaimVerifier()
+    failed = Verification(claim=_claim("run", "echo 12; exit 1", expect="12"), status="refuted", output="12\n[exit code 1]")
+    assert cmd.forge(failed, random.Random(0)).status == "executed"
+
+
 def test_sql_verifier_forges_tables_under_their_header():
     sql = pytest.importorskip("so_arena.domains.sql")
     v, rng = sql.SQLVerifier(), random.Random(2)

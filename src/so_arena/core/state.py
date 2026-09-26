@@ -1806,7 +1806,9 @@ class CommandClaimVerifier(Verifier):
             expect = result.claim.attrs.get("expect")
             if expect is None:
                 return result.model_copy(update={"status": "executed", "output": "[exit code 0]"})
-            return result.model_copy(update={"status": "verified", "output": f"{expect.strip()}\n[exit code 0]"})
+            from so_arena.core.verification import _as_matched
+
+            return _as_matched(result, f"{expect.strip()}\n[exit code 0]")
         if result.status in ("verified", "executed") and body.strip() and code:
             wrong = perturb_output(body, rng)
             return result.model_copy(update={"status": "refuted" if result.status == "verified" else "executed",
@@ -1942,7 +1944,9 @@ class QueryClaimVerifier(Verifier):
             expect = result.claim.attrs.get("expect")
             if expect is None:
                 return result.model_copy(update={"status": "executed", "output": "(no rows)"})
-            return result.model_copy(update={"status": "verified", "output": expect.strip()})
+            from so_arena.core.verification import _as_matched
+
+            return _as_matched(result, expect.strip())
         return super().forge(result, rng)
 
 

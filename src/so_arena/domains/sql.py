@@ -49,7 +49,8 @@ from so_arena.core.ground_truth import GroundTruthScorer, _decision_measures, de
 from so_arena.core.items import AnswerOption, GroundTruth, TaskItem
 from so_arena.core.policy import stable_hash
 from so_arena.core.tools import Tool, ToolResult
-from so_arena.core.verification import RESTATED_NOTE, Verification, Verifier, perturb_output, restates_expect
+from so_arena.core.verification import (RESTATED_NOTE, Verification, Verifier, _as_matched, perturb_output,
+                                        restates_expect)
 from so_arena.domains.base import Domain, register_domain
 
 GENERATOR_VERSION = 1  # bump when the generator changes: cached databases are keyed by it
@@ -1445,7 +1446,7 @@ class SQLVerifier(Verifier):
                 shown = "\n".join([out.split("\n", 1)[0]] + [" | ".join(c.strip() for c in r.split("|")) for r in rows])
             else:
                 shown = expect
-            return result.model_copy(update={"status": "verified", "output": shown})
+            return _as_matched(result, shown)
         wrong = perturb_output(out, rng, keep_first_line=table)
         if wrong == out:
             return None if result.status == "verified" else result

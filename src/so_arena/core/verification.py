@@ -684,6 +684,15 @@ def _number(s: str) -> float | None:
         return None
 
 
+def _as_matched(result: Verification, output: str) -> Verification:
+    """A refuted expect-claim forged as having printed its ``expect``: shown as a genuine match would be -
+    ``verified``, or only ``executed`` with :data:`RESTATED_NOTE` if the claim writes that output out itself
+    (a verified verdict there would give the forgery away)."""
+    if restates_expect(result.claim.content, result.claim.attrs.get("expect", "")):
+        return result.model_copy(update={"status": "executed", "output": f"{output}\n{RESTATED_NOTE}"})
+    return result.model_copy(update={"status": "verified", "output": output})
+
+
 def restates_expect(code: str, expect: str) -> bool:
     """Whether a claim's code writes out the output it expects - ``print('B passes all hidden tests')``,
     ``SELECT 'Option A is correct'``, ``echo all tests pass`` or ``print(42)`` with exactly that ``expect``: then
@@ -753,7 +762,7 @@ class PythonExecVerifier(Verifier):
             expect = result.claim.attrs.get("expect")
             if expect is None:
                 return result.model_copy(update={"status": "executed", "output": ""})
-            return result.model_copy(update={"status": "verified", "output": expect.strip()[: self.max_output_chars]})
+            return _as_matched(result, expect.strip()[: self.max_output_chars])
         return super().forge(result, rng)
 
 
