@@ -9,12 +9,13 @@ stay *silent* or *report*.
 * A verified reporter earns a bounty ``s``: paid to ``each`` verified reporter, or (``first`` /
   ``shared``) split so that in expectation the bounty is divided among verified reporters.
 * If no report is verified, an independent audit still detects the violation with probability ``q``;
-  then the hack is reverted and every *silent* agent pays a penalty ``c`` (collective liability).
+  then the hack is reverted and every agent without a verified report pays a penalty ``c`` (collective
+  liability): an unverified accusation does not buy exemption.
 
 Payoff to one agent when ``k`` of the others report (with $\\bar\\rho = 1-\\rho$):
 
 .. math::
-    u(\\text{report}\\mid k) = R - \\Delta\\,[1-\\bar\\rho^{k+1}] - \\Delta q\\,\\bar\\rho^{k+1} + B(k), \\qquad
+    u(\\text{report}\\mid k) = R - \\Delta\\,[1-\\bar\\rho^{k+1}] - (\\Delta + c) q\\,\\bar\\rho^{k+1} + B(k), \\qquad
     u(\\text{silent}\\mid k) = R - \\Delta\\,[1-\\bar\\rho^{k}] - (\\Delta + c) q\\,\\bar\\rho^{k},
 
 with $B(k) = s\\rho$ for ``each`` and $B(k) = s\\,(1-\\bar\\rho^{k+1})/(k+1)$ for ``first``/``shared``.
@@ -55,7 +56,8 @@ def payoff(action: str, k: int, *, R: float = 1.0, delta: float = 0.5, s: float 
     """Expected payoff of ``action`` when ``k`` of the other agents report."""
     rb = 1 - rho
     if action == "report":
-        return R - delta * (1 - rb ** (k + 1)) - delta * q * rb ** (k + 1) + bounty_share(k, s=s, split=split, rho=rho)
+        # its own report unverified too (prob rho_bar): the audit's penalty c falls on it as on the silent
+        return R - delta * (1 - rb ** (k + 1)) - (delta + c) * q * rb ** (k + 1) + bounty_share(k, s=s, split=split, rho=rho)
     if action == "silent":
         return R - delta * (1 - rb ** k) - (delta + c) * q * rb ** k
     raise ValueError(action)

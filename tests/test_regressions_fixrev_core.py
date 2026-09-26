@@ -207,3 +207,20 @@ def test_the_sandbox_makes_everything_but_its_working_directory_read_only(tmp_pa
         assert not os.path.exists(f"{outside}/planted")  # nothing outside the working copy can be written
     finally:
         shutil.rmtree(outside, ignore_errors=True)
+
+
+# ------------------------------------------------------------------------------ whistleblower theory
+
+
+def test_the_analytic_model_charges_unverified_reporters_like_the_reward_rule():
+    from so_arena.theory.whistleblower import payoff
+
+    R, delta, s, q, c = 1.0, 0.5, 0.1, 0.6, 0.4
+    for rho in (0.3, 0.7, 1.0):
+        rb = 1 - rho
+        for k in range(4):
+            gain = payoff("report", k, R=R, delta=delta, s=s, rho=rho, q=q, c=c) - payoff(
+                "silent", k, R=R, delta=delta, s=s, rho=rho, q=q, c=c)
+            # an unverified accusation pays c as silence does: the gain is rho rb^k [(delta + c) q - delta] + s rho
+            assert gain == pytest.approx(rho * rb ** k * ((delta + c) * q - delta) + s * rho)
+            assert gain > 0  # s + (delta + c) q > delta: reporting is dominant for every rho > 0

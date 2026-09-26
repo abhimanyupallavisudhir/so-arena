@@ -8,8 +8,9 @@ output. The reward rule decides the incentives:
   reward hack) raises the team score, *no one* has a reason to report it.
 * :class:`~so_arena.core.rewards.Whistleblower` - individual bounties for verified reports (paid to
   each reporter, only the first, or shared), optional false-report and violation penalties, and
-  collective liability (``silence_penalty``: charged to the silent members when a random audit finds
-  a violation no verified report revealed).
+  collective liability (``silence_penalty``: charged to every member without a verified report - a
+  refuted or unverifiable accusation counts as silence - when a random audit finds a violation no
+  verified report revealed).
 
 Whether reporting pays depends on what a worker expects its teammates to do (with a small bounty
 relative to the team reward there are two equilibria - everyone silent or everyone reports); set
