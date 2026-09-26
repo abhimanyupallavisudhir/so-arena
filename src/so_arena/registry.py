@@ -56,6 +56,9 @@ _REGISTRY: dict[str, dict[str, str | Callable[..., Any]]] = {
         "resolution": f"{_P}.core.rewards:ResolutionScore",
         "market_scoring": f"{_P}.mechanisms.markets:MarketScoringReward",
         "monitored": f"{_P}.mechanisms.work:MonitoredReward",
+        "preference": f"{_P}.mechanisms.preference:PreferenceScore",
+        "prover": f"{_P}.mechanisms.preference:ProverReward",
+        "rating": f"{_P}.mechanisms.markets:rating_reward",
     },
     "verifier": {
         "quote": f"{_P}.core.verification:QuoteVerifier",

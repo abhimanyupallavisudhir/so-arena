@@ -105,3 +105,40 @@ def test_cli_lists_rewards_verifiers_and_scorers(capsys):
         assert main(["list", what]) == 0
     out = capsys.readouterr().out
     assert "judge_score" in out and "quote" in out and "stance_value" in out
+
+
+# Components that take a Python callable as a required argument cannot come from YAML; they are built in Python.
+PYTHON_ONLY = {"so_arena.core.rewards:FunctionReward", "so_arena.core.rewards:ZeroSum",  # ZeroSum: via "zero_sum"
+               "so_arena.core.ground_truth:FunctionScorer", "so_arena.core.verification:CallableVerifier"}
+
+
+def test_every_component_class_is_registered():
+    """A new reward rule, verifier or ground-truth scorer must be registered (or be deliberately Python-only),
+    so that specs can name it."""
+    import importlib
+    import inspect
+    import pkgutil
+
+    import so_arena
+    from so_arena import registry
+    from so_arena.core.ground_truth import GroundTruthScorer
+    from so_arena.core.rewards import RewardRule
+    from so_arena.core.verification import Verifier
+
+    # entries are "module:attribute" strings until first resolved, then the objects themselves
+    targets = {kind: {v if isinstance(v, str) else f"{getattr(v, '__module__', '')}:{getattr(v, '__qualname__', '')}"
+                      for v in table.values()} for kind, table in registry._REGISTRY.items()}
+    missing = []
+    for info in pkgutil.walk_packages(so_arena.__path__, "so_arena."):
+        try:
+            mod = importlib.import_module(info.name)
+        except ImportError:  # optional dependencies
+            continue
+        for name, obj in vars(mod).items():
+            if not inspect.isclass(obj) or obj.__module__ != mod.__name__ or inspect.isabstract(obj):
+                continue
+            for kind, base in (("reward", RewardRule), ("verifier", Verifier), ("scorer", GroundTruthScorer)):
+                ref = f"{mod.__name__}:{name}"
+                if issubclass(obj, base) and obj is not base and ref not in targets[kind] and ref not in PYTHON_ONLY:
+                    missing.append(f"{kind} {ref}")
+    assert not missing, f"unregistered components: {missing}"
