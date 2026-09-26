@@ -185,6 +185,8 @@ class Episode(BaseModel):
     # canonical leaf, so the tree's leaf episodes sum to its total without double counting
     # (see samplers.pools.expand_tree)
     usage: dict[str, Usage] = Field(default_factory=dict)
+    # the mechanism's uses of ground truth (audits, simulated probes): channel, role, cost - never findings
+    gt_access: list[dict[str, Any]] = Field(default_factory=list)
     tags: dict[str, Any] = Field(default_factory=dict)
     trainable_roles: list[str] = Field(default_factory=list)
     role_kinds: dict[str, str] = Field(default_factory=dict)
@@ -410,6 +412,7 @@ class Mechanism(abc.ABC):
             turns=list(g.turns),
             outcome=outcome,
             usage=g.episode_usage(),  # in branch mode: none (expand_tree charges each shared pool to one leaf)
+            gt_access=list(g.gt_access),
             tags=dict(tags or {}),
             trainable_roles=self.trainable_roles(),
             role_kinds={r: spec.kind for r, spec in g.roles.items()},
