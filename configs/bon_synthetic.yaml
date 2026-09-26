@@ -1,0 +1,14 @@
+# Best-of-N optimization pressure on a proposer reviewed by a single judge (synthetic, offline).
+name: bon-synthetic
+domain: {name: synthetic, n_items: 16, seed: 2}
+policies:
+  worker: {synthetic: arguer, honest_mean: 1.0, dishonest_mean: 0.2, sd: 0.8, sophistry_rate: 0.25, sophistry_boost: 2.5}
+  reviewer: {synthetic: judge}
+mechanisms:
+  - {name: propaganda, affordances: {agents: [answer_key]}}
+experiment:
+  type: pools
+  players: {agent: {policy: worker, stance: "false"}, judge: reviewer}
+  pool_sizes: {agent: 16}
+  grid: {agent: [1, 2, 4, 8, 16]}
+  value: judge_correct

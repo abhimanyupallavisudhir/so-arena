@@ -1,12 +1,21 @@
+"""Test-suite settings for both packages: so_arena (test_*.py) and oversight_arena (test_oa_*.py)."""
+
 import os
 import shutil
 
 import pytest
 
-os.environ.setdefault("OA_CACHE", "0")
+import oversight_arena as oa
+from oversight_arena.domains.base import TaskListDomain
+from so_arena.core import sandbox
 
-import oversight_arena as oa  # noqa: E402
-from oversight_arena.domains.base import TaskListDomain  # noqa: E402
+# Where no sandbox backend works, the suite still exercises agent commands and untrusted code, unsandboxed
+# (the sandbox's own tests are skipped there); elsewhere every such command runs sandboxed, as in use.
+if not sandbox.available():
+    os.environ.setdefault(sandbox.ALLOW_ENV, "1")
+
+# oversight_arena: no persistent response cache in tests (read when a model is created)
+os.environ.setdefault("OA_CACHE", "0")
 
 
 def pytest_collection_modifyitems(config, items):

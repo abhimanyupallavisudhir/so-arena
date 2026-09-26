@@ -1,54 +1,63 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
 [project]
-name = "oversight-arena"
+name = "so-arena"
 version = "0.1.0"
-description = "OversightArena: principled experiments on scalable-oversight mechanisms — rewards to agents vs. ground truth, incentive compatibility under optimization, equilibria."
+description = "OversightArena: principled experiments on scalable-oversight mechanisms (incentive compatibility, optimization pressure, equilibria). Two implementations: so_arena and oversight_arena."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
-license = { text = "MIT" }
 authors = [{ name = "Abhimanyu Pallavi Sudhir" }]
+keywords = ["scalable oversight", "debate", "mechanism design", "AI safety", "control", "incentive compatibility"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "pydantic>=2.6",
   "numpy>=1.26",
   "scipy>=1.11",
   "pandas>=2.1",
+  "pyyaml>=6",
   "matplotlib>=3.8",
-  "pyyaml>=6.0",
-  "click>=8.1",
-  "jinja2>=3.1",
+  "click>=8.1",  # oversight_arena
+  "jinja2>=3.1",  # oversight_arena
 ]
 
 [project.optional-dependencies]
-llm = ["inspect-ai>=0.3.200"]
-chess = ["python-chess>=1.10"]
-data = ["datasets>=2.18", "zstandard>=0.22"]
-control-arena = ["control-arena>=19.0.0"]
-rl = ["trl>=0.20"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.200", "python-chess>=1.10", "ruff>=0.6"]
-all = ["inspect-ai>=0.3.200", "python-chess>=1.10", "datasets>=2.18", "zstandard>=0.22"]
+inspect = ["inspect-ai>=0.3.100"]
+controlarena = ["control-arena>=19", "inspect-ai>=0.3.100"]
+chess = ["chess>=1.10", "zstandard>=0.22"]
+hf = ["datasets>=2.18"]
+gepa = ["gepa>=0.1.4"]
+data = ["datasets>=2.18", "zstandard>=0.22"]  # oversight_arena: Lichess puzzles, EvalPlus, ...
+rl = ["trl>=0.20"]  # oversight_arena: TRL GRPO rewards
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.200", "chess>=1.10", "zstandard>=0.22", "gepa>=0.1.4", "ruff>=0.6"]
+all = ["inspect-ai>=0.3.200", "control-arena>=19", "chess>=1.10", "zstandard>=0.22", "datasets>=2.18", "gepa>=0.1.4"]
 
 [project.scripts]
+so-arena = "so_arena.cli:main"
 oversight-arena = "oversight_arena.cli:main"
 
+[project.urls]
+Repository = "https://github.com/abhimanyupallavisudhir/so-arena"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/oversight_arena"]
+packages = ["src/so_arena", "src/oversight_arena"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q"
-filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
-  "network: needs internet access (run with OA_NETWORK_TESTS=1)",
-  "stockfish: needs a Stockfish binary",
+  "slow: long-running tests",
+  "network: tests that need internet access (oversight_arena's run with OA_NETWORK_TESTS=1)",
+  "engine: tests that need a local chess engine (stockfish)",
+  "stockfish: needs a Stockfish binary (oversight_arena)",
 ]
+filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.ruff]
 line-length = 100
-
-[tool.ruff.lint]
-select = ["E9", "F", "B"]
-ignore = ["B008", "B905", "E402"]

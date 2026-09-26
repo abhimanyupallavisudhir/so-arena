@@ -48,7 +48,7 @@ training?
 ```bash
 git clone <this repo> && cd so-arena
 uv venv && source .venv/bin/activate          # Python ≥ 3.11
-uv pip install -e ".[dev]"                     # inspect-ai, python-chess, pytest
+uv pip install -e ".[dev]"                     # both packages; inspect-ai, chess, pytest
 # optional: ".[data]" (Lichess puzzles), control-arena, trl; Stockfish for chess (apt install stockfish)
 ```
 
@@ -159,9 +159,10 @@ src/oversight_arena/
 
 ## Status
 
-- **Tests.** The test suite covers the core, every mechanism, the analyses, the information
-  firewall, releases, the theory modules and both integrations (ControlArena tests run when
-  `control-arena` is installed; they were validated against 19.0.0).
+- **Tests.** `tests/test_oa_*.py` (`pytest tests/test_oa_*.py` runs this package's alone) cover the
+  core, every mechanism, the analyses, the information firewall, releases, the theory modules and
+  both integrations (ControlArena tests run when `control-arena` is installed; they were validated
+  against 19.0.0).
 - **Results so far.** The demos use programmatic agents and exact judges. They validate the
   machinery and the theory. Results with frontier LLMs are what the examples and configs are for.
 - **Sandboxing.** Code from models runs confined (Landlock, seccomp and rlimits on Linux, plus a
