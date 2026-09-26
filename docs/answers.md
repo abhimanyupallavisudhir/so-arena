@@ -141,7 +141,7 @@ SHA-256 commitment to publish or timestamp. `resolve` later verifies the bundle,
 rewards, scores everything and writes the report; the forecasting domain can fetch resolutions itself.
 `demo_release` releases forecasts paid by a judge's immediate rating, then resolves them: the rating ranks
 extreme forecasts first and the proper score at resolution ranks the calibrated forecaster first - an
-immediate proxy is not a proper score (docs/theory.md, Proposition 7). Mechanisms that need no ground truth
+immediate proxy is not a proper score (docs/theory.md, Proposition 5). Mechanisms that need no ground truth
 (peer prediction with BTS, multi-task, correlated-agreement or DMI rules, market making) are built in.
 
 ## 7. Mechanism design

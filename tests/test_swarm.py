@@ -1,4 +1,4 @@
-"""Swarms with partial observation: the analytic model (Propositions 5 and 6), the Team mechanism's
+"""Swarms with partial observation: the analytic model (Propositions 6 and 7), the Team mechanism's
 observation, self-reports, leniency and misprision, and learning dynamics (natural vs. vanilla gradient)."""
 
 import math
@@ -33,7 +33,7 @@ def profile(dom, workers):
     return Profile(name="|".join(f"{w}·{r}" for w, r in workers), players=players)
 
 
-# ----------------------------------------------------------------------------- Proposition 5
+# ----------------------------------------------------------------------------- Proposition 6
 
 
 def test_report_equilibrium_bounty_is_a_third_of_the_stake_for_two_witnesses_at_o_08():
@@ -54,7 +54,7 @@ def test_b_r_matches_the_closed_form_with_misprision_and_audits():
     kw = dict(delta=d, o=o, q=q, c=c, m=m, split="shared")
     assert closed > 0 and wb.report_equilibrium_bounty(n, **kw) == pytest.approx(closed)
     assert wb.dominance_bounty(n, **kw) == pytest.approx(T)
-    # the advantage of reporting, K = 0 vs K >= 1 (Proposition 5)
+    # the advantage of reporting, K = 0 vs K >= 1 (Proposition 6)
     s = 0.25
     assert wb.advantage(0, s=s, **kw) == pytest.approx(s - T)
     for k in range(1, n):
@@ -141,7 +141,7 @@ def test_nobody_violating_is_nash_but_not_subgame_perfect():
 
 
 def test_natural_gradient_on_the_whole_game_is_the_mean_field():
-    """Proposition 6: multiplicative weights keep the two decisions independent; the marginals follow
+    """Proposition 7: multiplicative weights keep the two decisions independent; the marginals follow
     the two-dimensional mean field exactly."""
     kw = dict(TEAM, s=0.2, P=0.3, o=0.8)
     g = wb.team_game(2, **kw)

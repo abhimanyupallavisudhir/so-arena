@@ -163,7 +163,7 @@ def rating_judge(confidence: float = 1.0, *, label: str | None = None) -> Functi
 
     It reads the forecast from the rating prompt (``Forecast``'s "<forecaster>'s forecast: yes: 0.730, ...") and
     never sees the outcome. Neither term is a proper score of the forecast: both are maximized by reports other
-    than the forecaster's belief (``docs/theory.md``, Proposition 7).
+    than the forecaster's belief (``docs/theory.md``, Proposition 5).
     """
     if not 0.0 <= confidence <= 1.0:
         raise ValueError("confidence is a weight in [0, 1]")

@@ -311,7 +311,7 @@ def mean_field(x0: float, p0: float, n: int, *, steps: int = 600, lr: float = 1.
     replicator dynamics) the two decisions stay independent and the marginals obey
     $$\mathrm{logit}\,x \mathrel{+}= \eta\,\pi\,G(p),\qquad
       \mathrm{logit}\,p \mathrel{+}= \eta\,(1-\pi)\,x\,o\,E_{K\sim\mathrm{Bin}(n-1,\,o p)}[\Delta(K)]$$
-    with $\pi$ the opportunity probability and $G$ = :func:`offender_gain` (Proposition 6). With
+    with $\pi$ the opportunity probability and $G$ = :func:`offender_gain` (Proposition 7). With
     ``natural=False`` each decision has its own logit trained by vanilla policy gradient (REINFORCE's
     expected update), which scales each step by $x(1-x)$ resp. $p(1-p)$: the same rest points, but a rare
     behaviour learns slowly. Returns the trajectory (columns ``step, x, p``).

@@ -506,7 +506,7 @@ $0.472$).
   uses what can be computed now: a judge's rating of a forecast, or its agreement with the judge. These are
   not proper scoring rules for the outcome.
 
-**Proposition 7 (immediate proxies are proper for the judge, not for the outcome).** A forecaster believes
+**Proposition 5 (immediate proxies are proper for the judge, not for the outcome).** A forecaster believes
 $P(y = 1) = q$ and reports $p$.
 
 1. Paid $S(p, y)$ at resolution with $S$ strictly proper, its unique best report is $p = q$.
@@ -571,7 +571,7 @@ $\Delta$ unless the audit would have found it anyway. If every witness reports w
 witness faces $K \sim \mathrm{Bin}(n-1, op)$. Write $P_k = \Pr[\mathrm{Bin}(n-1, o) = k]$ and
 $\bar A(p) = \mathbb E\,A(K)$ (`report_gain`).
 
-**Proposition 5 (reporting under partial observation).** Let the bounty be shared (for one paid to each
+**Proposition 6 (reporting under partial observation).** Let the bounty be shared (for one paid to each
 reporter, replace $s/(1+k)$ by $s$), and let $s > 0$ or $m > 0$.
 
 1. If $s > T$, reporting is a best response to whatever the others do, and everyone reporting is the
@@ -593,7 +593,7 @@ reporter, replace $s/(1+k)$ by $s$), and let $s > 0$ or $m > 0$.
    $\tfrac32 s + m > T$ (`risk_dominant`). For $n \ge 3$ there is no comparable selection result:
    $A(K)$ *falls* in $K \ge 1$ when bounties are shared, so the game lacks the strategic complementarity
    that global-games selection needs (Carlsson & van Damme 1993; Morris & Shin 2003). Which equilibrium
-   training reaches is then a question of basins (Proposition 6).
+   training reaches is then a question of basins (Proposition 7).
 4. **Common reward** ($s = c = m = 0$). Silence weakly dominates reporting, strictly when nobody else
    reports ($A(0) = -(1-q)\Delta$): training on the shared objective pushes every agent to stay silent
    about a hack that helps the team. Anticipating silence, a member with the opportunity violates
@@ -628,7 +628,7 @@ $B(k) = s\rho$ (each) or $s(1 - \bar\rho^{k+1})/(k+1)$ (shared) is the expected 
 bounties $A$ is monotone in $k$, so there is still at most one mixed equilibrium; with shared bounties and
 $f > 0$ it can change sign twice, and `symmetric_equilibria` and `regime` find the equilibria numerically.
 
-**Nobody violating can be a Nash equilibrium without being subgame perfect.** Proposition 5 is about the
+**Nobody violating can be a Nash equilibrium without being subgame perfect.** Proposition 6 is about the
 *reporting subgame*, played after a violation. In the whole game, where each member fixes its strategy
 (violate if you can? report what you see?) in advance (`team_game`), "nobody violates and everyone would
 report" is a Nash equilibrium whenever the threat deters, $G(1) < 0$ below - even for $s < b_R$, since
@@ -639,7 +639,7 @@ while everyone reporting is not one of the reporting subgame (tested). Training 
 where nobody violates never tests the threat, and nothing in the training signal maintains it, so such an
 honest outcome is fragile.
 
-**Proposition 6 (the whole game's learning dynamics are two-dimensional).** Let members be symmetric;
+**Proposition 7 (the whole game's learning dynamics are two-dimensional).** Let members be symmetric;
 each holds the opportunity to violate with probability $\pi$ ($\pi = 1/(n+1)$ when one random member of
 the $n + 1$ does) and then violates with probability $x$; a witness reports with probability $p$. A
 violation is caught with probability $d(p) = 1 - (1-q)(1-op)^n$, so violating gains the offender
@@ -718,7 +718,7 @@ learning (Fudenberg & Levine 1998), evolutionary dynamics and their basins (Sand
 *stochastic stability* - learning with small persistent noise (exploration) spends almost all its time at
 the risk-dominant equilibrium of a $2\times2$ coordination game (Kandori, Mailath & Rob 1993; Young 1993). That
 links section 8's risk-dominance and global-games predictions to training with exploration, and it is one
-more reason the training algorithm is part of the mechanism's environment (Proposition 6).
+more reason the training algorithm is part of the mechanism's environment (Proposition 7).
 
 When several roles are optimized, one optimizer's best move depends on how it models the others. The
 standard solution concepts are PSRO meta-solvers (Lanctot et al. 2017; `samplers.psro`), each a model of

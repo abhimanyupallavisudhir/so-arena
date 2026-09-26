@@ -1,5 +1,5 @@
 """The Forecast mechanism, the synthetic forecasting world, and immediate proxies vs. proper resolution scores
-(``docs/theory.md``, Proposition 7)."""
+(``docs/theory.md``, Proposition 5)."""
 
 import math
 
@@ -82,7 +82,7 @@ def test_unparsed_forecasts_and_ratings_are_flagged():
 
 
 def test_rating_proxy_is_not_proper_and_resolution_is():
-    # Proposition 7 on the synthetic world: the immediate rating ranks distortions above the calibrated forecast,
+    # Proposition 5 on the synthetic world: the immediate rating ranks distortions above the calibrated forecast,
     # the proper resolution score ranks the calibrated forecast first - in expectation exactly (latent
     # probabilities), and on realized outcomes
     dom = SyntheticForecasting(n_items=400, seed=0)

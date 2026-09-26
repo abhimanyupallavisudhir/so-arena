@@ -20,7 +20,7 @@ same experiments for real (see ``configs/`` and ``docs/experiments.md``).
   lies beyond what is checked.
 * :func:`demo_release` - release now, resolve later: forecasts rewarded by a judge's immediate rating are
   released before the questions resolve, then resolved; the rating proxy is not a proper score
-  (Proposition 7): extremizing forecasters top the released ranking and trail after resolution.
+  (Proposition 5): extremizing forecasters top the released ranking and trail after resolution.
 """
 
 from __future__ import annotations
@@ -253,7 +253,7 @@ def _swarm_partial_observation(out: Path, figs: Path, rep: Report) -> None:
     table.to_csv(out / "partial_observation_equilibria.csv", index=False)
     rep.section("Partial observation", charts=plots.dual_mode(plots.line_chart, th, **kw), table=table,
                 info=f"Each teammate sees the hack only with probability o, so a witness may be the only one. Then "
-                     f"'everyone reports' is an equilibrium only above b_R (Proposition 5): with o = {SWARM_OBSERVE:g} and "
+                     f"'everyone reports' is an equilibrium only above b_R (Proposition 6): with o = {SWARM_OBSERVE:g} and "
                      f"two potential witnesses, b_R = {b_r / SWARM_STAKE:.2f} of the stake, so a bounty of 0.05 buys "
                      f"nothing although with full observation it would create a coordination game.",
                 note=f"Simulated game ({len(items)} items; who sees what is a chance move, identical across profiles): "
@@ -796,7 +796,7 @@ def demo_bon_budget(out: str | Path = "runs/demo_bon_budget", n_items: int = 60,
 
 
 def demo_release(out: str | Path = "runs/demo_release", n_items: int = 400, confidence: float = 0.7) -> Path:
-    """Release now, resolve later (``docs/theory.md``, Proposition 7).
+    """Release now, resolve later (``docs/theory.md``, Proposition 5).
 
     Four scripted forecasters - calibrated, overconfident, underconfident and extremizing distortions of the
     same calibrated information - forecast ``n_items`` synthetic questions whose outcomes are still pending. A

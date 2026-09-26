@@ -470,7 +470,7 @@ resolve("releases/2026-09", fc.resolve, reward_rule=MarketScoringReward())   # s
 CLI: `so-arena release runs/x releases/x`, `so-arena verify releases/x --digest <published digest>`,
 `so-arena resolve releases/x --domain forecasting --market`.
 
-Immediate proxies can be released and then checked against resolution (`so-arena demo release`, Proposition 7):
+Immediate proxies can be released and then checked against resolution (`so-arena demo release`, Proposition 5):
 
 ```python
 from so_arena.domains.synthetic_forecasting import SyntheticForecasting, rating_judge, synthetic_forecaster
