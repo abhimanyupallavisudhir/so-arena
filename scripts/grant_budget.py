@@ -239,6 +239,100 @@ def design_t(W=T_WORKER, O=T_OVERSEER, *, steps=STEPS, K=32, ckpts=6, screen_per
                                         "steps": steps, "K": K, "ckpts": ckpts})
 
 
+# ------------------------------------------------------------------------------ design T100 (sweeps)
+
+# (label, cost profile, overseer model or None for the default, seeds) - the dose-response axes cost the same
+# per episode as their base mechanism except where the overseer changes
+T100_DOSE = [
+    ("audit_p02", "audit_p05", None), ("audit_p50", "audit_p05", None),
+    ("cot_monitor_l0.3", "cot_monitor", None), ("cot_monitor_l3", "cot_monitor", None),
+    ("direct_judge9B", "direct", "Qwen/Qwen3.5-9B"), ("direct_judge397B", "direct", T_BIG),
+    ("direct_adaptive", "direct_adaptive", None),
+]
+T100_EXTRA_SEED = ["direct", "debate", "cot_monitor", "audit_p05", "full_verification"]
+
+
+def _condition_profile(m, d, a, W, O, *, trained):
+    """Mechanism profile, plus overseer training for the audit-updated (adaptive) overseers: a LoRA step
+    on the audited episodes (10%) of the overseer's own calls."""
+    base = {"direct_adaptive": "direct", "cot_adaptive": "cot_monitor"}.get(m, m)
+    roles = mechanism(base, d, a, W, O, trained=trained)
+    if m in ("direct_adaptive", "cot_adaptive"):
+        r = "reviewer" if m == "direct_adaptive" else "monitor"
+        mdl, t = roles[r]
+        roles[r] = (mdl, t + Tokens(train=0.1 * (t.prefill + t.cached + t.sample)) if trained else t)
+    return roles
+
+
+def design_t100(W=T_WORKER, O=T_OVERSEER, *, steps=130, seeds=2, extra_seed=T100_EXTRA_SEED, K=32, ckpts=6, held=400,
+                transfer=50, screen_per_domain=250, expert_hours=100) -> Budget:
+    """Design T with dose-response sweeps (audit rate, CoT-penalty weight, judge strength), an audit-updated
+    overseer, a third seed on the anchor conditions, longer runs, more checkpoints, larger best-of-N pools
+    and an expert audit of the ground-truth labels."""
+    conds = [(m, m, T_WORKER if m == "same_size" else None) for m in T_CONDITIONS] + T100_DOSE
+    items = []
+    ov = lambda a: a["overhead_x"]
+    eps_run = steps * BATCH
+    n_seeds = {label: seeds + (label in extra_seed) for label, _, _ in conds}
+    for label, prof, om in conds:
+        items.append(Item(f"RL: {label} ({n_seeds[label]} seeds)", lambda a, n=n_seeds[label]: n * eps_run * ov(a),
+                          lambda a, prof=prof, om=om: mix(T_TRAIN, lambda d: _condition_profile(
+                              prof, d, a, W, om or O, trained=True)),
+                          group="3 RL matrix", note=f"{steps} steps x {BATCH} episodes per run"))
+    n_runs = sum(n_seeds.values())
+    screen_items = {d: screen_per_domain for d in T_TRAIN}
+    n_items = sum(screen_items.values())
+    wts = {d: n / n_items for d, n in screen_items.items()}
+    screened = [(label, prof, om) for label, prof, om in conds if prof != "full_verification"]
+
+    def per_condition(a, *, interactive=1, average=False, shared_work=True, weights=None):
+        tot: dict = {}
+        w = weights or wts
+        for _, prof, om in screened:
+            k = interactive if prof in ("consultancy", "debate", "debate_verified", "confession") else 1
+            if shared_work:
+                pr = mix(w, lambda d, prof=prof, om=om: minus_worker_task(
+                    _condition_profile(prof, d, a, W, om or O, trained=False), d, a, W))
+            else:
+                pr = mix(w, lambda d, prof=prof, om=om: _condition_profile(prof, d, a, W, om or O, trained=False))
+            scale = k / len(screened) if average else k
+            for key, (mdl, t) in pr.items():
+                tot[key] = (mdl, tot.get(key, (mdl, Tokens()))[1] + t.scale(scale))
+        return tot
+
+    items.append(Item("ASD: worker episodes (6 arms, shared)", lambda a: n_items * 6 * ov(a),
+                      lambda a: mix(wts, lambda d: {"worker": (W, worker(d, a))}), group="1 screens"))
+    items.append(Item(f"ASD: {len(screened)} conditions on the shared episodes", lambda a: n_items * 6 * ov(a),
+                      lambda a: per_condition(a), group="1 screens"))
+    items.append(Item(f"best-of-N: worker pools (K={K})", lambda a: n_items * K * ov(a),
+                      lambda a: mix(wts, lambda d: {"worker": (W, worker(d, a))}), group="1 screens"))
+    items.append(Item("best-of-N: conditions per candidate (4 continuations for interactive ones)",
+                      lambda a: n_items * K * ov(a), lambda a: per_condition(a, interactive=4), group="1 screens"))
+    searches, rollouts, reflections = len(screened) * 3, 1500, 150
+    items.append(Item(f"prompt search: {searches} searches x {rollouts} rollouts", lambda a: searches * rollouts * ov(a),
+                      lambda a: per_condition(a, average=True, shared_work=False), group="2 prompt search"))
+    items.append(Item(f"prompt search: reflection LM ({reflections} calls per search)",
+                      lambda a: searches * reflections * ov(a),
+                      lambda a: {"reflector": (T_BIG, Tokens(prefill=8000 * a["prompt_x"], sample=2000))},
+                      group="2 prompt search"))
+    items.append(Item("prompt search: validation (5 prompts x 200 items)", lambda a: searches * 5 * 200 * ov(a),
+                      lambda a: per_condition(a, average=True, shared_work=False), group="2 prompt search"))
+    items.append(Item(f"eval: {n_runs + 1} runs x {ckpts} checkpoints x {held} held-out items",
+                      lambda a: (n_runs + 1) * ckpts * held * ov(a),
+                      lambda a: _avg_mechs(T_CONDITIONS, T_TRAIN, a, W, O, diagnostic=True), group="4 evaluation"))
+    items.append(Item(f"eval: repository transfer ({transfer} tasks per checkpoint)",
+                      lambda a: (n_runs + 1) * ckpts * transfer * ov(a),
+                      lambda a: _avg_mechs(T_CONDITIONS, {"repo": 1.0}, a, W, O, diagnostic=True), group="4 evaluation"))
+    items.append(Fixed("Tinker checkpoint storage", (50, 250, 600), provider="tinker", group="5 other",
+                       note="LoRA checkpoints, $0.10/GB-month"))
+    if expert_hours:
+        items.append(Fixed(f"expert audit of ground-truth labels ({expert_hours} h at $60-100/h)",
+                           (60 * expert_hours, 80 * expert_hours, 100 * expert_hours), provider="people",
+                           group="5 other", note="a random sample of episodes plus flagged disagreements"))
+    return Budget(items, RANGES, extra={"runs": n_runs, "conditions": len(conds), "steps": steps, "seeds": seeds,
+                                        "K": K, "ckpts": ckpts})
+
+
 def _sum_mechs(mechs, wts, a, W, O, interactive=1):
     tot: dict = {}
     for m in mechs:
@@ -412,6 +506,7 @@ def main() -> int:
     bt, bb = with_cpu(design_t(), "T"), with_cpu(design_b(), "B")
     fit = {"steps": 110, "K": 16, "ckpts": 4}
     bt_fit = with_cpu(design_t(**fit), "T")
+    bt100 = with_cpu(design_t100(), "T")
     bf = with_cpu(design_b(bon=(T_WORKER, T_OVERSEER), search=(T_WORKER, T_OVERSEER)), "B")
     alt = {w: design_t(W=w).total() for w in ("Qwen/Qwen3.5-9B", "Qwen/Qwen3.8-27B")}
     per_run = {m: next(it for it in bt.items if isinstance(it, Item) and it.name.startswith(f"RL: {m} "))
@@ -446,6 +541,10 @@ def main() -> int:
         "",
         section(f"Design T, fitted to $50k of credits ({fit['steps']} RL steps, best-of-N K={fit['K']}, "
                 f"{fit['ckpts']} evaluated checkpoints per run)", bt_fit),
+        "",
+        section(f"Design T100: the $100k experiment ({bt100.extra['conditions']} conditions incl. dose-response sweeps, "
+                f"{bt100.extra['runs']} runs x {bt100.extra['steps']} steps, best-of-N K={bt100.extra['K']}, "
+                f"{bt100.extra['ckpts']} checkpoints per run, expert label audit)", bt100),
         "",
         "**Other workers** (design T total, central): "
         + ", ".join(f"{w} {money(v)}" for w, v in alt.items()) + ".",

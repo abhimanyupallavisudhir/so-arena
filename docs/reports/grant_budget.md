@@ -119,6 +119,64 @@ Per-domain behaviour at the central value (tool turns, tokens per tool output, d
 | final_reasoning | 400 / 1000 / 3000 | $25,358 | $33,151 |
 | action | 80 / 150 / 300 | $25,858 | $29,936 |
 
+## Design T100: the $100k experiment (19 conditions incl. dose-response sweeps, 43 runs x 130 steps, best-of-N K=32, 6 checkpoints per run, expert label audit)
+
+| Group | Item | Episodes | Sample Mtok | Train Mtok | Paid by | Low | Central | High |
+|---|---|---:|---:|---:|---|---:|---:|---:|
+| 3 RL matrix | RL: direct (3 seeds) | 124,800 | 567 | 865 | tinker | $748 | $2,229 | $8,999 |
+| 3 RL matrix | RL: same_size (2 seeds) | 83,200 | 378 | 576 | tinker | $515 | $1,513 | $6,071 |
+| 3 RL matrix | RL: consultancy (2 seeds) | 83,200 | 544 | 710 | tinker | $804 | $2,024 | $7,426 |
+| 3 RL matrix | RL: debate (3 seeds) | 124,800 | 879 | 1,360 | tinker | $1,528 | $3,484 | $11,744 |
+| 3 RL matrix | RL: debate_verified (2 seeds) | 83,200 | 636 | 973 | tinker | $1,170 | $2,495 | $8,036 |
+| 3 RL matrix | RL: confession (2 seeds) | 83,200 | 436 | 643 | tinker | $632 | $1,717 | $6,562 |
+| 3 RL matrix | RL: audit_p05 (3 seeds) | 124,800 | 567 | 865 | tinker | $748 | $2,229 | $8,999 |
+| 3 RL matrix | RL: audit_p20 (2 seeds) | 83,200 | 378 | 576 | tinker | $499 | $1,486 | $5,999 |
+| 3 RL matrix | RL: action_monitor (2 seeds) | 83,200 | 403 | 576 | tinker | $548 | $1,615 | $6,484 |
+| 3 RL matrix | RL: cot_monitor (3 seeds) | 124,800 | 604 | 865 | tinker | $860 | $2,549 | $10,253 |
+| 3 RL matrix | RL: cot_audit (2 seeds) | 83,200 | 403 | 576 | tinker | $573 | $1,699 | $6,835 |
+| 3 RL matrix | RL: full_verification (3 seeds) | 124,800 | 529 | 865 | tinker | $702 | $2,147 | $8,743 |
+| 3 RL matrix | RL: audit_p02 (2 seeds) | 83,200 | 378 | 576 | tinker | $499 | $1,486 | $5,999 |
+| 3 RL matrix | RL: audit_p50 (2 seeds) | 83,200 | 378 | 576 | tinker | $499 | $1,486 | $5,999 |
+| 3 RL matrix | RL: cot_monitor_l0.3 (2 seeds) | 83,200 | 403 | 576 | tinker | $573 | $1,699 | $6,835 |
+| 3 RL matrix | RL: cot_monitor_l3 (2 seeds) | 83,200 | 403 | 576 | tinker | $573 | $1,699 | $6,835 |
+| 3 RL matrix | RL: direct_judge9B (2 seeds) | 83,200 | 378 | 576 | tinker | $530 | $1,541 | $6,168 |
+| 3 RL matrix | RL: direct_judge397B (2 seeds) | 83,200 | 378 | 576 | tinker | $733 | $1,889 | $7,183 |
+| 3 RL matrix | RL: direct_adaptive (2 seeds) | 83,200 | 378 | 588 | tinker | $504 | $1,495 | $6,019 |
+| 1 screens | ASD: worker episodes (6 arms, shared) | 7,500 | 33 | 0 | tinker | $22 | $72 | $311 |
+| 1 screens | ASD: 18 conditions on the shared episodes | 7,500 | 114 | 0 | tinker | $193 | $367 | $1,106 |
+| 1 screens | best-of-N: worker pools (K=32) | 40,000 | 177 | 0 | tinker | $119 | $384 | $1,659 |
+| 1 screens | best-of-N: conditions per candidate (4 continuations for interactive ones) | 40,000 | 1,748 | 0 | tinker | $2,534 | $4,514 | $12,351 |
+| 2 prompt search | prompt search: 54 searches x 1500 rollouts | 101,250 | 534 | 0 | tinker | $447 | $1,247 | $5,028 |
+| 2 prompt search | prompt search: reflection LM (150 calls per search) | 10,125 | 20 | 0 | tinker | $315 | $395 | $532 |
+| 2 prompt search | prompt search: validation (5 prompts x 200 items) | 67,500 | 356 | 0 | tinker | $298 | $832 | $3,352 |
+| 4 evaluation | eval: 44 runs x 6 checkpoints x 400 held-out items | 132,000 | 737 | 0 | tinker | $1,637 | $4,595 | $18,009 |
+| 4 evaluation | eval: repository transfer (50 tasks per checkpoint) | 16,500 | 227 | 0 | tinker | $800 | $3,083 | $13,514 |
+| 5 other | Tinker checkpoint storage |  |  |  | tinker | $50 | $250 | $600 |
+| 5 other | expert audit of ground-truth labels (100 h at $60-100/h) |  |  |  | people | $6,000 | $8,000 | $10,000 |
+| 5 other | CPU: sandboxed tools and checks (14.4M calls) |  |  |  | cpu | $116 | $399 | $1,806 |
+
+**Totals by who pays**
+
+| Paid by | Low | Central | High |
+|---|---:|---:|---:|
+| tinker | $19,655 | $52,223 | $197,654 |
+| people | $6,000 | $8,000 | $10,000 |
+| cpu | $116 | $399 | $1,806 |
+| total | $25,771 | $60,622 | $209,460 |
+
+**Total, 80% interval** (assumptions drawn independently from triangular distributions on their ranges): $61,690 - $96,388, median $76,777.
+
+**What the total depends on** (one assumption at a time at its low / high value)
+
+| Assumption | Range | Total at low | Total at high |
+|---|---|---:|---:|
+| turns_x | 0.6 / 1 / 1.6 | $48,014 | $85,753 |
+| reasoning_per_turn | 200 / 400 / 900 | $53,017 | $79,636 |
+| obs_x | 0.5 / 1 / 2 | $54,500 | $72,867 |
+| overhead_x | 1.1 / 1.25 / 1.5 | $54,386 | $71,017 |
+| final_reasoning | 400 / 1000 / 3000 | $57,152 | $72,191 |
+| action | 80 / 150 / 300 | $58,112 | $66,001 |
+
 **Other workers** (design T total, central): Qwen/Qwen3.5-9B $47,900, Qwen/Qwen3.8-27B $122,780.
 
 ## Design B: broad (Task 4; API agents anthropic/claude-sonnet-5, judge anthropic/claude-haiku-4-5; RL on Qwen/Qwen3.5-9B)
