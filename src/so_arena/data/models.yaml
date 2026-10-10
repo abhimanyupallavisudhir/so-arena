@@ -14,6 +14,9 @@ models:
   - {name: anthropic/claude-haiku-4-5, family: claude-4.5, organization: Anthropic, price_input_per_mtok: 1.00, price_output_per_mtok: 5.00, price_cached_input_per_mtok: 0.10}
   - {name: anthropic/claude-sonnet-4-5, family: claude-4.5, organization: Anthropic, price_input_per_mtok: 3.00, price_output_per_mtok: 15.0, price_cached_input_per_mtok: 0.30}
   - {name: anthropic/claude-opus-4-5, family: claude-4.5, organization: Anthropic, price_input_per_mtok: 5.00, price_output_per_mtok: 25.0, price_cached_input_per_mtok: 0.50}
+  - {name: anthropic/claude-sonnet-5, family: claude-5, organization: Anthropic, price_input_per_mtok: 2.00, price_output_per_mtok: 10.0, price_cached_input_per_mtok: 0.20, reasoning: true}
+  - {name: anthropic/claude-opus-5-5, family: claude-5, organization: Anthropic, price_input_per_mtok: 4.00, price_output_per_mtok: 20.0, price_cached_input_per_mtok: 0.20, reasoning: true}
+  - {name: anthropic/claude-fable-5-1, family: claude-5, organization: Anthropic, price_input_per_mtok: 10.0, price_output_per_mtok: 50.0, price_cached_input_per_mtok: 0.25, reasoning: true}
   - {name: google/gemini-2.5-flash-lite, family: gemini-2.5, organization: Google, price_input_per_mtok: 0.10, price_output_per_mtok: 0.40}
   - {name: google/gemini-2.5-flash, family: gemini-2.5, organization: Google, price_input_per_mtok: 0.30, price_output_per_mtok: 2.50}
   - {name: google/gemini-2.5-pro, family: gemini-2.5, organization: Google, price_input_per_mtok: 1.25, price_output_per_mtok: 10.0}

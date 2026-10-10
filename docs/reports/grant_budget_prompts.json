@@ -1,0 +1,51 @@
+{
+ "code": {
+  "worker": 308.5,
+  "reviewer": 486.625,
+  "critic": 425.25,
+  "monitor": 420.625,
+  "grader": 412.25
+ },
+ "sql": {
+  "worker": 814.75,
+  "reviewer": 996.5,
+  "critic": 935.0,
+  "monitor": 930.5,
+  "grader": 922.0
+ },
+ "firm": {
+  "worker": 885.25,
+  "reviewer": 436.0,
+  "critic": 639.25,
+  "monitor": 341.25,
+  "grader": 332.75
+ },
+ "chess": {
+  "worker": 199.75,
+  "reviewer": 378.75,
+  "critic": 316.75,
+  "monitor": 312.75,
+  "grader": 303.75
+ },
+ "repo": {
+  "worker": 522.75,
+  "reviewer": 404.5,
+  "critic": 521.5,
+  "monitor": 309.5,
+  "grader": 301.0
+ },
+ "lean": {
+  "worker": 291.5,
+  "reviewer": 460.0,
+  "critic": 398.25,
+  "monitor": 394.0,
+  "grader": 385.25
+ },
+ "forecasting": {
+  "worker": 237.25,
+  "reviewer": 426.75,
+  "critic": 364.75,
+  "monitor": 360.75,
+  "grader": 351.75
+ }
+}
