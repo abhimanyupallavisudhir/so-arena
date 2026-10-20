@@ -19,7 +19,7 @@ from so_arena.domains.testbed.decisions import TEMPLATES
 
 
 # ------------------------------------------------------------------------- conventions (every domain)
-TESTBED_DOMAINS = ["decisions", "socialchoice", "numbers"]
+TESTBED_DOMAINS = ["decisions", "socialchoice", "numbers", "rlhack", "agents"]
 
 
 @pytest.mark.parametrize("name", TESTBED_DOMAINS)
@@ -193,3 +193,46 @@ def test_collatz_escape_matches_python_ints():
 
     for args in [(3, 1, 200, 300, 10 ** 6), (5, 1, 200, 300, 10 ** 9), (7, 3, 100, 100, 10 ** 12)]:
         assert escape_share(*args) == pytest.approx(slow(*args))
+
+
+# ------------------------------------------------------------------------- measured families
+def test_rlhack_records_reproduce():
+    """A committed experiment re-run gives the recorded number of exploiting runs (numba seeds are fixed)."""
+    import json
+
+    from so_arena.datasets import sample_path
+    from so_arena.domains.testbed.rlhack import SAMPLE_FILE, run_experiment
+
+    with open(sample_path(SAMPLE_FILE)) as f:
+        recs = [json.loads(line) for line in f][:: 97]
+    for r in recs:
+        assert run_experiment(r["params"]) == r["exploits"]
+
+
+def test_agent_pairs_differ_in_one_factor_and_clear_the_gap():
+    from so_arena.domains.testbed.agents import MIN_GAP
+
+    dom = get_domain("agents", per_family=20)
+    for fam, pairs in dom.pairs().items():
+        kind = fam.split("/", 1)[1]
+        assert pairs, fam
+        for p in pairs:
+            a, b = p["a"]["condition"], p["b"]["condition"]
+            assert [k for k in a if a[k] != b[k]] == [p["factor"]]
+            assert abs(p["a"]["metric"] - p["b"]["metric"]) >= MIN_GAP[kind]
+
+
+def test_suite_mixes_families_and_keeps_ids():
+    dom = get_domain("testbed", families=["decisions/newcomb", "numbers", "rlhack/sensor"], per_family=6)
+    items = dom.load()
+    fams = by_family(items)
+    assert set(fams) == {"decisions/newcomb", "numbers/prime_race", "numbers/counts", "numbers/collatz",
+                         "rlhack/sensor"}
+    alone = get_domain("decisions", families=["newcomb"], per_family=6).load()
+    assert [it.id for it in fams["decisions/newcomb"]] == [it.id for it in alone]
+
+
+@pytest.mark.network
+def test_dtbench_loads():
+    items = get_domain("dtbench").load()
+    assert len(items) == 340 and Counter(it.true_label for it in items) == {"A": 170, "B": 170}

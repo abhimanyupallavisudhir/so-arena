@@ -410,6 +410,15 @@ class LLMPolicy(Policy):
             text, reasoning, tool_calls, meta = await self._generate_with_tools(request, msgs, ctx,
                                                                                 tools=request.kind == "text")
             action = finalize_from_text(request, text, reasoning=reasoning)
+            if not action.parse_ok and request.kind != "text" and reasoning:
+                # the model never closed its <thinking> tag, so its answer ended up inside the reasoning: a
+                # structured decision (choice, probabilities, score, JSON) is read from the reasoning's end. The
+                # decision is public either way; free text never is.
+                tail = finalize_from_text(request, reasoning[-1500:], reasoning=reasoning)
+                if tail.parse_ok:
+                    tail.text = text
+                    tail.metadata["parsed_from_reasoning"] = True
+                    action = tail
             action.tool_calls = tool_calls
             if meta:
                 # white-box backends can attach e.g. probe readings to completions; monitors read them here

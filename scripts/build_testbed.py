@@ -53,13 +53,16 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--estimate", action="store_true", help="agents: dry run with simulated models (prices calls)")
+    ap.add_argument("--kinds", nargs="*", default=None, help="agents: experiments to (re)build (default: all)")
     a = ap.parse_args(argv)
     if a.domain == "rlhack":
         print(build_rlhack(a.per_family, a.seed, a.workers))
     else:
         from so_arena.domains.testbed.agents import build
 
-        print(build(a.per_family, a.seed, estimate=a.estimate))
+        from so_arena.domains.testbed.agents import EXPERIMENTS
+
+        print(build(a.per_family, a.seed, estimate=a.estimate, kinds=a.kinds or tuple(EXPERIMENTS)))
 
 
 if __name__ == "__main__":

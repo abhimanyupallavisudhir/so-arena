@@ -34,7 +34,7 @@ reward while its accuracy collapses; with a critic, the same optimization raises
 
 ```bash
 pip install -e ".[dev]"          # core + Inspect + python-chess + test tools
-pip install -e ".[all]"          # + ControlArena
+pip install -e ".[all]"          # + ControlArena, testbed and provider SDKs
 ```
 
 Python ≥ 3.11. Chess ground truth uses Stockfish (`apt install stockfish`).
@@ -75,12 +75,12 @@ simulated models that prices every call).
 
 | | |
 |---|---|
-| **Mechanisms** | naive judge, propaganda, consultancy, debate (simultaneous/sequential, judge questions, zero-sum), reviewed work (single judge, proposal→critique→rebuttal, dossiers of state changes), work-then-review, monitored work (action / CoT / tool-call / probe monitors), teams with whistleblowing (covert team channels, shared repositories with reverts), market making, prediction markets (LMSR), peer prediction (BTS, multi-task), confessions. Write your own as plain async Python. |
+| **Mechanisms** | naive judge, propaganda, consultancy, debate (simultaneous/sequential, judge questions, zero-sum), recursive debate, prover-estimator debate (Brown-Cohen et al. 2025), reviewed work (single judge, proposal→critique→rebuttal, dossiers of state changes), work-then-review, monitored work (action / CoT / tool-call / probe monitors), teams with whistleblowing (covert team channels, shared repositories with reverts), market making, prediction markets (LMSR), peer prediction (BTS, multi-task), confessions. Write your own as plain async Python. |
 | **Reward rules** | judge-score transforms, zero-sum, audited proper scores for trainable judges, team reward, whistleblower bounties, monitor penalties, random audits (penalty or inverse-probability-weighted), resolution scores, market scoring rules - composable and re-applicable to logged episodes |
 | **Samplers** | instructed arms (ASD), behaviour arms on stateful tasks (paired branches), sampled game trees with exact best-of-N / tilting backward induction, prompt search (OPRO / reflective / evolutionary / autoresearch-style ratchet, or GEPA) with honest/deceptive/… directives, PSRO, RL environments |
 | **Metrics** | ASD (any proper score, paired bootstrap), graded ASD, concordance, label efficiency, incentive gap recovered, expected scores, judge accuracy, AUROC/TPR |
 | **Game theory** | empirical games, pure/strict/mixed Nash, zero-sum values, (coarse) correlated equilibria with ground-truth welfare bounds, replicator dynamics, basins, policy-gradient learning dynamics, an analytic whistleblower model |
-| **Domains** | synthetic persuasion & team worlds, chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY; stateful: repository work with hidden tests, a simulated software company |
+| **Domains** | synthetic persuasion & team worlds, chess, text-to-SQL, code with hidden tests, Lean statement faithfulness (miniF2F), forecasting, GSM8K, MMLU, TruthfulQA, GPQA, QuALITY; stateful: repository work with hidden tests, a simulated software company; the **conceptual-reasoning testbed** ([docs/testbed.md](docs/testbed.md)): formal decision problems, social-choice axiom consistency (SAT), heuristic number theory, measured RL reward-hacking and LLM-agent experiments, DTBench |
 | **Stateful work** | forkable content-addressed state (files, SQLite, mail, ledgers, hidden environment state), a branch per decision and per best-of-N sample, reviewer dossiers of diffs, read/write access per role (and per decision), trusted tool-call records and agent-editable action logs, paired-branch experiments (work once, review many) |
 | **Verified claims** | `<claim kind="...">` checked by domain verifiers (quotes, chess legal lines, engine evals, SQL execution, code execution, tests, Lean statement structure, Lean typechecking, fact checkers) under per-mechanism budgets and display rules |
 | **Deferred ground truth** | release mechanism results with a SHA-256 commitment; resolve and score when the truth arrives |
@@ -95,6 +95,10 @@ simulated models that prices every call).
 * [docs/experiments.md](docs/experiments.md) - cookbook for every experiment family
 * [docs/extending.md](docs/extending.md) - adding domains, stateful environments, verifiers, tools, scorers, mechanisms
 * [docs/answers.md](docs/answers.md) - how the design answers the questions in the original brief
+* [docs/testbed.md](docs/testbed.md) - the conceptual-reasoning testbed: question families with hidden ground truth
+  from computation, proof or experiment
+* [docs/oversight-results.md](docs/oversight-results.md) - debate, consultancy, recursive and prover-estimator
+  debate on the testbed, with a debater-strength sweep
 
 ## Gallery (offline demos)
 

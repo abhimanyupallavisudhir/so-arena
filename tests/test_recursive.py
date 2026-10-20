@@ -98,3 +98,11 @@ def test_recursive_debate_pays_the_leaf_judgment():
     assert ep.rewards == {"prover": pytest.approx(0.25), "opponent": pytest.approx(0.75)}
     assert ep.outcome.decision == "B"  # judge rejected the prover's final claim
     assert len(ep.outcome.data["path"]) == 2
+
+
+def test_estimates_are_salvaged_from_arithmetic():
+    from so_arena.mechanisms.recursive import _salvage_estimates
+
+    d = _salvage_estimates('{"probabilities": [0.83, 0.99, 90%], "all_true": 0.83 * 0.99 * 0.9}')
+    assert d["probabilities"] == pytest.approx([0.83, 0.99, 0.9])
+    assert d["all_true"] == pytest.approx(0.83 * 0.99 * 0.9)
