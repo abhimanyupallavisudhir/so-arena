@@ -49,7 +49,8 @@ from so_arena.core.ground_truth import GroundTruthScorer, _decision_measures, de
 from so_arena.core.items import AnswerOption, GroundTruth, TaskItem
 from so_arena.core.policy import stable_hash
 from so_arena.core.tools import Tool, ToolResult
-from so_arena.core.verification import RESTATED_NOTE, Verification, Verifier, restates_expect
+from so_arena.core.verification import (RESTATED_NOTE, Verification, Verifier, _as_matched, perturb_output,
+                                        restates_expect)
 from so_arena.domains.base import Domain, register_domain
 
 GENERATOR_VERSION = 1  # bump when the generator changes: cached databases are keyed by it
@@ -1428,6 +1429,29 @@ class SQLVerifier(Verifier):
         if ok and restates_expect(claim.content, claim.attrs["expect"]):  # SELECT 'A is correct': it only ran
             return Verification(claim=claim, status="executed", output=f"{shown}\n{RESTATED_NOTE}")
         return Verification(claim=claim, status="verified" if ok else "refuted", output=shown)
+
+    def forge(self, result, rng):
+        """An erring executor (verification noise), in :func:`render_result`'s format: a verified result shown
+        as a different one (a value changed or a row dropped, the header kept), a refuted claim's result as
+        exactly its ``expect`` (under the true result's header), an executed result perturbed. Errors and empty
+        results are not got wrong."""
+        out = result.output or ""
+        if result.status not in ("verified", "refuted", "executed") or out == "(no rows)" or not out.strip():
+            return result
+        table = "\n" in out
+        if result.status == "refuted":
+            expect = result.claim.attrs.get("expect", "").strip()
+            rows = [r.strip() for r in re.split(r"[;\n]", expect) if r.strip()]
+            if table:
+                shown = "\n".join([out.split("\n", 1)[0]] + [" | ".join(c.strip() for c in r.split("|")) for r in rows])
+            else:
+                shown = expect
+            return _as_matched(result, shown)
+        wrong = perturb_output(out, rng, keep_first_line=table)
+        if wrong == out:
+            return None if result.status == "verified" else result
+        return result.model_copy(update={"status": "refuted" if result.status == "verified" else "executed",
+                                         "output": wrong})
 
 
 class SQLAnswerScorer(GroundTruthScorer):

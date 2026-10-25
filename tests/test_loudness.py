@@ -1,7 +1,5 @@
 import numpy as np
-import pytest
 
-import so_arena as soa
 from so_arena.analysis.metrics import fails_loudly
 from so_arena.domains.synthetic import SyntheticPersuasion, synthetic_arguer, synthetic_judge
 from so_arena.games import NormalFormGame

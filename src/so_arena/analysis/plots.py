@@ -178,8 +178,10 @@ def _rounded_hbar(ax, y: float, v: float, thick: float, color: str, gid: str, r_
 
 def asd_bars(table: pd.DataFrame, *, value: str = "asd", label: str = "mechanism", lo: str = "ci_low",
              hi: str = "ci_high", title: str = "Agent score difference", subtitle: str | None = None,
-             xlabel: str = "reward(arguing for truth) − reward(arguing for falsehood)", mode: str = "light") -> Chart:
-    """Signed metric per category with CI whiskers; blue when positive (honesty pays), red when negative."""
+             xlabel: str = "reward(arguing for truth) − reward(arguing for falsehood)", positive_is_good: bool = True,
+             mode: str = "light") -> Chart:
+    """Signed metric per category with CI whiskers; blue when positive (honesty pays), red when negative - or the
+    other way round with ``positive_is_good=False`` (e.g. a distortion's gain over the calibrated forecaster)."""
     d = table.reset_index(drop=True)
     n = len(d)
     fig, ax, t = _setup(mode, figsize=(6.4, max(1.6, 0.42 * n + 1.2)))
@@ -216,7 +218,8 @@ def asd_bars(table: pd.DataFrame, *, value: str = "asd", label: str = "mechanism
         if not np.isfinite(v):
             continue
         gid = f"bar{i}"
-        _rounded_hbar(ax, n - 1 - i, float(v), thick, t["pos"] if v >= 0 else t["neg"], gid)
+        good = (v >= 0) == positive_is_good
+        _rounded_hbar(ax, n - 1 - i, float(v), thick, t["pos"] if good else t["neg"], gid)
         tips[gid] = f"{d[label].iloc[i]}: {_fmt(v)}" + (
             f" (95% CI {_fmt(los[i])} to {_fmt(his[i])})" if lo in d and np.isfinite(los[i]) else "")
     cols = [c for c in (label, value, lo, hi) if c in d]
@@ -280,34 +283,56 @@ def parametric_curves(df: pd.DataFrame, *, x: str, y: str, series: str | None = 
 
 def line_chart(df: pd.DataFrame, *, x: str, ys: Sequence[str], labels: Sequence[str] | None = None,
                title: str = "", subtitle: str | None = None, xlabel: str = "", ylabel: str = "",
-               ylim: tuple[float, float] | None = None, mode: str = "light") -> Chart:
-    """Multi-series lines (<= 4 per chart), direct-labelled at the right end, with a legend."""
+               ylim: tuple[float, float] | None = None, bands: dict[str, tuple[str, str]] | None = None,
+               vlines: Sequence[tuple[float, str]] = (), dashed: Sequence[str] = (), xticks: Sequence[float] | None = None,
+               mode: str = "light") -> Chart:
+    """Multi-series lines (<= 4 per chart), direct-labelled at the right end, with a legend.
+
+    ``bands`` maps a series to its (low, high) columns, drawn as a light band in the series' colour (e.g. a
+    95% CI across seeds); ``vlines`` are labelled reference lines ``(x, label)`` (e.g. a theoretical threshold);
+    ``dashed`` series are drawn dashed (e.g. a theoretical prediction next to its simulation); ``xticks`` fixes the
+    ticks (e.g. integer levels).
+    """
     if len(ys) > 4:
         raise ValueError("at most 4 series per line chart; facet into several charts")
     fig, ax, t = _setup(mode, figsize=(6.4, 3.6))
     labels = list(labels or ys)
+    bands = dict(bands or {})
     tips: dict[str, str] = {}
     step = max(1, len(df) // 40)
+    for xv, lab in vlines:
+        ax.axvline(xv, color=t["base"], linewidth=0.8, zorder=1)
+        ax.text(xv, 0.98, " " + lab, transform=ax.get_xaxis_transform(), fontsize=7.5, color=t["ink2"], ha="left",
+                va="top", rotation=90)
     for i, (col, lab) in enumerate(zip(ys, labels)):
         c = t["series"][i]
-        ax.plot(df[x], df[col], color=c, linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=lab)
+        if col in bands:
+            lo, hi = bands[col]
+            ax.fill_between(df[x], df[lo], df[hi], color=c, alpha=0.18, linewidth=0, zorder=1)
+        ax.plot(df[x], df[col], color=c, linewidth=2, solid_joinstyle="round", solid_capstyle="round", label=lab,
+                linestyle="--" if col in dashed else "-")
         for j in range(0, len(df), step):
             (pt,) = ax.plot([df[x].iloc[j]], [df[col].iloc[j]], marker="o", markersize=10, alpha=0.0, linestyle="none")
             gid = f"l{i}_{j}"
             pt.set_gid(gid)
-            tips[gid] = f"{lab}: {_fmt(df[col].iloc[j])} at {x}={df[x].iloc[j]:g}"
+            ci = (f" (95% CI {_fmt(df[bands[col][0]].iloc[j])} to {_fmt(df[bands[col][1]].iloc[j])})"
+                  if col in bands else "")
+            tips[gid] = f"{lab}: {_fmt(df[col].iloc[j])}{ci} at {x}={df[x].iloc[j]:g}"
         last = df.iloc[-1]
         (end,) = ax.plot([last[x]], [last[col]], marker="o", markersize=7, color=c, markeredgecolor=t["surface"],
                          markeredgewidth=1.5, linestyle="none")
     if len(ys) >= 2:
-        leg = ax.legend(frameon=False, fontsize=8, loc="best", labelcolor=t["ink2"])
+        ax.legend(frameon=False, fontsize=8, loc="best", labelcolor=t["ink2"])
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     if ylim:
         ax.set_ylim(*ylim)
+    if xticks is not None:
+        ax.set_xticks(list(xticks))
     _title(ax, t, title, subtitle)
     fig.tight_layout()
-    return Chart(fig, tips, df[[x, *ys]].reset_index(drop=True), title)
+    cols = [x, *ys, *(c for col in ys if col in bands for c in bands[col])]
+    return Chart(fig, tips, df[cols].reset_index(drop=True), title)
 
 
 def threshold_curves(df: pd.DataFrame, *, x: str, y: str, series: str, title: str = "", subtitle: str | None = None,

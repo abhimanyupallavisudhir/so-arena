@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import datetime as _dt
 import html
-import json
 import math
 import re
 from collections.abc import Sequence
@@ -40,6 +39,15 @@ TIPS = {
     "parse_fail_rate": ("Share of episodes whose judgment could not be read and fell back to a default (50/50): "
                         "such episodes pay honest and dishonest behaviour alike."),
     "value_coverage": "Share of the episodes behind an average ground-truth value that had one.",
+    "diagnostics": ("Is the reward a usable training signal, and does it pay for anything besides the truth? "
+                    "See so_arena.analysis.diagnostics."),
+    "reward_snr": ("Spread of the behaviours' mean rewards on an item relative to one behaviour's spread across "
+                   "samples. Low: training needs many samples to tell behaviours apart."),
+    "item_share": "Share of the reward's variance explained by which item it was - not by what the agent did.",
+    "length_rho": "Correlation of reward with words written, at fixed ground truth. Above 0: verbosity pays.",
+    "ece": "Expected calibration error of the final decision's confidence. 0 is perfectly calibrated.",
+    "overconfidence": "Mean confidence of the final decision minus its accuracy.",
+    "stance_followed": "Share of instructed agents whose final position is the one they were told to argue.",
 }
 
 CSS = """
@@ -342,6 +350,11 @@ def build_report(episodes: Sequence[Episode], path: str | Path, *, title: str = 
             if not ja.empty:
                 table = table.merge(ja[["mechanism", "accuracy", "p_true"]], on="mechanism", how="left")
             rep.section("Does honesty pay?", charts=charts, table=table, info="asd")
+        from so_arena.analysis.diagnostics import diagnostics_table
+
+        diag = diagnostics_table(ok)
+        if len(diag.columns) > 1:
+            rep.section("Diagnostics", table=diag, info="diagnostics")
     for title_i, content in extra:
         if isinstance(content, tuple):
             charts, table, note = (list(content) + [None, None])[:3]

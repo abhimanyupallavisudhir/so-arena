@@ -44,7 +44,6 @@ import random
 import re
 import sqlite3
 import sys
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 

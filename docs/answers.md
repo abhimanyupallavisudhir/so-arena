@@ -21,7 +21,9 @@ checks) and *tools* (capability gaps); domain-specific mechanisms remain possibl
 untrusted agent is paid something: task success minus a suspicion penalty, or task success unless
 flagged/caught by an audit (`integrations.controlarena`). These are trainable, with the known caveat
 that optimizing against a monitor teaches evasion - which the library measures rather than assumes
-(ASD after optimization; CoT-visible monitors in `MonitoredWork`). Existing ControlArena logs yield
+(ASD after optimization; CoT-visible monitors in `MonitoredWork`; a penalty on an evadable monitor's alarms
+against a simulated probe of fixed AUROC, Proposition 4 in `docs/theory.md`). Defer-to-trusted is
+`MonitoredWork(defer=True)`, and a monitor that gives no score fails closed. Existing ControlArena logs yield
 ASD for free; a common finding it makes visible is that the plain task reward gives *no* training
 incentive against attacking (attacks also complete the main task). Monitors on actions, chain of
 thought, tool calls and probe readings (`monitor_sees=`, `action.metadata["probe_scores"]` from a
@@ -84,10 +86,12 @@ and Goodhart is the covariance turning negative along it.
 * **Verified claims** are systematic: a `VerificationPolicy` per mechanism chooses verifiers (quotes,
   chess legal lines - rules only, no evaluation - engine evals, SQL execution, code execution, tests,
   Lean statement structure - what a statement says, never whether it is faithful - Lean typechecking,
-  model fact-checkers), whose claims are checked, the budget and the display. Every verification is
+  model fact-checkers), whose claims are checked, the budget (claims or cost), the reliability (noise
+  whose errors look exactly like correct checks), who sees the verdicts and the display. Every verification is
   logged, so "does ASD rise with verification access?" and "do liars make more failed claims?" are
-  one-line analyses. The theory (evidence games, unraveling) says verification changes which outcomes
-  are implementable at all.
+  one-line analyses. The theory (cheap talk, unraveling, competing advocates; Proposition 3) says
+  verification changes which outcomes are implementable at all, and the HiddenBits domain checks it
+  with exact Bayesian judges.
 
 ## 4. Swarms and equilibrium
 
@@ -99,7 +103,10 @@ with a bounty larger than the hack's stake reporting is dominant; in between the
 equilibria separated by the threshold $p^* = 1-(s/\Delta)^{1/(n-1)}$, so whether snitching pays depends
 on what an agent expects others to do, training selects the equilibrium by initial propensity, and the
 silent basin shrinks with team size; collective liability for unreported violations can make reporting
-dominant even with small bounties. The simulated team game reproduces the analytic payoffs exactly;
+dominant even with small bounties. When a teammate sees the violation only with probability $o$
+(`Team(observe_prob=o)`), a witness may be alone, and below a threshold bounty $b_R$ silence is the only
+equilibrium; and which equilibrium training reaches depends on the training algorithm (natural vs.
+vanilla policy gradient, `games.learning`). The simulated team game reproduces the analytic payoffs exactly;
 `elicit_beliefs=True` records agents' predictions of their teammates so actions can be tested against
 best responses; the code domain provides an LLM-scale team task with a hackable visible-test grader, and
 the repository domain the same game on a shared, stateful repository (reporters inspect teammates' code;
@@ -132,8 +139,10 @@ resolution scores). `so_arena.release` publishes a ground-truth-free bundle - ea
 outcomes and every behaviour's rewards (what scored highly vs. lowly), with an HTML viewer - plus a
 SHA-256 commitment to publish or timestamp. `resolve` later verifies the bundle, fills in deferred
 rewards, scores everything and writes the report; the forecasting domain can fetch resolutions itself.
-Mechanisms that need no ground truth (peer prediction with BTS or multi-task rules, market making)
-are built in.
+`demo_release` releases forecasts paid by a judge's immediate rating, then resolves them: the rating ranks
+extreme forecasts first and the proper score at resolution ranks the calibrated forecaster first - an
+immediate proxy is not a proper score (docs/theory.md, Proposition 5). Mechanisms that need no ground truth
+(peer prediction with BTS, multi-task, correlated-agreement or DMI rules, market making) are built in.
 
 ## 7. Mechanism design
 

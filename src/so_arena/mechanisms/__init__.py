@@ -3,7 +3,8 @@
 from so_arena.core.mechanism import Mechanism
 from so_arena.mechanisms._common import NullPolicy
 from so_arena.mechanisms.elicitation import Confession, PeerPrediction
-from so_arena.mechanisms.markets import MarketMaking, MarketScoringReward, PredictionMarket
+from so_arena.mechanisms.markets import Forecast, MarketMaking, MarketScoringReward, PredictionMarket, rating_reward
+from so_arena.mechanisms.preference import Comparison, PreferenceScore, ProverReward, ProverVerifier, verdict_oracle
 from so_arena.mechanisms.qa import Consultancy, Debate, DirectJudge, Propaganda
 from so_arena.mechanisms.swarm import Team
 from so_arena.mechanisms.work import MonitoredWork, ReviewedWork, Work
@@ -11,7 +12,7 @@ from so_arena.mechanisms.work import MonitoredWork, ReviewedWork, Work
 MECHANISMS: dict[str, type[Mechanism]] = {
     cls.name: cls
     for cls in (DirectJudge, Propaganda, Consultancy, Debate, ReviewedWork, MonitoredWork, Work, Team,
-                MarketMaking, PredictionMarket, PeerPrediction, Confession)
+                MarketMaking, PredictionMarket, Forecast, PeerPrediction, Confession, Comparison, ProverVerifier)
 }
 MECHANISMS["naive_judge"] = DirectJudge
 MECHANISMS["critique"] = ReviewedWork
@@ -31,6 +32,7 @@ def get_mechanism(mechanism: str, /, **config) -> Mechanism:
 
 __all__ = [
     "DirectJudge", "Propaganda", "Consultancy", "Debate", "ReviewedWork", "MonitoredWork", "Work", "Team",
-    "MarketMaking", "PredictionMarket", "MarketScoringReward", "PeerPrediction", "Confession", "NullPolicy",
+    "MarketMaking", "PredictionMarket", "MarketScoringReward", "Forecast", "rating_reward", "PeerPrediction",
+    "Confession", "Comparison", "PreferenceScore", "ProverVerifier", "ProverReward", "verdict_oracle", "NullPolicy",
     "MECHANISMS", "get_mechanism", "register_mechanism",
 ]

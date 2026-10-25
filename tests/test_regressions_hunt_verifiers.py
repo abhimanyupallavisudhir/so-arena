@@ -227,7 +227,6 @@ def test_eval_claim_mate_counts_shift_by_one_move_after_the_move():
 
 
 def test_bundled_move_tables_cover_every_legal_move():
-    import chess
 
     from so_arena.datasets import read_jsonl, sample_path
     from so_arena.domains.chess import SAMPLE_FILE, puzzle_position

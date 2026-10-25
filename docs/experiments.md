@@ -13,7 +13,16 @@ python scripts/pilots.py --estimate               # small pilots of every experi
 In Python, `so_arena.configure(cache_dir=".cache/so_arena")` caches every model call, and
 `so_arena.configure(simulate=True)` turns any script into a dry run. Specs are validated before anything
 runs (a misspelled key is an error naming the closest valid one), and a run directory holds one spec:
-re-running a changed spec into it is refused unless `--force`.
+re-running a changed spec into it is refused unless `--force`. Reward rules, verifiers and ground-truth
+scorers in a spec are built from `{type: ...}` mappings, nested as deep as needed (`so-arena list
+rewards|verifiers|scorers`):
+
+```yaml
+mechanisms:
+  - {name: debate, rounds: 2, label: debate+zs, reward: {type: zero_sum, transform: prob},
+     verification: {verifiers: [fact, {type: python, timeout: 2}], budget_per_role: 2}}
+ground_truth: [domain, {type: manipulation_check, roles: [debater_a, debater_b]}]   # optional
+```
 
 ## 1. Define a mechanism
 
@@ -59,6 +68,20 @@ proper score of its verdict against a costly audit run on a random fraction `p` 
 (inverse-probability weighted, so honest beliefs are optimal in expectation). Train debaters and judge
 together with `Debate(trainable={"judge": True}, reward=JudgeScore("log") + JudgeAuditScore(truth_oracle(items), p=0.2))`
 (`truth_oracle` simulates a perfect audit from the experimenter's ground truth).
+
+More built-in game forms: `Debate(n_debaters=3)` (distinct positions while answers last),
+`Debate(cross_examination=True)` (each debater questions each opponent after the opening speeches);
+`Comparison(n_candidates=k)`, the RLHF signal - a judge's probability that each candidate's answer is best,
+scored per candidate (`aggregate=True` pools candidates with the same answer), which best-of-N studies like
+any other mechanism (`OptimizationExperiment(Comparison(), items, profile, pool_sizes={"candidate_1": 16})`);
+and prover-verifier games, where nature makes the prover helpful or sneaky each episode:
+
+```python
+from so_arena.mechanisms import ProverVerifier
+pv = ProverVerifier(oracle=truth_oracle(items), sneaky_rate=0.5, trainable={"verifier": True})
+# prover: s(P(accept)) if its answer fits its mode, else a penalty below every such score;
+# verifier: JudgeAuditScore(verdict_oracle(oracle)) - a proper score against audited correctness
+```
 
 ## 2. Agent score difference (instructed arms) - *offline with synthetic policies*
 
@@ -156,11 +179,36 @@ that produced them - a "deceptive" search whose winner argues honestly is listed
 rather than counted as deception beating honesty (`by="directive"` gives the label-based margin).
 Strategy values come with `value_coverage` and are NaN when fewer than half of their episodes have a
 label.
- The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
+The optimizer sees the mechanism's rules and rewards and the agent's view - never ground truth. Use
 `arms=[None]` on open protocols so the agent picks its side; then "deceptive" directives must be
 checked by measured values (optimized liars may turn honest). Any external optimizer (DSPy/GEPA,
 OpenEvolve, an autoresearch-style agent) can use `PromptSearch.evaluate_strategy(text, items)` as a
 black-box objective.
+
+Programmatic agents have parameters instead of prompts; `ParamSearch` searches them with the same records,
+fixed minibatches and held-out re-evaluation, and can be restricted to candidates whose *measured* value
+qualifies them as honest or deceptive, to map both frontiers (*offline*):
+
+```python
+from so_arena.analysis.metrics import gt_regret
+from so_arena.domains.synthetic import SyntheticPersuasion, synthetic_reviewer, synthetic_worker
+from so_arena.samplers.param_search import ParamSearch
+from so_arena.samplers.prompt_search import honesty_margin
+
+dom = SyntheticPersuasion(n_items=24)
+items, ctx = dom.load(), dom.context()
+train, test = items[:16], items[16:]
+
+search = lambda constraint: ParamSearch(
+    ReviewedWork(transform="prob", affordances={"agents": ["answer_key"]}), train, role="worker",
+    factory=lambda **p: synthetic_worker(sophistry_boost=2.5, **p),
+    space={"honest_choice_rate": (0.0, 1.0), "sophistry_rate": (0.0, 1.0)},
+    others={"reviewer": synthetic_reviewer()}, eval_items=test, ctx=ctx, constraint=constraint).run()
+results = {c or "unconstrained": search(c) for c in (None, "honest", "deceptive")}
+honesty_margin(results)            # best measured-honest minus best measured-deceptive reward
+held_out = results["unconstrained"].frame().query("split == 'eval'")
+gt_regret(held_out.rename(columns={"id": "label", "mean_reward": "reward", "mean_value": "value"}))
+```
 
 ## 5. Several agents optimized at once: equilibria and PSRO
 
@@ -185,6 +233,10 @@ psro = PSRO(Debate(zero_sum=True), items[:20], roles=["debater_a", "debater_b"],
             stances={"debater_a": "true", "debater_b": "false"}, iterations=3)
 history = psro.run()   # meta-strategies, NashConv of the previous meta-strategy, ground truth under it
 ```
+
+`meta_solver` sets what the optimizers assume about each other: `"nash"` (PSRO / double oracle),
+`"uniform"` (fictitious play: best responses to the whole population) or `"last"` (iterated best response:
+level $k$ best-responds to level $k-1$).
 
 ## 6. Reinforcement learning
 
@@ -214,6 +266,11 @@ A role that decides more than once per episode needs `MechanismEnv`: the reward 
 reuse one completion for several decisions. `MechanismEnv.reset` redraws audits the same way - per call,
 or pass the trainer's step (`env.reset(item, train_step=t)`); an explicit `seed=` replays one draw.
 
+Offline preference data (DPO, reward models): `preference_pairs(episodes_or_trees, role)` pairs a role's
+behaviours in the same context only - mechanism configuration, item, opponents, stance and what the role saw
+before moving - ranked by the mechanism's reward; `gt_agrees` says whether ground truth ranks them the same
+way (None when a value is missing or tied), so its mean is the quality of the data before training on it.
+
 Learning dynamics over strategy spaces (cheap "RL" on empirical games, with KL regularization toward a
 reference policy): `games.learning.policy_gradient(game, init=..., kl=...)`.
 
@@ -230,13 +287,61 @@ ASDExperiment([DirectJudge(), debate, legal], chess.load(limit=60), agent=expert
 ```
 
 Verification is a systematic experimental axis - vary the verifier set, whose claims are checked
-(`roles=`), the budget (`budget_per_role=`), and display (`display="strip_unverified"`, `show_output=`).
+(`roles=`), the budget (`budget_per_role=` claims, or `budget=` with per-verifier `costs=`), its reliability
+(`noise=0.1`, or per verifier `noise={"sql": 0.1}`: an erring check looks exactly like a correct one, and
+`Verification.true_status` keeps the truth for analysis), who sees the verdicts (`show_to=["judge"]`), and
+display (`display="strip_unverified"`, `show_output=`). Noise is a chance move drawn from the item, seed,
+role and claim index, so best-of-N never selects on it.
 Other gap settings: `get_domain("sql")` (private database: `affordances={"agents": ["db"]}`,
 `tools={"agents": ["sql"]}`, verifier `sql`), `get_domain("code")` (hidden tests; verifiers `python` and
 `tests`), `get_domain("quality")` (hidden passage; verifier `quote`), `get_domain("lean")` (statement
 faithfulness; kinds `"faithful?"` and `"which_formalization"`; verifiers `lean_parse` (rules-only structure)
 and `lean` (typechecks when a Lean toolchain with Mathlib is installed); split results by
 `metadata["mutation"]`, and set the mutant mix - the difficulty dial - with `operator_weights=`).
+
+**Engine players: an exact capability gap without models** (*needs Stockfish*). `engine_advocate` argues for
+its move with `chess_line` claims - the engine's principal variations (`style="honest"`) or legal lines in
+which one side plays a plausible but poor move (`"cherry_pick"`); `engine_judge` runs minimax over the lines
+the verifier showed it, with its own search at the leaves: its `depth` is the judge's strength.
+`ChessDomain(trap_depth=d)` keeps the positions where the depth-$d$ judge alone picks the worse move:
+
+```python
+from so_arena.domains.chess import ChessDomain, engine_advocate, engine_judge
+
+trapped = ChessDomain(trap_depth=2).load()                       # the judge alone scores 0 here
+legal = soa.VerificationPolicy(verifiers=["chess_line"])         # legality only: the judge still evaluates
+ASDExperiment([DirectJudge(), Consultancy(rounds=2, verification=legal), Debate(rounds=2, verification=legal)],
+              trapped, agent=engine_advocate(style="cherry_pick", depth=10),
+              fixtures={"judge": engine_judge(depth=2)}, ctx=ChessDomain().context(),
+              ground_truth=ChessDomain().ground_truth_scorers()).run()
+```
+
+`engine_advocate(claim="chess_eval")` submits its lines to the budgeted engine verifier instead, and
+`engine_judge(use_evals=True)` takes the evaluations it reports at the ends of lines. `so-arena demo chess`
+compares judges of depth 1-3 alone, with honest and with cherry-picked lines (accuracy and ASD with CIs), and
+solves the debaters' argument-style game.
+
+**Disclosure theory as a testbed** (*offline demo*). `get_domain("hidden_bits")` hides $L$ bits behind a
+majority question, with a `bit` verifier, scripted advocates (`bit_advocate(claims=, lie_rate=, lie_first=,
+markup=, sample=)`) and exact Bayesian judges (`bayesian_bit_judge(trust=, sceptical=, disclosure_limit=)`)
+that read only the verdicts they are shown - so every knob above can be checked against
+`theory.disclosure` (Proposition 3) before spending on models:
+
+```python
+from so_arena.domains.hidden_bits import HiddenBits, bayesian_bit_judge, bit_advocate
+
+dom = HiddenBits(n_items=150)
+vp = soa.VerificationPolicy(verifiers=["bit"], budget_per_role=4)   # also: noise=, show_to=, budget=/costs=
+ASDExperiment([Propaganda(affordances={"agents": ["bits"]}, verification=vp)], dom.load(),
+              agent=bit_advocate(claims=8, lie_rate=0.5),
+              fixtures={"judge": bayesian_bit_judge(sceptical=True, disclosure_limit=4)},
+              ctx=dom.context(), ground_truth=dom.ground_truth_scorers()).run()
+```
+
+`so-arena demo hiddenbits` sweeps the budget for naive, credulous and sceptical judges in propaganda and debate;
+`so-arena demo bon_budget` runs `OptimizationExperiment` on a lying debater's diverse base policy and shows
+best-of-n moving its lies beyond the budget (`BitClaims` ground truth: `lies_checked_<role>`,
+`lies_unchecked_<role>`, `honesty_<role>`).
 
 ## 8. Stateful work: the paired-branch design - *offline with scripted workers*
 
@@ -335,6 +440,41 @@ sweeps over the bounty ratio) and with training dynamics from different initial 
 (`games.learning`). `elicit_beliefs=True` records each agent's stated probability that a teammate
 reports, so actions can be checked against best responses.
 
+**Partial observation, confessions and misprision.** `Team(observe_prob=0.8)` shows each contribution to
+each teammate with probability 0.8 (a chance move, the same for every profile on an item) and records who
+witnessed whose work; `Team(self_reports=True)` accepts confessions. `Whistleblower(leniency=1.0)` waives a
+confessing violator's penalty, and `misprision=m` charges the silent witnesses of a caught violator.
+`SyntheticTeam(gain=0.3, damage=0.3, opportunity="one")` lets one random worker per task hack the grader
+(`team_worker(work="hack")` hacks only then) and scores the true value of the output (`true_score`).
+The theory (`whistleblower.regime`, `report_equilibrium_bounty`, `dominance_bounty`, `risk_dominant`)
+predicts that a bounty below $b_R$ buys nothing when a witness may be alone.
+
+**Training the whole game** (violate? report?) on sampled episodes, by REINFORCE or natural policy gradient:
+
+```python
+from so_arena.domains.synthetic import team_worker
+from so_arena.games.learning import StrategyGradient, policy_gradient
+from so_arena.theory import whistleblower as wb
+
+dom = get_domain("synthetic_team", opportunity="one")
+workers = ["worker_1", "worker_2", "worker_3"]
+strategies = {w: {s: team_worker(work="hack" if s.startswith("violate") else "honest",
+                                 report="report" if s.endswith("report") else "silent")
+                  for s in wb.TEAM_STRATEGIES} for w in workers}
+mech = Team(n_workers=3, observe_prob=0.8, regrade_on_report=True,
+            reward=soa.Whistleblower(bounty=0.45, split="shared", violation_penalty=0.3))
+trainer = StrategyGradient(mech, dom.load(), strategies, fixtures={"grader": dom.grader()}, shared=[workers],
+                           init={w: wb.team_mix(0.5, 0.1) for w in workers}, natural=True, lr=2.0, batch=24,
+                           iterations=60, ctx=dom.context(), ground_truth=dom.ground_truth_scorers())
+df = trainer.run()     # p_<role>_<strategy>, reward_<role>, outcome means per iteration
+# the expected update on the analytic game: policy_gradient(wb.team_game(2, ...), natural=True, shared=...)
+```
+
+`demo_swarm` runs this with 6 runs per algorithm: with a bounty above the stake and a mostly silent
+start, natural-gradient training deters misconduct in every run (P(violate) 0.02 after 60 iterations,
+95% CI 0.00 to 0.04) while REINFORCE entrenches it (0.87, 0.85 to 0.88); both match the exact expected
+update on `theory.whistleblower.team_game`.
+
 ## 10. No ground truth (yet): release now, resolve later - *offline*
 
 ```python
@@ -350,7 +490,44 @@ resolve("releases/2026-09", fc.resolve, reward_rule=MarketScoringReward())   # s
 ```
 
 CLI: `so-arena release runs/x releases/x`, `so-arena verify releases/x --digest <published digest>`,
-`so-arena resolve releases/x --domain forecasting --market`. Releases also suit results that will only
+`so-arena resolve releases/x --domain forecasting --market`.
+
+**Sealed releases** commit now and reveal later - for results that must not be seen before a date (they would
+move a market, or a judge could be tuned to them) but must provably be unedited. Only salted per-item
+commitments and their Merkle inclusion proofs are published; the digest is the Merkle root:
+
+```python
+from so_arena.release import inclusion_proof, reveal
+from so_arena.release.commit import verify_opening
+
+man = release(eps, items, "releases/x", sealed=True)   # openings go to releases/x.private - keep it private
+reveal("releases/x", items=["q17"])                     # item by item as questions resolve (or all: reveal(...))
+p = inclusion_proof("releases/x", "q17")               # anyone can check one item against the digest alone
+assert verify_opening(p["opening"], p["proof"], man.digest)
+```
+
+CLI: `so-arena release runs/x releases/x --sealed`, `so-arena reveal releases/x [--item ID]`; `verify` checks
+every revealed item against its commitment, and `resolve` scores what has been revealed.
+
+Immediate proxies can be released and then checked against resolution (`so-arena demo release`, Proposition 5):
+
+```python
+from so_arena.domains.synthetic_forecasting import SyntheticForecasting, rating_judge, synthetic_forecaster
+from so_arena.mechanisms import Forecast, rating_reward
+from so_arena.core.rewards import ResolutionScore
+
+dom = SyntheticForecasting(n_items=400)                               # offline; outcomes pending
+mech = Forecast(judge=True, reward=rating_reward(), affordances={"forecaster": ["forecast_info"], "judge": ["judge_info"]})
+profiles = [Profile(name=s, players={"forecaster": synthetic_forecaster(s), "judge": rating_judge(0.7)})
+            for s in ("calibrated", "overconfident", "underconfident", "extremizing")]
+eps = soa.run_sync(soa.run_episodes(mech, dom.load(), profiles))    # paid the rating now
+man = release(eps, dom.load(), "releases/judged", public_labels=True)
+resolve("releases/judged", dom.resolve, reward_rule=ResolutionScore("log"), ground_truth=dom.ground_truth_scorers())
+```
+
+The judge's rating ranks the extremizing forecaster first; the log score at resolution ranks the calibrated
+one first. Swap in `LLMPolicy` forecasters and judges and `get_domain("forecasting")` for the real thing.
+Releases also suit results that will only
 ever be judged in public: the bundle shows what each mechanism rewarded, without claiming who was right.
 A release never publishes the items' private information (`--keep-private KEY` opts a key in) or anything
 that names an arm defined relative to the truth - profile names, tags and behaviour labels become keyed
@@ -360,9 +537,10 @@ from reward details, but an audited reward is computed from its finding: runs wh
 simulated from the experimenter's ground truth (`truth_oracle`) are not ground-truth-free, and `release`
 warns about audited episodes. `verify` prints the digest and, given the published one, checks the
 bundle against it.
-Ground-truth-free mechanisms: `PeerPrediction(rule="bts" | "multitask")`, `MarketMaking`.
+Ground-truth-free mechanisms: `PeerPrediction(rule="bts" | "multitask" | "ca" | "dmi")` (the multi-task rules
+on bundles, `item.context["subitems"]`; DMI is dominantly truthful), `MarketMaking`.
 
-## 11. Monitoring, chain of thought, and ControlArena
+## 11. Monitoring, chain of thought, and ControlArena - *offline demo*
 
 ```python
 from so_arena.mechanisms import MonitoredWork
@@ -381,6 +559,33 @@ from so_arena.integrations.probes import fit_linear_probe, llamacpp_featurizer, 
 probe = fit_linear_probe(train_texts, train_labels, llamacpp_featurizer("model.gguf"))
 MonitoredWork(penalty="suspicion")   # with players {"worker": ..., "monitor": probe_monitor(probe), "grader": ...}
 ```
+
+**Obfuscation vs. deterrence** (Proposition 4 in `docs/theory.md`): a real monitor can be evaded, a detector
+of fixed accuracy cannot. `SimulatedProbe` draws readings from the run's `violation_oracle` with a target
+AUROC (a chance move, so arms and best-of-N candidates share draws; each use is logged in
+`Episode.gt_access`); the `synthetic_monitoring` domain gives honest, overt and covert actors whose test
+edits show with probabilities $d_h, d_o, d_c$, a keyword monitor that sees only those traces, and the
+thresholds to compare with (`theory.monitoring`):
+
+```python
+from so_arena.core.runner import Profile
+from so_arena.domains.monitoring import SyntheticMonitoring, keyword_monitor, monitoring_actor, trusted_worker
+from so_arena.integrations.probes import SimulatedProbe, probe_monitor
+
+dom = SyntheticMonitoring(n_items=300, d_covert=0.15)
+real = MonitoredWork(penalty="flag", lam=1.0, forfeit=False)          # measured success - lam per flag
+probe = MonitoredWork(penalty="flag", lam=1.0, forfeit=False, monitor_sees=("probes",),
+                      probes=[SimulatedProbe(auroc=0.9)])               # monitor: probe_monitor()
+deferral = MonitoredWork(penalty="flag", lam=1.0, defer=True)          # flagged work -> the "trusted" role's
+profiles = [Profile(name=a, players={"worker": monitoring_actor(a), "monitor": keyword_monitor(),
+                                     "grader": dom.grader(), "trusted": trusted_worker()})
+            for a in ("honest", "overt", "covert")]
+# re-score logged episodes under other penalties without re-running: rescore(eps, MonitoredReward("flag", 2.0))
+```
+
+`so-arena demo monitoring` sweeps the penalty with a best-responding actor and reports misbehaviour and
+alarm rates with CIs across seeds, and the switch points against the theory. A monitor that gives no score
+fails closed (`missing_score="flag"`, the default): the episode is flagged, audited or deferred, never passed.
 
 ControlArena logs to ASD, and SO-arena mechanisms as ControlArena monitors:
 
@@ -408,6 +613,11 @@ breakdown_point(df, x="gap")       # where each protocol's fitted ASD crosses ze
 
 Evaluation-budget curves (ASD as a function of the judge's time) are the same sweep over the judge's
 `max_tokens`, number of judge questions, or a human judge's `HumanModel(time_budget_s=...)`.
+
+**Diagnostics.** Before optimizing, check what else the reward pays for and whether the arms behaved
+(`analysis.diagnostics`; the HTML report shows a summary): `reward_snr`, `length_bias`, `position_bias`,
+`option_label_bias`, `calibration`, `compliance`, `cost_summary`. [beyond_ic.md](beyond_ic.md) maps every
+property beyond IC to its measurement.
 
 ## 13. Human judges
 

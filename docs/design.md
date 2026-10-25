@@ -41,8 +41,8 @@ attacking.
 `item.censored()` is what mechanisms receive.
 
 A `Domain` supplies items plus the domain's **verifiers** (trusted claim checks), **tools** (private
-capabilities that create capability gaps) and **ground-truth scorers**. Built in: synthetic persuasion
-and team worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool),
+capabilities that create capability gaps) and **ground-truth scorers**. Built in: synthetic persuasion,
+team, monitoring and forecasting worlds (offline, exact), chess (engine ground truth, legal-line verifier, engine tool, engine-backed advocates and minimax judges of dialable depth),
 text-to-SQL over a private database, code with hidden tests (including a hackable team task), Lean
 statement faithfulness (miniF2F formalizations vs. single-edit mutants; a rules-only structure verifier),
 forecasting (Manifold; pending resolutions), QA sets (GSM8K, MMLU, TruthfulQA, GPQA, QuALITY with
@@ -53,8 +53,14 @@ Items must not be answerable without reading them. Generated options and mutants
 position and shape carry no signal (GSM8K options are an evenly spaced run with the answer at a random
 place; code and Lean mutations come in pairs that add and remove structure), and blind baselines report
 what rules that never read the question would score (`domains.code.blind_baselines`,
-`domains.qa.blind_baseline`) - compare a judge against them, not only against chance. One tell is known
-and documented: chess `eval_claim` items, whose answer depends on the position's source.
+`domains.qa.blind_baseline`) - compare a judge against them, not only against chance. Chess `eval_claim`
+items choose their positions for the whole set (`domains.chess.balanced_eval_claims`): within every
+combination of check, material, mobility, last capture and side to move there are as many "yes" as "no"
+items, so rules reading those score chance (a logistic model on twenty such board features scores about
+0.58, down from 0.83 when each puzzle's position was chosen on its own). Chess `which_move` items keep a
+weak tell by default ("pick the move that gives check" scores 0.59: about 70 puzzles have no suitable
+alternative that looks like the best move); `ChessDomain(balanced=True)` drops the surplus so that every
+such rule scores exactly 1/2 (231 of 300 items). `domains.chess.blind_baselines` reports both kinds.
 
 ### Bespoke per domain, or general mechanisms with adapters?
 
@@ -115,9 +121,12 @@ workspace shells and test runs, candidate programs, executable claims, Lean chec
 view of the file system in which the temporary and home directories are empty except for its own
 working directory, everything else is read-only, the interpreter is visible, and no state store, work
 root, run directory, dataset, bundled sample, response cache or the experimenter's working directory is
-(`sandbox.hide(path)` adds more), with host processes invisible, no network and no capabilities. Backends are bubblewrap or unprivileged user namespaces (`unshare` + `setpriv`);
-where neither exists, agent code is refused unless the experimenter opts in
-(`SO_ARENA_ALLOW_UNSANDBOXED=1`). It is filesystem isolation for honest experiments, not a boundary
+(`sandbox.hide(path)` adds more), with host processes invisible, no network and no capabilities. Backends are bubblewrap or unprivileged user namespaces (`unshare` + `setpriv`),
+and - in containers without user namespaces - Landlock: a kernel-enforced allow-list (hidden directories inside
+visible ones are granted around) plus a seccomp filter for sockets, ptrace and namespaces. Where the kernel has
+Landlock it is also a second layer under the namespace backends. Where no backend exists, agent code is refused
+unless the experimenter opts in (`SO_ARENA_ALLOW_UNSANDBOXED=1`); a Landlock launcher that cannot confine its
+command refuses to run it rather than falling back. It is filesystem isolation for honest experiments, not a boundary
 against a determined attacker. The abstraction is backend-neutral: an environment backed by containers,
 git worktrees, Postgres/Neon or Dolt branches only has to implement forking and freezing.
 
@@ -143,8 +152,9 @@ The protocol is ordinary async Python calling `g.act(role, kind=..., prompt=...,
   claimant's own - so printing "B passes all hidden tests" proves nothing. The markers are reserved: the
   same tags typed by an agent, in files it changed, its reasoning or tool calls - also as look-alike
   brackets or letters, HTML entities or escapes - are neutralized everywhere they are shown, so only a
-  verifier can produce them. Budgets (`budget_per_role`) count a role's verifications along the current
-  path, so best-of-N siblings never share a budget;
+  verifier can produce them. Budgets (`budget_per_role`, or a cost `budget`) count a role's verifications
+  along the current path, so best-of-N siblings never share a budget; verification noise is a chance move
+  shared by siblings, its errors indistinguishable from correct checks; `show_to` limits who sees verdicts;
 * supports **simultaneous moves** (`g.simultaneous`) so that no mover sees the others' current actions;
 * can **branch**: with a `BranchController`, every decision becomes a node with a pool of $K$ sampled
   candidates; replaying the protocol under different plans (with memoized prefixes) expands any
@@ -171,17 +181,21 @@ configuration of a mechanism separately (`debate(transform="prob")`) whenever a 
 `"all"`.
 
 Built-in mechanisms: `DirectJudge` (naive judge), `Propaganda`, `Consultancy`, `Debate`
-(simultaneous/sequential, judge questions, zero-sum option), `ReviewedWork` (worker -> critique ->
+(simultaneous/sequential, $k$ debaters, cross-examination, judge questions, zero-sum option), `Comparison`
+($k$ candidates and a judge's preference: the RLHF / reward-model signal), `ProverVerifier` (helpful or sneaky
+provers drawn by chance, a trainable verifier), `ReviewedWork` (worker -> critique ->
 rebuttal -> reviewer: single-judge RLAIF, the proposal/critique/rebuttal protocol of best-of-N
 self-play debate, and realistic work review with a dossier of state changes), `Work` (the work stage
 alone, for reviewing each result under many protocols), `MonitoredWork` (action/CoT/tool-call/probe monitors
-with suspicion penalties or audits), `Team` (swarms with private reporting, auditing, belief
-elicitation, team channels that overseers may or may not read, shared stateful workspaces whose violators'
-changes can be reverted), `MarketMaking`, `PredictionMarket` (LMSR, deferred resolution), `PeerPrediction`
-(output agreement, BTS, multi-task) and `Confession` (a separately rewarded honesty channel).
+with suspicion penalties, flags or audits, missing scores failing closed, defer-to-trusted, simulated
+fixed-AUROC probes), `Team` (swarms with private reporting, auditing, belief
+elicitation, partial observation of teammates' work, self-reports, team channels that overseers may or may not read, shared stateful workspaces whose violators'
+changes can be reverted), `MarketMaking`, `PredictionMarket` (LMSR, deferred resolution), `Forecast` (forecasters, an optional
+immediate judge rating, resolution scores), `PeerPrediction`
+(output agreement, BTS, multi-task, correlated agreement, DMI) and `Confession` (a separately rewarded honesty channel).
 
 Reward rules compose (`JudgeScore("log") + 0.5 * MonitorPenalty()`, `ZeroSum`, `RandomAudit`,
-`TeamReward`, `Whistleblower`, `ResolutionScore`, `MarketScoringReward`) and most can be re-applied to
+`TeamReward`, `Whistleblower`, `ResolutionScore`, `MarketScoringReward`, `PreferenceScore`, `ProverReward`) and most can be re-applied to
 logged episodes (`rescore`) to study counterfactual reward rules without new model calls.
 
 ## Layer 3: behaviour samplers
@@ -194,6 +208,7 @@ To measure $(u, v)$ we need behaviours with a range of $v$. From weakest to stro
 | Behaviour arms on stateful tasks (paired branches) | `samplers.paired` | by construction + audit of the final state | honest vs. several ways of faking success |
 | Natural pools, best-of-N / tilting over game trees | `samplers.pools`, `analysis.optimization` | measured | re-weightings of the base policy |
 | Prompt search with directives (OPRO / reflective / evolutionary) | `samplers.prompt_search` | measured | behaviour far from the base policy |
+| Parameter search over programmatic agents (with measured-value constraints) | `samplers.param_search` | measured | the parameter space's frontiers |
 | PSRO with prompt-search best responses | `samplers.psro` | measured | approximate equilibria |
 | RL | `integrations.rl` (+ your trainer) | measured | trained behaviour |
 
@@ -220,7 +235,11 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
   replicator dynamics, fictitious play, regret matching, basins, policy-gradient learning dynamics.
   Expected ground-truth values of profiles, like those of prompt-search strategies, come with their
   label coverage and are NaN below 50%.
-* `theory`: analytic whistleblower model; audits as control variates.
+* `theory`: analytic whistleblower model; audits as control variates; monitor-based rewards (when a
+  penalty on alarms buys obfuscation instead of deterrence).
+* `analysis.diagnostics`: what matters besides IC - reward signal-to-noise, length, slot and option-label
+  biases at fixed ground truth, calibration, compliance of instructed arms, cost; `metrics.gt_regret` for
+  continuous ground truth.
 * `analysis.plots` / `analysis.report`: validated-palette charts with per-mark tooltips and
   self-contained HTML reports.
 
@@ -233,8 +252,10 @@ private CoT; text-protocol tool use), `ScriptedPolicy`, `FunctionPolicy`, `Fixed
   backends seeded from the sample index) and a warm cache replays each role's own draw; `ModelSpec`
   registry with prices and capability metadata for scaling plots.
 * **Runs**: `RunStore` directories (items, append-only episodes, metrics, figures, report), resumable.
-* **Specs + CLI**: YAML experiment specs; `so-arena run | estimate | report | release | verify | resolve | list | demo`.
-* **Releases**: ground-truth-free bundles with a SHA-256 commitment; later resolution and scoring.
+* **Specs + CLI**: YAML experiment specs, whose reward rules, verifiers and scorers a registry builds from
+  `{type: ...}` mappings (`so_arena.registry`); `so-arena run | estimate | report | release | verify | resolve | list | demo`.
+* **Releases**: ground-truth-free bundles with a SHA-256 commitment; later resolution and scoring. Sealed
+  releases publish only salted per-item commitments with Merkle inclusion proofs, and reveal items later.
 * **Integrations**: Inspect tasks (`integrations.inspect_task`), ControlArena (logs -> episodes,
   mechanisms as monitors, a sandbox-free toy setting), RL (step-wise `MechanismEnv`, TRL-style reward
-  functions, rollout prompts).
+  functions, rollout prompts, same-context preference pairs for DPO).

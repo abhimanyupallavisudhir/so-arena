@@ -21,10 +21,21 @@ of the file system:
   cannot unmount what hides the rest.
 
 Backends: bubblewrap (``bwrap``) when it is installed, else util-linux ``unshare`` with unprivileged user,
-mount, process and network namespaces plus ``setpriv``. Where neither works (macOS, containers without
-user namespaces), agent code would see everything, so it is refused unless the experimenter opts in with
-``SO_ARENA_ALLOW_UNSANDBOXED=1`` or :func:`allow_unsandboxed` (results may then be contaminated).
-``SO_ARENA_SANDBOX`` chooses a backend (``bwrap``, ``unshare``; ``off`` disables sandboxing).
+mount, process and network namespaces plus ``setpriv``, else ``landlock`` - for containers without user
+namespaces (e.g. Docker's default seccomp profile): a launcher (:mod:`so_arena.core._landlock`) confines the
+command with a kernel-enforced Landlock allow-list (Linux >= 5.13) - reads beneath the system directories, the
+interpreter and ``visible``, writes beneath the working directory, nothing hidden, no ``/proc`` but its own -
+and a seccomp filter standing in for the missing namespaces (no sockets, ptrace, cross-process memory access
+or new namespaces). There, ``/tmp`` and the home directory are not scratch space but invisible, other
+processes of the user stay signallable before Landlock ABI 6, and the environment is what the caller passes
+(every caller passes a minimal one). Where Landlock is available it is also a second layer under bubblewrap
+and ``unshare``: a mistake in the namespace view still meets the allow-list.
+
+Where no backend works (macOS, old kernels without user namespaces or Landlock), agent code would see
+everything, so it is refused unless the experimenter opts in with ``SO_ARENA_ALLOW_UNSANDBOXED=1`` or
+:func:`allow_unsandboxed` (results may then be contaminated) - never silently: a Landlock launcher that cannot
+confine its command refuses to run it. ``SO_ARENA_SANDBOX`` chooses a backend (``bwrap``, ``unshare``,
+``landlock``; ``off`` disables sandboxing); ``SO_ARENA_LANDLOCK=off`` drops the second layer.
 
 This is filesystem isolation for honest experiments with capable agents, not a security boundary against
 a determined attacker (same kernel; see the design notes on container-backed environments).
@@ -33,6 +44,7 @@ a determined attacker (same kernel; see the design notes on container-backed env
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import os
 import shlex
@@ -48,7 +60,8 @@ log = logging.getLogger("so_arena")
 
 ALLOW_ENV = "SO_ARENA_ALLOW_UNSANDBOXED"
 BACKEND_ENV = "SO_ARENA_SANDBOX"
-BACKENDS = ("bwrap", "unshare")
+LANDLOCK_ENV = "SO_ARENA_LANDLOCK"
+BACKENDS = ("bwrap", "unshare", "landlock")
 
 _HIDDEN: set[str] = set()
 _LOCK = threading.Lock()
@@ -135,11 +148,45 @@ def _plan(workdir: str, visible: Sequence[str]) -> list[tuple[str, str]]:
     return sorted(ops.items(), key=lambda kv: (kv[0].rstrip("/").count("/"), rank[kv[1]], kv[0]))
 
 
+# what the Landlock allow-list grants read access to besides the interpreter and ``visible`` (the namespace
+# backends show the whole root read-only), and the devices a command may use
+_LANDLOCK_SYSTEM = ("/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt", "/nix/store",
+                    "/sys/devices/system/cpu")
+_DEVICES = (("/dev/null", "rw"), ("/dev/full", "rw"), ("/dev/zero", "r"), ("/dev/random", "r"), ("/dev/urandom", "r"))
+
+
+def landlock_abi() -> int:
+    """The Landlock ABI version of the running kernel (0: unavailable)."""
+    from so_arena.core._landlock import landlock_abi as abi
+
+    return abi()
+
+
 @functools.lru_cache(maxsize=None)
-def _probe(kind: str) -> bool:
+def _launcher_source() -> str:
+    from so_arena.core import _landlock
+
+    return Path(_landlock.__file__).read_text(encoding="utf-8")
+
+
+def _landlock_config(ops: Sequence[tuple[str, str]], *, standalone: bool, network: bool, start: str) -> dict:
+    """The launcher's policy for a view (:func:`_plan`). Under namespaces the scratch directories are fresh
+    file systems, writable as a whole (what the view re-exposes inside them stays read-only by its mount), and
+    ``/proc`` shows the sandbox's own processes; standing alone, scratch directories are the host's - invisible,
+    like everything hidden - and of ``/proc`` only the command's own entry is readable."""
+    read = [*_LANDLOCK_SYSTEM, *(d for d, op in ops if op == "ro"), *(() if standalone else ("/proc",))]
+    return {"read": read, "write": [d for d, op in ops if op == "rw"],
+            "scratch": [] if standalone else [d for d, op in ops if op == "scratch"],
+            "holes": [d for d, op in ops if op == "cover" or (op == "scratch" and standalone)],
+            "files": _DEVICES, "proc_self": standalone, "seccomp": standalone, "network": network,
+            "chdir": start if standalone else None}
+
+
+@functools.lru_cache(maxsize=None)
+def _probe(kind: str, layer: bool = False) -> bool:
     d = tempfile.mkdtemp(prefix="so_arena_sbx_")
     try:
-        argv = _wrap_with(kind, ["true"], d, network=False, visible=())
+        argv = _wrap_with(kind, ["true"], d, network=False, visible=(), layer=layer)
         return subprocess.run(argv, cwd=d, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                               stderr=subprocess.DEVNULL, timeout=20).returncode == 0
     except (OSError, subprocess.SubprocessError):
@@ -148,15 +195,36 @@ def _probe(kind: str) -> bool:
         shutil.rmtree(d, ignore_errors=True)
 
 
+def _installed(kind: str) -> bool:
+    if kind == "landlock":
+        from so_arena.core._landlock import seccomp_supported
+
+        return landlock_abi() >= 1 and seccomp_supported()
+    return bool(shutil.which(kind) and (kind != "unshare" or shutil.which("setpriv")))
+
+
 def backend() -> str | None:
-    """The sandbox backend this machine supports (``"bwrap"`` or ``"unshare"``), or None."""
+    """The sandbox backend this machine supports (``"bwrap"``, ``"unshare"`` or ``"landlock"``), or None."""
     want = os.environ.get(BACKEND_ENV, "auto").strip().lower()
     if want in ("off", "none", "0"):
         return None
     for kind in BACKENDS if want in ("auto", "") else (want,):
-        if kind in BACKENDS and shutil.which(kind) and (kind != "unshare" or shutil.which("setpriv")) and _probe(kind):
+        if kind in BACKENDS and _installed(kind) and _probe(kind):
             return kind
     return None
+
+
+def _layered(kind: str) -> bool:
+    """Whether Landlock runs as a second layer under the namespace backend ``kind``."""
+    if kind == "landlock" or os.environ.get(LANDLOCK_ENV, "").strip().lower() in ("off", "0", "no", "false"):
+        return False
+    return landlock_abi() >= 1 and _probe(kind, True)
+
+
+def layers() -> list[str]:
+    """The isolation layers agent commands run under, e.g. ``["unshare", "landlock"]`` (empty: none)."""
+    kind = backend()
+    return [] if kind is None else [kind] + (["landlock"] if _layered(kind) else [])
 
 
 def available() -> bool:
@@ -164,9 +232,16 @@ def available() -> bool:
 
 
 def _wrap_with(kind: str, argv: Sequence[str], workdir: str, *, network: bool, visible: Sequence[str],
-               chdir: str | None = None) -> list[str]:
+               chdir: str | None = None, layer: bool | None = None) -> list[str]:
     ops = _plan(workdir, visible)
     start = chdir or workdir
+    if layer is None:
+        layer = _layered(kind)
+    if kind == "landlock" or layer:
+        cfg = _landlock_config(ops, standalone=kind == "landlock", network=network, start=start)
+        argv = [sys.executable, "-I", "-S", "-c", _launcher_source(), json.dumps(cfg), "--", *argv]
+    if kind == "landlock":
+        return list(argv)
     if kind == "bwrap":
         out = ["bwrap", "--die-with-parent", "--unshare-user", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
                "--unshare-cgroup-try", *(() if network else ("--unshare-net",)), "--ro-bind", "/", "/",
@@ -223,8 +298,9 @@ def wrap(argv: Sequence[str], workdir: str | os.PathLike[str], *, network: bool 
     if not _allowed():
         raise SandboxUnavailable(
             "no sandbox is available for agent code on this system (bubblewrap, or util-linux unshare with "
-            "unprivileged user namespaces, plus setpriv): the agents could read hidden state and hidden tests. "
-            f"Install bubblewrap or enable user namespaces, or set {ALLOW_ENV}=1 to run unsandboxed anyway.")
+            "unprivileged user namespaces, plus setpriv; or Landlock, Linux >= 5.13): the agents could read hidden "
+            "state and hidden tests. Install bubblewrap, or enable user namespaces or Landlock, or set "
+            f"{ALLOW_ENV}=1 to run unsandboxed anyway.")
     if not _WARNED:
         _WARNED = True
         log.warning("running agent code WITHOUT a sandbox (%s): agents can read hidden state and hidden tests",
