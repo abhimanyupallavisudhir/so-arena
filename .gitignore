@@ -10,3 +10,5 @@ data_cache/
 dist/
 build/
 .ipynb_checkpoints/
+.oa_cache/
+/tmp/

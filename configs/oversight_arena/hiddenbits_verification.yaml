@@ -1,0 +1,15 @@
+# Verified claims without LLMs: exact Bayesian judge (credulous toward unverified claims) and
+# programmatic advocates, four protocols, verification budget 4.   oversight-arena run configs/oversight_arena/hiddenbits_verification.yaml
+name: hiddenbits-verification
+out: runs/hiddenbits-verification
+domain: {type: hidden_bits, n_tasks: 60}
+mechanisms:
+  - {type: naive_judge}
+  - {type: propaganda, evidence: {budget: 4}}
+  - {type: consultancy, rounds: 2, evidence: {budget: 4}}
+  - {type: debate, rounds: 2, evidence: {budget: 4}}
+agents:
+  "*": {type: bit_advocate, claims: 3, lie_rate: 0.5}
+  "kind:judge": {type: bayes_bit_judge, trust: 0.8}
+profiles: {type: stances}
+analysis: {gt: correct}

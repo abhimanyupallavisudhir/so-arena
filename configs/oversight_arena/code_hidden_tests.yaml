@@ -1,0 +1,12 @@
+# Execution gap: which of two implementations passes the hidden EvalPlus tests? Experts can run code; <run>/<assert> verified.
+name: code-hidden-tests
+out: runs/code-hidden-tests
+domain: {type: code, dataset: humanevalplus, format: pair}
+limit: 30
+mechanisms:
+  - {type: consultancy, rounds: 2, evidence: {}}
+  - {type: debate, rounds: 2, evidence: {}}
+agents:
+  "*": {type: llm, model: "${OA_EXPERT_MODEL:-mockllm/model}"}
+  "kind:judge": {type: llm_judge, model: "${OA_JUDGE_MODEL:-mockllm/model}"}
+profiles: {type: stances}

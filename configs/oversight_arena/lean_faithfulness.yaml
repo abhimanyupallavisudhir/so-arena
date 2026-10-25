@@ -1,0 +1,13 @@
+# Does the Lean statement mean what the English says? (miniF2F with meaning-changing perturbations.)
+name: lean-faithfulness
+out: runs/lean-faithfulness
+domain: {type: minif2f, format: faithfulness}
+limit: 40
+mechanisms:
+  - {type: naive_judge}
+  - {type: consultancy, rounds: 2}
+  - {type: debate, rounds: 2}
+agents:
+  "*": {type: llm, model: "${OA_EXPERT_MODEL:-mockllm/model}"}
+  "kind:judge": {type: llm_judge, model: "${OA_JUDGE_MODEL:-mockllm/model}"}
+profiles: {type: stances}

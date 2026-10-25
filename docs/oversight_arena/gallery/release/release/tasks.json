@@ -1,0 +1,1262 @@
+[
+ {
+  "id": "synth0-q0",
+  "domain": "forecasting",
+  "question": "Synthetic event #0: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q0"
+  }
+ },
+ {
+  "id": "synth0-q1",
+  "domain": "forecasting",
+  "question": "Synthetic event #1: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q1"
+  }
+ },
+ {
+  "id": "synth0-q10",
+  "domain": "forecasting",
+  "question": "Synthetic event #10: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q10"
+  }
+ },
+ {
+  "id": "synth0-q11",
+  "domain": "forecasting",
+  "question": "Synthetic event #11: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q11"
+  }
+ },
+ {
+  "id": "synth0-q12",
+  "domain": "forecasting",
+  "question": "Synthetic event #12: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q12"
+  }
+ },
+ {
+  "id": "synth0-q13",
+  "domain": "forecasting",
+  "question": "Synthetic event #13: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q13"
+  }
+ },
+ {
+  "id": "synth0-q14",
+  "domain": "forecasting",
+  "question": "Synthetic event #14: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q14"
+  }
+ },
+ {
+  "id": "synth0-q15",
+  "domain": "forecasting",
+  "question": "Synthetic event #15: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q15"
+  }
+ },
+ {
+  "id": "synth0-q16",
+  "domain": "forecasting",
+  "question": "Synthetic event #16: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q16"
+  }
+ },
+ {
+  "id": "synth0-q17",
+  "domain": "forecasting",
+  "question": "Synthetic event #17: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q17"
+  }
+ },
+ {
+  "id": "synth0-q18",
+  "domain": "forecasting",
+  "question": "Synthetic event #18: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q18"
+  }
+ },
+ {
+  "id": "synth0-q19",
+  "domain": "forecasting",
+  "question": "Synthetic event #19: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q19"
+  }
+ },
+ {
+  "id": "synth0-q2",
+  "domain": "forecasting",
+  "question": "Synthetic event #2: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q2"
+  }
+ },
+ {
+  "id": "synth0-q20",
+  "domain": "forecasting",
+  "question": "Synthetic event #20: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q20"
+  }
+ },
+ {
+  "id": "synth0-q21",
+  "domain": "forecasting",
+  "question": "Synthetic event #21: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q21"
+  }
+ },
+ {
+  "id": "synth0-q22",
+  "domain": "forecasting",
+  "question": "Synthetic event #22: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q22"
+  }
+ },
+ {
+  "id": "synth0-q23",
+  "domain": "forecasting",
+  "question": "Synthetic event #23: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q23"
+  }
+ },
+ {
+  "id": "synth0-q24",
+  "domain": "forecasting",
+  "question": "Synthetic event #24: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q24"
+  }
+ },
+ {
+  "id": "synth0-q25",
+  "domain": "forecasting",
+  "question": "Synthetic event #25: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q25"
+  }
+ },
+ {
+  "id": "synth0-q26",
+  "domain": "forecasting",
+  "question": "Synthetic event #26: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q26"
+  }
+ },
+ {
+  "id": "synth0-q27",
+  "domain": "forecasting",
+  "question": "Synthetic event #27: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q27"
+  }
+ },
+ {
+  "id": "synth0-q28",
+  "domain": "forecasting",
+  "question": "Synthetic event #28: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q28"
+  }
+ },
+ {
+  "id": "synth0-q29",
+  "domain": "forecasting",
+  "question": "Synthetic event #29: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q29"
+  }
+ },
+ {
+  "id": "synth0-q3",
+  "domain": "forecasting",
+  "question": "Synthetic event #3: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q3"
+  }
+ },
+ {
+  "id": "synth0-q30",
+  "domain": "forecasting",
+  "question": "Synthetic event #30: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q30"
+  }
+ },
+ {
+  "id": "synth0-q31",
+  "domain": "forecasting",
+  "question": "Synthetic event #31: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q31"
+  }
+ },
+ {
+  "id": "synth0-q32",
+  "domain": "forecasting",
+  "question": "Synthetic event #32: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q32"
+  }
+ },
+ {
+  "id": "synth0-q33",
+  "domain": "forecasting",
+  "question": "Synthetic event #33: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q33"
+  }
+ },
+ {
+  "id": "synth0-q34",
+  "domain": "forecasting",
+  "question": "Synthetic event #34: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q34"
+  }
+ },
+ {
+  "id": "synth0-q35",
+  "domain": "forecasting",
+  "question": "Synthetic event #35: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q35"
+  }
+ },
+ {
+  "id": "synth0-q36",
+  "domain": "forecasting",
+  "question": "Synthetic event #36: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q36"
+  }
+ },
+ {
+  "id": "synth0-q37",
+  "domain": "forecasting",
+  "question": "Synthetic event #37: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q37"
+  }
+ },
+ {
+  "id": "synth0-q38",
+  "domain": "forecasting",
+  "question": "Synthetic event #38: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q38"
+  }
+ },
+ {
+  "id": "synth0-q39",
+  "domain": "forecasting",
+  "question": "Synthetic event #39: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q39"
+  }
+ },
+ {
+  "id": "synth0-q4",
+  "domain": "forecasting",
+  "question": "Synthetic event #4: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q4"
+  }
+ },
+ {
+  "id": "synth0-q40",
+  "domain": "forecasting",
+  "question": "Synthetic event #40: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q40"
+  }
+ },
+ {
+  "id": "synth0-q41",
+  "domain": "forecasting",
+  "question": "Synthetic event #41: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q41"
+  }
+ },
+ {
+  "id": "synth0-q42",
+  "domain": "forecasting",
+  "question": "Synthetic event #42: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q42"
+  }
+ },
+ {
+  "id": "synth0-q43",
+  "domain": "forecasting",
+  "question": "Synthetic event #43: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q43"
+  }
+ },
+ {
+  "id": "synth0-q44",
+  "domain": "forecasting",
+  "question": "Synthetic event #44: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q44"
+  }
+ },
+ {
+  "id": "synth0-q45",
+  "domain": "forecasting",
+  "question": "Synthetic event #45: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q45"
+  }
+ },
+ {
+  "id": "synth0-q46",
+  "domain": "forecasting",
+  "question": "Synthetic event #46: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q46"
+  }
+ },
+ {
+  "id": "synth0-q47",
+  "domain": "forecasting",
+  "question": "Synthetic event #47: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q47"
+  }
+ },
+ {
+  "id": "synth0-q48",
+  "domain": "forecasting",
+  "question": "Synthetic event #48: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q48"
+  }
+ },
+ {
+  "id": "synth0-q49",
+  "domain": "forecasting",
+  "question": "Synthetic event #49: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q49"
+  }
+ },
+ {
+  "id": "synth0-q5",
+  "domain": "forecasting",
+  "question": "Synthetic event #5: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q5"
+  }
+ },
+ {
+  "id": "synth0-q50",
+  "domain": "forecasting",
+  "question": "Synthetic event #50: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q50"
+  }
+ },
+ {
+  "id": "synth0-q51",
+  "domain": "forecasting",
+  "question": "Synthetic event #51: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q51"
+  }
+ },
+ {
+  "id": "synth0-q52",
+  "domain": "forecasting",
+  "question": "Synthetic event #52: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q52"
+  }
+ },
+ {
+  "id": "synth0-q53",
+  "domain": "forecasting",
+  "question": "Synthetic event #53: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q53"
+  }
+ },
+ {
+  "id": "synth0-q54",
+  "domain": "forecasting",
+  "question": "Synthetic event #54: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q54"
+  }
+ },
+ {
+  "id": "synth0-q55",
+  "domain": "forecasting",
+  "question": "Synthetic event #55: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q55"
+  }
+ },
+ {
+  "id": "synth0-q56",
+  "domain": "forecasting",
+  "question": "Synthetic event #56: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q56"
+  }
+ },
+ {
+  "id": "synth0-q57",
+  "domain": "forecasting",
+  "question": "Synthetic event #57: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q57"
+  }
+ },
+ {
+  "id": "synth0-q58",
+  "domain": "forecasting",
+  "question": "Synthetic event #58: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q58"
+  }
+ },
+ {
+  "id": "synth0-q59",
+  "domain": "forecasting",
+  "question": "Synthetic event #59: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q59"
+  }
+ },
+ {
+  "id": "synth0-q6",
+  "domain": "forecasting",
+  "question": "Synthetic event #6: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q6"
+  }
+ },
+ {
+  "id": "synth0-q7",
+  "domain": "forecasting",
+  "question": "Synthetic event #7: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q7"
+  }
+ },
+ {
+  "id": "synth0-q8",
+  "domain": "forecasting",
+  "question": "Synthetic event #8: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q8"
+  }
+ },
+ {
+  "id": "synth0-q9",
+  "domain": "forecasting",
+  "question": "Synthetic event #9: will it happen?",
+  "options": [
+   {
+    "id": "YES",
+    "text": "Resolves YES"
+   },
+   {
+    "id": "NO",
+    "text": "Resolves NO"
+   }
+  ],
+  "metadata": {
+   "close": null,
+   "url": null,
+   "source": "synth0",
+   "qid": "q9"
+  }
+ }
+]

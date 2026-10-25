@@ -1,0 +1,15 @@
+# Real capability gap: engine-backed experts (depth 10) argue before an LLM judge; lines are verified
+# (legality + depth-8 evaluation). Needs Stockfish. Positions are traps for a depth-2 search.
+name: chess-engine-vs-llm-judge
+out: runs/chess-llm-judge
+domain: {type: chess, n_puzzles: 40, judge_trap_depth: 2, gt_depth: 14, verify_depth: 8}
+limit: 20
+mechanisms:
+  - {type: naive_judge}
+  - {type: consultancy, rounds: 2, evidence: {}}
+  - {type: debate, rounds: 2, evidence: {}}
+agents:
+  "*": {type: engine_advocate, depth: 10}
+  "kind:judge": {type: llm_judge, model: "${OA_JUDGE_MODEL:-mockllm/model}"}
+profiles: {type: stances}
+concurrency: 2

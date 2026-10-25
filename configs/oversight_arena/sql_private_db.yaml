@@ -1,0 +1,12 @@
+# Private-database gap: experts can query the Chinook DB, the judge sees only the schema; <sql> claims show true outputs.
+name: sql-private-db
+out: runs/sql-private-db
+domain: {type: sql, format: answers}
+mechanisms:
+  - {type: propaganda, evidence: {}}
+  - {type: consultancy, rounds: 2, evidence: {}}
+  - {type: debate, rounds: 2, evidence: {}}
+agents:
+  "*": {type: llm, model: "${OA_EXPERT_MODEL:-mockllm/model}"}
+  "kind:judge": {type: llm_judge, model: "${OA_JUDGE_MODEL:-mockllm/model}"}
+profiles: {type: stances}
