@@ -31,18 +31,20 @@ controlarena = ["control-arena>=19", "inspect-ai>=0.3.100"]
 chess = ["chess>=1.10", "zstandard>=0.22"]
 hf = ["datasets>=2.18"]
 gepa = ["gepa>=0.1.4"]
-testbed = ["python-sat>=1.8.dev0", "numba>=0.59", "json5>=0.9"]
+testbed = ["conceptual-validation-testbed[all] @ git+https://github.com/abhimanyupallavisudhir/conceptual-validation-testbed"]
 providers = ["openai>=1.40", "anthropic>=0.40"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.100", "chess>=1.10", "zstandard>=0.22", "gepa>=0.1.4",
-       "python-sat>=1.8.dev0", "numba>=0.59", "json5>=0.9"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "inspect-ai>=0.3.100", "chess>=1.10", "zstandard>=0.22", "gepa>=0.1.4"]
 all = ["inspect-ai>=0.3.100", "control-arena>=19", "chess>=1.10", "zstandard>=0.22", "datasets>=2.18", "gepa>=0.1.4",
-       "python-sat>=1.8.dev0", "numba>=0.59", "json5>=0.9", "openai>=1.40", "anthropic>=0.40"]
+       "openai>=1.40", "anthropic>=0.40"]
 
 [project.scripts]
 so-arena = "so_arena.cli:main"
 
 [project.urls]
 Repository = "https://github.com/abhimanyupallavisudhir/so-arena"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/so_arena"]

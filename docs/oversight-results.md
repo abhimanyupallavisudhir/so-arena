@@ -2,7 +2,7 @@
 
 Does arguing help a weak judge reach the truth on questions that need conceptual reasoning? And does it keep
 helping when the arguers are optimized against the judge? Questions come from the testbed
-([testbed.md](testbed.md)): 10 families, 16 items each, with hidden ground truth from computation or
+([conceptual validation testbed](https://github.com/abhimanyupallavisudhir/conceptual-validation-testbed)): 10 families, 16 items each, with hidden ground truth from computation or
 experiment.
 
 **Setup.**
