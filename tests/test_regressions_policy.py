@@ -343,3 +343,23 @@ def test_configure_applies_to_models_resolved_before_it(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "cache_dir", tmp_path)  # a response cache configured later applies too
     first, second = (run_sync(Propaganda().run(item, players)) for _ in range(2))
     assert real == ["openai/gpt-4o-mini"] and second.outcome.probs == first.outcome.probs
+
+
+def test_decision_inside_unclosed_thinking_tag_is_parsed():
+    """A model that opens <thinking> and never closes it still gets its structured decision read."""
+    import asyncio
+
+    from so_arena.core.actions import ActionRequest
+    from so_arena.core.policy import ActContext, LLMPolicy
+    from so_arena.core.types import Message
+    from so_arena.models.base import MockModel
+
+    m = MockModel('<thinking>A pays 960, B pays 290. Final: {"A": 0.9, "B": 0.1}')
+    pol = LLMPolicy(m, cot=True, investigate=False)
+    req = ActionRequest(kind="probabilities", options=["A", "B"], prompt=[Message.user("which?")])
+    a = asyncio.run(pol.act(req, ActContext(role="judge")))
+    assert a.parse_ok and a.probs["A"] == 0.9 and a.text == ""
+    # free text stays private
+    req = ActionRequest(kind="text", prompt=[Message.user("speak")])
+    a = asyncio.run(pol.act(req, ActContext(role="judge")))
+    assert a.text == ""

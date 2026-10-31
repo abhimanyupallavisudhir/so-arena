@@ -5,13 +5,14 @@ from so_arena.mechanisms._common import NullPolicy
 from so_arena.mechanisms.elicitation import Confession, PeerPrediction
 from so_arena.mechanisms.markets import MarketMaking, MarketScoringReward, PredictionMarket
 from so_arena.mechanisms.qa import Consultancy, Debate, DirectJudge, Propaganda
+from so_arena.mechanisms.recursive import ProverEstimatorDebate, RecursiveDebate
 from so_arena.mechanisms.swarm import Team
 from so_arena.mechanisms.work import MonitoredWork, ReviewedWork, Work
 
 MECHANISMS: dict[str, type[Mechanism]] = {
     cls.name: cls
     for cls in (DirectJudge, Propaganda, Consultancy, Debate, ReviewedWork, MonitoredWork, Work, Team,
-                MarketMaking, PredictionMarket, PeerPrediction, Confession)
+                MarketMaking, PredictionMarket, PeerPrediction, Confession, ProverEstimatorDebate, RecursiveDebate)
 }
 MECHANISMS["naive_judge"] = DirectJudge
 MECHANISMS["critique"] = ReviewedWork
@@ -32,5 +33,6 @@ def get_mechanism(mechanism: str, /, **config) -> Mechanism:
 __all__ = [
     "DirectJudge", "Propaganda", "Consultancy", "Debate", "ReviewedWork", "MonitoredWork", "Work", "Team",
     "MarketMaking", "PredictionMarket", "MarketScoringReward", "PeerPrediction", "Confession", "NullPolicy",
+    "ProverEstimatorDebate", "RecursiveDebate",
     "MECHANISMS", "get_mechanism", "register_mechanism",
 ]
