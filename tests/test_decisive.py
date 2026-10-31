@@ -181,6 +181,28 @@ def test_liar_roles_and_policies():
     assert dopt.policies("debate_1r", "true", "both", 4)["debater_a"].n == 4
 
 
+def test_summarize_curves_pools_pairs_on_shared_items():
+    rows = [{"debater": d, "judge": "j", "mechanism": "debate_1r", "mode": "liar", "n": 1, "item": it,
+             "accuracy": acc, "p_true": acc} for d, it, acc in
+            [("a", "x", 1.0), ("b", "x", 0.0), ("a", "y", 1.0), ("b", "y", 1.0), ("a", "z", 0.0)]]
+    out = dopt.summarize_curves(pd.DataFrame(rows), n_boot=200).set_index(["debater", "judge"])
+    assert out.loc[("a", "j"), "items"] == 3 and out.loc[("a", "j"), "accuracy"] == pytest.approx(2 / 3)
+    pooled = out.loc[("all", "all")]  # z lacks pair b: pooled over x (0.5) and y (1.0) only
+    assert pooled["items"] == 2 and pooled["accuracy"] == pytest.approx(0.75)
+    assert pooled["lo"] <= pooled["accuracy"] <= pooled["hi"]
+
+
+def test_cache_spend_sums_every_cached_completion(tmp_path):
+    from so_arena.core.types import Completion, Usage
+    from so_arena.models.cache import ResponseCache
+
+    cache = ResponseCache(tmp_path / "cache" / "stage" / "responses.sqlite")
+    for k, c in (("a", 0.25), ("b", 0.5)):
+        cache.put(k, Completion(text="t", model="m", usage=Usage(cost_usd=c)))
+    assert dc.cache_spend(tmp_path, "stage") == pytest.approx(0.75)
+    assert dc.cache_spend(tmp_path, "missing") == 0.0
+
+
 def test_candidate_texts_recover_every_pool_candidate():
     seen = {"n": 0}
 

@@ -226,7 +226,7 @@ def figure_protocols(pooled_all: pd.DataFrame, pooled_committed: pd.DataFrame, o
             ax.vlines(xs, g.delta_lo, g.delta_hi, color=color, lw=2)
             ax.plot(xs, g.delta, marker, color=color, ms=7, mec="white", mew=1.5, label=name, ls="none")
         ax.axhline(0, color=INK2, lw=1)
-        ax.text(len(PROTOCOLS) - 0.5, 0.005, "judge alone", color=INK2, fontsize=7.5, ha="right", va="bottom")
+        ax.text(-0.45, 0.005, "judge alone", color=INK2, fontsize=7.5, ha="left", va="bottom")
         ax.set_xticks(x, [LABEL[p].replace(" (", "\n(").replace("prover-estimator", "prover-\nestimator")
                           for p in PROTOCOLS], fontsize=7.5)
         ax.set_title(f"debater: {d}", color=INK, fontsize=9, loc="left")
@@ -388,11 +388,12 @@ def main(run: str, out: str = "docs/results") -> None:
         if opt_items:
             sub = it[it.item.isin(opt_items)].drop_duplicates(["judge", "debater", "item"])
             refs = {"judge alone": float(sub.acc_judge.mean()), "debater alone": float(sub.acc_debater.mean())}
-        # pooled over pairs: mean of the pair curves (each pair has the same items); CIs averaged
-        pooled_cur = cur.groupby(["mechanism", "mode", "n"])[["accuracy", "lo", "hi"]].mean().reset_index()
+        # pooled over pairs: an item's accuracy is its mean over the pairs, CIs bootstrap items
+        pooled_cur = cur[(cur.debater == "all") & (cur.judge == "all")].drop(columns=["debater", "judge"])
         pooled_cur.to_csv(out / "decisive_optimization_pooled.csv", index=False)
         figure_optimization(pooled_cur, refs, out)
-        piv = cur.pivot_table(index=["mechanism", "mode", "debater", "judge"], columns="n", values="accuracy")
+        pairs = cur[cur.debater != "all"]
+        piv = pairs.pivot_table(index=["mechanism", "mode", "debater", "judge"], columns="n", values="accuracy")
         lines += ["## Optimized liars: judge accuracy under best-of-n (mean of arms)", "",
                   f"References on these items: {json.dumps({k: round(v, 3) for k, v in refs.items()})}", "",
                   md(pooled_cur), "", md(piv, index=True), ""]

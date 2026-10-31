@@ -140,10 +140,12 @@ async def grow(run: Path, items, d: str, j: str, mech, *, pool: int, concurrency
     return cost
 
 
-def curves(run: Path, n_boot: int = 2000) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Judge accuracy per (debater, judge, mechanism, mode, n), mean of the arms per item, bootstrap CIs over
-    items; and the liar's selection weights over its candidates at each n (for the audit)."""
-    rows, sel = [], []
+def curves(run: Path, n_boot: int = 2000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Judge accuracy per (debater, judge, mechanism, mode, n), mean of the arms per item, with bootstrap CIs
+    over items, plus rows pooled over every (debater, judge) pair (``debater == judge == "all"``: an item's
+    accuracy is its mean over the pairs, and items are resampled); the per-item accuracies; and the liar's
+    selection weights over its candidates at each n (for the audit)."""
+    per_item, sel = [], []
     for d in DEBATERS:
         for j in JUDGES:
             for mech in [m.name for m in mechanisms()]:
@@ -154,7 +156,6 @@ def curves(run: Path, n_boot: int = 2000) -> tuple[pd.DataFrame, pd.DataFrame]:
                 items = sorted(set(per_arm["true"]) & set(per_arm["false"]))
                 for mode in ("liar", "both"):
                     for n in NS:
-                        acc, ptrue = [], []
                         for it in items:
                             vals = []
                             for arm in ("true", "false"):
@@ -170,14 +171,30 @@ def curves(run: Path, n_boot: int = 2000) -> tuple[pd.DataFrame, pd.DataFrame]:
                                                 sel.append({"debater": d, "judge": j, "mechanism": mech, "item": it,
                                                             "arm": arm, "n": n, "key": key, "index": i,
                                                             "weight": float(p)})
-                            acc.append(np.mean([x[0] for x in vals]))
-                            ptrue.append(np.mean([x[1] for x in vals]))
-                        acc = np.array(acc, dtype=float)
-                        lo, hi = bootstrap_mean_ci(acc, n_boot=n_boot)
-                        rows.append({"debater": d, "judge": j, "mechanism": mech, "mode": mode, "n": n,
-                                     "accuracy": float(np.nanmean(acc)), "lo": lo, "hi": hi,
-                                     "p_true": float(np.nanmean(ptrue)), "items": int(np.isfinite(acc).sum())})
-    return pd.DataFrame(rows), pd.DataFrame(sel)
+                            per_item.append({"debater": d, "judge": j, "mechanism": mech, "mode": mode, "n": n,
+                                             "item": it, "accuracy": np.mean([x[0] for x in vals]),
+                                             "p_true": np.mean([x[1] for x in vals])})
+    items = pd.DataFrame(per_item)
+    return summarize_curves(items, n_boot=n_boot), items, pd.DataFrame(sel)
+
+
+def summarize_curves(items: pd.DataFrame, n_boot: int = 2000) -> pd.DataFrame:
+    """Per-pair rows and rows pooled over pairs (on the items every pair has), bootstrap CIs over items."""
+    if items.empty:
+        return pd.DataFrame()
+    keys = ["mechanism", "mode", "n"]
+    npairs = items.groupby(keys + ["item"]).size()
+    full = npairs[npairs == npairs.groupby(keys).transform("max")].reset_index()[keys + ["item"]]
+    pooled = (items.merge(full, on=keys + ["item"]).groupby(keys + ["item"])[["accuracy", "p_true"]].mean()
+              .reset_index().assign(debater="all", judge="all"))
+    rows = []
+    for (d, j, m, mode, n), g in pd.concat([items, pooled]).groupby(["debater", "judge"] + keys, sort=False):
+        acc = g.accuracy.to_numpy(dtype=float)
+        lo, hi = bootstrap_mean_ci(acc, n_boot=n_boot)
+        rows.append({"debater": d, "judge": j, "mechanism": m, "mode": mode, "n": n,
+                     "accuracy": float(np.nanmean(acc)), "lo": lo, "hi": hi,
+                     "p_true": float(np.nanmean(g.p_true)), "items": int(np.isfinite(acc).sum())})
+    return pd.DataFrame(rows)
 
 
 def main(argv=None):
@@ -240,8 +257,9 @@ def main(argv=None):
         print(json.dumps({k: round(v, 2) for k, v in cost.items()}, indent=1), f"\nthis run ${total:.2f}")
         if a.estimate:
             return
-    cur, sel = curves(run)
+    cur, per_item, sel = curves(run)
     cur.to_csv(out / "curves.csv", index=False)
+    per_item.to_csv(out / "curve_items.csv.gz", index=False)
     sel.to_csv(out / "selection.csv.gz", index=False)
     print(cur.round(3).to_string(index=False))
 
