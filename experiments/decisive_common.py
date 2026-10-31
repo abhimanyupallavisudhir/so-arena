@@ -31,7 +31,17 @@ DEBATERS = {
     "claude-sonnet-4-5": "anthropic/claude-sonnet-4-5",
     "gpt-5-mini": "openai/gpt-5-mini",
 }
-REASONING = ("gpt-5", "/o3", "/o4")
+# Models newer than the bundled registry (Anthropic first-party prices, $ per million tokens)
+for _name, _in, _out, _cached in (("anthropic/claude-sonnet-5", 2.0, 10.0, 0.2),
+                                  ("anthropic/claude-opus-5-5", 4.0, 20.0, 0.2),
+                                  ("anthropic/claude-opus-5", 5.0, 25.0, 0.5),
+                                  ("anthropic/claude-fable-5-1", 10.0, 50.0, 0.25)):
+    from so_arena.models.registry import register_model as _register
+
+    _register(name=_name, family="claude-5", organization="Anthropic", price_input_per_mtok=_in,
+              price_output_per_mtok=_out, price_cached_input_per_mtok=_cached)
+# thinking models: room for hidden reasoning, effort instead of temperature (Claude 5 models think by default)
+REASONING = ("gpt-5", "/o3", "/o4", "claude-sonnet-5", "claude-opus-5", "claude-fable-5")
 KEY_ALIASES = {"OPENAI_API_KEY": "OPENAI_API_KEY_ASTRA_2", "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY_ASTRA_2",
                "OPENROUTER_API_KEY": "OPENROUTER_API_KEY_ASTRA"}
 
@@ -82,6 +92,29 @@ def solo_policy(model: str) -> soa.LLMPolicy:
     return soa.LLMPolicy(_model(model, "solo"), cot=True, temperature=None, max_tokens=3000)
 
 
+class FreshSamples(soa.Policy):
+    """``base`` drawing independent samples: every call's sample index is shifted by ``offset``, so the same
+    prompt gets a new completion (a different cache key) instead of the one already drawn. Used to judge the
+    same transcripts again (held-out evaluation of best-of-n) and for preview judges that must not share
+    samples with the final verdict."""
+
+    def __init__(self, base, offset: int = 50_000, *, label: str | None = None):
+        super().__init__(label=label or f"fresh{offset}({base.label or base.id})")
+        self.base, self.offset = base, offset
+
+    def describe(self) -> dict:
+        return {**super().describe(), "base": self.base.describe(), "offset": self.offset}
+
+    async def act(self, request, ctx):
+        from so_arena.core.policy import ActContext
+
+        sub = ActContext(role=ctx.role, sample_index=ctx.sample_index + self.offset, game=ctx.game,
+                         tools=ctx.tools, seed=ctx.seed, workspace=ctx._slot, draw=ctx.draw)
+        action = await self.base.act(request, sub)
+        ctx.usage = ctx.usage + sub.usage
+        return action
+
+
 def families(items) -> dict[str, str]:
     """Item id -> testbed family (ids do not encode it reliably)."""
     return {it.id: it.metadata.get("family", it.domain) for it in items}
@@ -107,6 +140,9 @@ def candidate_items(per_generated: int = 150, seed: int = 0):
     return items
 
 
+BUNDLE = Path(__file__).resolve().parents[1] / "docs" / "results" / "decisive_data"
+
+
 def selected_items(run: str | Path, limit: int | None = None):
     """The gap-selected items in one fixed random order: every stage takes a prefix, so a stage stopped by the
     budget covers a random subset, and the optimization items are a subset of the protocol items."""
@@ -115,6 +151,13 @@ def selected_items(run: str | Path, limit: int | None = None):
     from so_arena.core.store import RunStore
 
     items = RunStore(str(Path(run) / "select")).items()
+    if not items:  # a fresh checkout: the committed data bundle has the same items
+        import gzip
+
+        from so_arena.core.items import TaskItem
+
+        with gzip.open(BUNDLE / "select" / "items.jsonl.gz", "rt") as f:
+            items = [TaskItem.model_validate_json(line) for line in f if line.strip()]
     return random.Random(0).sample(items, len(items))[:limit]
 
 
