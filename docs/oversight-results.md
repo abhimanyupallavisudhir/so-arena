@@ -173,7 +173,7 @@ and the classifier rate as an upper bound.
 | References | the judge alone; the debater model alone, reasoning at temperature 0 |
 | Optimization run | 120 items; single argument with a pool of 8 candidates; debate 1 round with 4 × 4 candidates; gpt-4.1-mini arguers at temperature 1; gpt-4.1-nano judge; exact best-of-n over the pools |
 
-**Size.** One protocol episode is 1–9 model calls and 0.3k–19k tokens. For example, a gpt-4.1-mini debate is 5 calls, 3.5k input and 1.2k output tokens, \$0.002. The whole comparison was 6,400 protocol episodes plus 1,280 references, about 30M tokens in total, for \$87, of which \$83 was the gpt-5-mini and Sonnet arms. That is cheap because the models are small, the protocols are short, and each item was run once.
+**Size.** One protocol episode is 1–9 model calls and 0.3k–19k tokens. For example, a gpt-4.1-mini debate is 5 calls, 3.5k input and 1.2k output tokens, \$0.002. The whole comparison was 6,400 protocol episodes plus 1,280 references, about 40M tokens in total, for \$87, of which \$83 was the gpt-5-mini and Sonnet arms. That is cheap because the models are small, the protocols are short, and each item was run once.
 
 **What this cannot show: "these mechanisms do not work".** Six reasons:
 
