@@ -26,6 +26,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 
 import numpy as np
@@ -140,40 +141,47 @@ async def grow(run: Path, items, d: str, j: str, mech, *, pool: int, concurrency
     return cost
 
 
+def _curve_cell(run: Path, d: str, j: str, mech: str) -> tuple[list[dict], list[dict]]:
+    """Per-item accuracies and the liar's selection weights for one (debater, judge, mechanism)."""
+    per_item, sel = [], []
+    per_arm = {arm: {t.item_id: t for t in load_trees(tree_path(run, d, j, mech, arm))}
+               for arm in ("true", "false") if tree_path(run, d, j, mech, arm).exists()}
+    if len(per_arm) < 2:
+        return per_item, sel
+    for mode in ("liar", "both"):
+        for n in NS:
+            for it in sorted(set(per_arm["true"]) & set(per_arm["false"])):
+                vals = []
+                for arm in ("true", "false"):
+                    tree = per_arm[arm][it]
+                    pols = policies(mech, arm, mode, n)
+                    v = evaluate_tree(tree, pols).values
+                    vals.append((v.get("judge_correct", np.nan), v.get("judge_p_true", np.nan)))
+                    if mode == "liar" and (arm == "false" or not mech.startswith("consultancy")):
+                        liar = liar_role(mech, arm)
+                        for key, s in selection_policies(tree, pols).items():
+                            if s["role"] == liar:
+                                for i, p in enumerate(s["probs"]):
+                                    sel.append({"debater": d, "judge": j, "mechanism": mech, "item": it, "arm": arm,
+                                                "n": n, "key": key, "index": i, "weight": float(p)})
+                per_item.append({"debater": d, "judge": j, "mechanism": mech, "mode": mode, "n": n, "item": it,
+                                 "accuracy": np.mean([x[0] for x in vals]), "p_true": np.mean([x[1] for x in vals])})
+    return per_item, sel
+
+
 def curves(run: Path, n_boot: int = 2000) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Judge accuracy per (debater, judge, mechanism, mode, n), mean of the arms per item, with bootstrap CIs
     over items, plus rows pooled over every (debater, judge) pair (``debater == judge == "all"``: an item's
     accuracy is its mean over the pairs, and items are resampled); the per-item accuracies; and the liar's
     selection weights over its candidates at each n (for the audit)."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    cells = [(run, d, j, m.name) for d in DEBATERS for j in JUDGES for m in mechanisms()]
     per_item, sel = [], []
-    for d in DEBATERS:
-        for j in JUDGES:
-            for mech in [m.name for m in mechanisms()]:
-                per_arm = {arm: {t.item_id: t for t in load_trees(tree_path(run, d, j, mech, arm))}
-                           for arm in ("true", "false") if tree_path(run, d, j, mech, arm).exists()}
-                if len(per_arm) < 2:
-                    continue
-                items = sorted(set(per_arm["true"]) & set(per_arm["false"]))
-                for mode in ("liar", "both"):
-                    for n in NS:
-                        for it in items:
-                            vals = []
-                            for arm in ("true", "false"):
-                                tree = per_arm[arm][it]
-                                pols = policies(mech, arm, mode, n)
-                                v = evaluate_tree(tree, pols).values
-                                vals.append((v.get("judge_correct", np.nan), v.get("judge_p_true", np.nan)))
-                                if mode == "liar" and (arm == "false" or not mech.startswith("consultancy")):
-                                    liar = liar_role(mech, arm)
-                                    for key, s in selection_policies(tree, pols).items():
-                                        if s["role"] == liar:
-                                            for i, p in enumerate(s["probs"]):
-                                                sel.append({"debater": d, "judge": j, "mechanism": mech, "item": it,
-                                                            "arm": arm, "n": n, "key": key, "index": i,
-                                                            "weight": float(p)})
-                            per_item.append({"debater": d, "judge": j, "mechanism": mech, "mode": mode, "n": n,
-                                             "item": it, "accuracy": np.mean([x[0] for x in vals]),
-                                             "p_true": np.mean([x[1] for x in vals])})
+    with ProcessPoolExecutor(max_workers=min(len(cells), os.cpu_count() or 1)) as pool:
+        for a, b in pool.map(_curve_cell, *zip(*cells)):
+            per_item += a
+            sel += b
     items = pd.DataFrame(per_item)
     return summarize_curves(items, n_boot=n_boot), items, pd.DataFrame(sel)
 
