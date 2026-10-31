@@ -40,8 +40,8 @@ from so_arena.mechanisms import Consultancy, Debate
 from so_arena.samplers.arms import arm_profiles
 from so_arena.samplers.pools import expand_tree, load_trees
 
-from decisive_common import (DEBATERS, JUDGES, Ledger, chunks, debater_policy, judge_policy, map_keys,
-                             selected_items)
+from decisive_common import (DEBATERS, JUDGES, Ledger, cache_spend, chunks, debater_policy, judge_policy,
+                             map_keys, selected_items)
 
 GT = [StanceValue(), JudgeCorrectness()]
 NS = [1, 2, 4, 8, 16]
@@ -110,7 +110,7 @@ async def grow(run: Path, items, d: str, j: str, mech, *, pool: int, concurrency
     sem = asyncio.Semaphore(concurrency)
     sizes = {"consultant": pool} if mech.name.startswith("consultancy") else {"debater_a": pool, "debater_b": pool}
     profs = arm_profiles(mech, agent=debater_policy(DEBATERS[d]), fixtures={"judge": judge_policy(JUDGES[j])})
-    for prof in profs:
+    async def grow_arm(prof):
         arm = prof.tags["arm"]
         path = tree_path(run, d, j, mech.name, arm)
         done = {t.item_id for t in load_trees(path)} if path.exists() else set()
@@ -135,6 +135,8 @@ async def grow(run: Path, items, d: str, j: str, mech, *, pool: int, concurrency
                 f.write(tree.model_dump_json() + "\n")
 
         await asyncio.gather(*[one(it) for it in items if it.id not in done])
+
+    await asyncio.gather(*[grow_arm(prof) for prof in profs])  # the arms share the semaphore
     return cost
 
 
@@ -212,7 +214,7 @@ def main(argv=None):
             if not a.estimate:
                 out.mkdir(parents=True, exist_ok=True)
                 (out / "cost.json").write_text(json.dumps(cost, indent=1))
-                ledger.set("optimize", sum(cost.values()))
+                ledger.set("optimize", cache_spend(run, "optimize"))  # exact; cost.json misses interrupted trees
 
         async def batch_run(batch):
             first, *others = JUDGES
@@ -222,7 +224,7 @@ def main(argv=None):
         log = logging.getLogger("decisive")
         per_item, done = None, 0
         for batch in chunks(items, a.chunk):
-            spent = sum(cost.values())
+            spent = sum(cost.values()) if a.estimate else cache_spend(run, "optimize")
             if a.budget is not None and per_item is not None and spent + per_item * len(batch) > a.budget:
                 log.warning("stopping: $%.0f spent, next chunk ~$%.0f, budget $%.0f", spent, per_item * len(batch),
                             a.budget)
@@ -230,10 +232,10 @@ def main(argv=None):
             before = spent
             run_sync(batch_run(batch))  # items with saved trees are skipped (resume)
             done += len(batch)
-            new = sum(cost.values()) - before
-            if new > 0:
-                per_item = max(per_item or 0.0, new / len(batch))
-            log.info("%d items done, stage $%.2f", done, sum(cost.values()))
+            now = sum(cost.values()) if a.estimate else cache_spend(run, "optimize")
+            if now - before > 0:
+                per_item = max(per_item or 0.0, (now - before) / len(batch))
+            log.info("%d items done, stage $%.2f", done, now)
         total = sum(cost.values()) - sum(prev.values())
         print(json.dumps({k: round(v, 2) for k, v in cost.items()}, indent=1), f"\nthis run ${total:.2f}")
         if a.estimate:

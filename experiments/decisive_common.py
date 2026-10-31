@@ -118,6 +118,22 @@ def selected_items(run: str | Path, limit: int | None = None):
     return random.Random(0).sample(items, len(items))[:limit]
 
 
+def cache_spend(run: str | Path, stage: str) -> float:
+    """What a stage has paid: the sum of the recorded cost of every completion in its response cache. Every paid
+    call is cached once and replays cost nothing, so this is exact across interrupted and resumed jobs."""
+    import sqlite3
+
+    path = Path(run) / "cache" / stage / "responses.sqlite"
+    if not path.exists():
+        return 0.0
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=60)
+    try:
+        got = con.execute("SELECT SUM(json_extract(value, '$.usage.cost_usd')) FROM cache").fetchone()[0]
+    finally:
+        con.close()
+    return float(got or 0.0)
+
+
 def episode_cost(ep) -> float:
     return float(sum((u.cost_usd or 0.0) for u in ep.usage.values()))
 
@@ -131,15 +147,27 @@ class Ledger:
         self.budget = budget
         self.data = json.loads(self.path.read_text()) if self.path.exists() else {}
 
+    def _reload(self) -> None:
+        if self.path.exists():
+            self.data = json.loads(self.path.read_text())
+
     @property
     def total(self) -> float:
+        self._reload()  # stages running in parallel jobs write the same file
         return float(sum(self.data.values()))
 
     def set(self, stage: str, usd: float) -> None:
         """Record a stage's total spend (recomputed from its stores, so resumed runs are not counted twice)."""
-        self.data[stage] = round(float(usd), 6)
+        import fcntl
+
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=1, sort_keys=True))
+        with open(self.path.with_suffix(".lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self._reload()
+            self.data[stage] = round(float(usd), 6)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.data, indent=1, sort_keys=True))
+            tmp.replace(self.path)
 
     def remaining(self) -> float:
         return self.budget - self.total

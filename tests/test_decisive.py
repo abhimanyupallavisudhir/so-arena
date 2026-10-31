@@ -65,6 +65,14 @@ def test_ledger_sets_stage_totals(tmp_path):
     assert again.total == pytest.approx(9) and again.check(1) and not again.check(1.5)
 
 
+def test_ledgers_in_parallel_jobs_keep_each_others_stages(tmp_path):
+    first, second = dc.Ledger(tmp_path), dc.Ledger(tmp_path)  # both opened before either writes
+    first.set("protocols", 2)
+    second.set("optimize", 3)
+    assert dc.Ledger(tmp_path).data == {"protocols": 2, "optimize": 3}
+    assert first.total == pytest.approx(5)
+
+
 # --------------------------------------------------------------------------------------------- protocols
 
 def _record_debater_calls(mech, judge_p):
