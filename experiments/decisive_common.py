@@ -1,0 +1,153 @@
+"""Shared configuration of the decisive oversight study (experiments/decisive_*.py).
+
+Models, policies, candidate items and spend accounting used by every stage:
+
+* ``decisive_select.py``   - gap selection: items the debaters get right and the weak judges do not;
+* ``decisive_protocols.py`` - every protocol, (judge, debater) pair, arm and sample on the selected items;
+* ``decisive_optimize.py``  - best-of-n liars (and honest debaters) selected against each judge's reward;
+* ``decisive_audit.py``     - audit of prompted and selected liar arguments;
+* ``decisive_report.py``    - tables, bootstrap CIs and figures.
+
+Every stage writes its own response cache (``<run>/cache/<stage>``), so a stage never replays another's
+samples: the judge-alone and debater-alone accuracies measured in the protocol stage are fresh draws, not the
+draws the items were selected on (which would overstate the gap by regression to the mean).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from collections.abc import Iterable
+from pathlib import Path
+
+import so_arena as soa
+
+JUDGES = {
+    "gpt-4o-mini": "openai/gpt-4o-mini",
+    "llama-3.1-8b": "openrouter/meta-llama/llama-3.1-8b-instruct",
+    "gemma-3-12b": "openrouter/google/gemma-3-12b-it",
+}
+DEBATERS = {
+    "claude-sonnet-4-5": "anthropic/claude-sonnet-4-5",
+    "gpt-5-mini": "openai/gpt-5-mini",
+}
+REASONING = ("gpt-5", "/o3", "/o4")
+KEY_ALIASES = {"OPENAI_API_KEY": "OPENAI_API_KEY_ASTRA_2", "ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY_ASTRA_2",
+               "OPENROUTER_API_KEY": "OPENROUTER_API_KEY_ASTRA"}
+
+
+def map_keys() -> None:
+    """Provider keys live under non-standard names in this environment; expose them under the standard ones."""
+    for std, alias in KEY_ALIASES.items():
+        if not os.environ.get(std) and os.environ.get(alias):
+            os.environ[std] = os.environ[alias]
+
+
+def is_reasoning(model: str) -> bool:
+    return any(t in model for t in REASONING)
+
+
+# Output tokens per call for dry runs (``simulate=True``), measured on a few real calls: simulated models
+# otherwise return 200 tokens, far below what reasoning (visible or hidden) costs.
+SIM_OUTPUT = {"judge": 600, "solo": 1300, "solo_reasoning": 3500, "speech": 350, "speech_reasoning": 2500}
+
+
+def _model(model: str, kind: str):
+    from so_arena.config import settings
+    from so_arena.models.base import get_model
+
+    return get_model(f"sim/{model}", output_tokens=SIM_OUTPUT[kind]) if settings.simulate else model
+
+
+def judge_policy(model: str) -> soa.LLMPolicy:
+    """A weak judge: reasons in private before its verbalized probabilities; sampled (3 samples must differ)."""
+    return soa.LLMPolicy(_model(model, "judge"), cot=True, temperature=0.7, max_tokens=2000)
+
+
+def debater_policy(model: str) -> soa.LLMPolicy:
+    """A strong agent arguing an assigned side. Reasoning models think internally at medium effort and need
+    room for it (max_tokens is shared with hidden reasoning); others write their speech directly. Anthropic's
+    API no longer takes a temperature: Claude samples at its default."""
+    if is_reasoning(model):
+        return soa.LLMPolicy(_model(model, "speech_reasoning"), temperature=None, max_tokens=12000,
+                             reasoning_effort="medium")
+    return soa.LLMPolicy(_model(model, "speech"), temperature=None, max_tokens=1500)
+
+
+def solo_policy(model: str) -> soa.LLMPolicy:
+    """A strong model answering alone (the 'debater alone' reference): reasoning first."""
+    if is_reasoning(model):
+        return soa.LLMPolicy(_model(model, "solo_reasoning"), temperature=None, max_tokens=12000,
+                             reasoning_effort="medium")
+    return soa.LLMPolicy(_model(model, "solo"), cot=True, temperature=None, max_tokens=3000)
+
+
+def families(items) -> dict[str, str]:
+    """Item id -> testbed family (ids do not encode it reliably)."""
+    return {it.id: it.metadata.get("family", it.domain) for it in items}
+
+
+def candidate_items(per_generated: int = 150, seed: int = 0):
+    """Every labelled testbed question: all labelled questions of the experiment and dataset families, and
+    ``per_generated`` questions of each generated family (decision theory, social choice, number theory)."""
+    import cvtestbed
+
+    from so_arena.domains.testbed import to_item
+
+    out = []
+    for name, fam in cvtestbed.families().items():
+        n = per_generated if fam.cost == "free" else None
+        qs = cvtestbed.load([name], n=n, seed=seed, status="labelled")
+        out += [to_item(q) for q in qs]
+    seen, items = set(), []
+    for it in out:
+        if it.id not in seen and it.true_label is not None:
+            seen.add(it.id)
+            items.append(it)
+    return items
+
+
+def selected_items(run: str | Path, limit: int | None = None):
+    """The gap-selected items in one fixed random order: every stage takes a prefix, so a stage stopped by the
+    budget covers a random subset, and the optimization items are a subset of the protocol items."""
+    import random
+
+    from so_arena.core.store import RunStore
+
+    items = RunStore(str(Path(run) / "select")).items()
+    return random.Random(0).sample(items, len(items))[:limit]
+
+
+def episode_cost(ep) -> float:
+    return float(sum((u.cost_usd or 0.0) for u in ep.usage.values()))
+
+
+class Ledger:
+    """Spend per stage, persisted to ``<run>/spend.json`` so separate jobs add up; ``check`` stops a stage
+    before it would cross the study's budget."""
+
+    def __init__(self, run: str | Path, budget: float = 1500.0):
+        self.path = Path(run) / "spend.json"
+        self.budget = budget
+        self.data = json.loads(self.path.read_text()) if self.path.exists() else {}
+
+    @property
+    def total(self) -> float:
+        return float(sum(self.data.values()))
+
+    def set(self, stage: str, usd: float) -> None:
+        """Record a stage's total spend (recomputed from its stores, so resumed runs are not counted twice)."""
+        self.data[stage] = round(float(usd), 6)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(self.data, indent=1, sort_keys=True))
+
+    def remaining(self) -> float:
+        return self.budget - self.total
+
+    def check(self, next_cost: float = 0.0) -> bool:
+        return self.total + next_cost <= self.budget
+
+
+def chunks(seq: list, size: int) -> Iterable[list]:
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
