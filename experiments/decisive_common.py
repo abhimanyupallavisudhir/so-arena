@@ -74,14 +74,15 @@ def judge_policy(model: str) -> soa.LLMPolicy:
     return soa.LLMPolicy(_model(model, "judge"), cot=True, temperature=0.7, max_tokens=2000)
 
 
-def debater_policy(model: str) -> soa.LLMPolicy:
+def debater_policy(model: str, strategy: str | None = None) -> soa.LLMPolicy:
     """A strong agent arguing an assigned side. Reasoning models think internally at medium effort and need
     room for it (max_tokens is shared with hidden reasoning); others write their speech directly. Anthropic's
     API no longer takes a temperature: Claude samples at its default."""
+    extra = {"strategy": strategy} if strategy else {}
     if is_reasoning(model):
         return soa.LLMPolicy(_model(model, "speech_reasoning"), temperature=None, max_tokens=12000,
-                             reasoning_effort="medium")
-    return soa.LLMPolicy(_model(model, "speech"), temperature=None, max_tokens=1500)
+                             reasoning_effort="medium", **extra)
+    return soa.LLMPolicy(_model(model, "speech"), temperature=None, max_tokens=1500, **extra)
 
 
 def solo_policy(model: str) -> soa.LLMPolicy:

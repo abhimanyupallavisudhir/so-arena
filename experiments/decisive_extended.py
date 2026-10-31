@@ -1,0 +1,233 @@
+"""Decisive study, extended report: the stages added after the first write-up.
+
+Reads whatever stage outputs exist under the run directory and writes ``docs/results/decisive_extended.md`` plus
+CSVs and figures:
+
+* multi-round best-of-n (``decisive_multiround.py``): judge accuracy and ASD at n = 1 (the protocol grid), 4 and
+  16, liar-only and both optimized, paired against the judge alone on the same items;
+* held-out best-of-n (``decisive_ic.py --holdout``): the one-round curves and incentives with selection and
+  evaluation on independent judge samples, against the in-sample ones;
+* prompt search (``decisive_promptsearch.py``): honesty margins and the best-response ladder;
+* QuALITY (``decisive_quality.py``): the protocol comparison under information asymmetry;
+* the auditor check (``decisive_auditcheck.py``) and the tournament (``decisive_tournament_report.py``).
+
+    python experiments/decisive_extended.py runs/decisive [docs/results]
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from decisive_report import (INK, INK2, LABEL, SERIES, _axes, _found, boot, diff_of, fmt_ci, item_table,  # noqa: E402
+                             mean_of, md, ratio_of, with_references)
+
+N_BOOT = 2000
+
+
+def references(run: Path) -> pd.DataFrame:
+    """Per (judge, debater, item): the judge alone, the debater alone, and every grid protocol's accuracy."""
+    rows = pd.read_csv(_found(run / "protocols" / "rows.csv"))
+    return with_references(item_table(rows))
+
+
+def multiround_items(run: Path, ref: pd.DataFrame) -> pd.DataFrame:
+    """Per (judge, debater, protocol, mode, n, item): accuracy (mean over arms and samples) and ASD (log score:
+    reward arguing the truth minus arguing the falsehood). n = 1 is the protocol grid on the same items;
+    consultancy's liar mode takes its true arm from the grid."""
+    mr = pd.read_csv(run / "multiround" / "rows.csv")
+    grid = pd.read_csv(_found(run / "protocols" / "rows.csv"))
+    grid = grid[grid.mechanism.isin(["consultancy", "debate_seq"]) & grid.debater.isin(mr.debater.unique())
+                & grid.item.isin(mr.item.unique())]
+    out = []
+    # n = 1: the grid (both modes coincide)
+    for (j, d, m, it), g in grid.groupby(["judge", "debater", "mechanism", "item"]):
+        lead = g.sort_values("role").drop_duplicates("episode")
+        hon = g[g.value > 0].reward.mean()
+        lie = g[g.value <= 0].reward.mean()
+        for mode in ("liar", "both"):
+            out.append({"judge": j, "debater": d, "mechanism": m, "mode": mode, "n": 1, "item": it,
+                        "accuracy": lead.correct.mean(), "asd": hon - lie})
+    for (j, d, m, mode, n, it), g in mr.groupby(["judge", "debater", "mechanism", "mode", "n", "item"]):
+        acc = list(g.correct)
+        hon, lie = list(g.honest_reward.dropna()), list(g.liar_reward.dropna())
+        if m == "consultancy" and mode == "liar":  # the unoptimized true arm is the grid's
+            gg = grid[(grid.judge == j) & (grid.debater == d) & (grid.mechanism == m) & (grid.item == it)
+                      & (grid.arm == "true")]
+            acc = [float(np.mean(acc)), float(gg.correct.mean())]
+            hon = list(gg.reward.dropna())
+        elif m == "consultancy":
+            hon = list(g[g.arm == "true"].honest_reward.dropna())
+            lie = list(g[g.arm == "false"].liar_reward.dropna())
+        out.append({"judge": j, "debater": d, "mechanism": m, "mode": mode, "n": int(n), "item": it,
+                    "accuracy": float(np.mean(acc)), "asd": (np.mean(hon) - np.mean(lie)) if hon and lie else np.nan})
+    df = pd.DataFrame(out)
+    refs = ref.drop_duplicates(["judge", "debater", "item"])[["judge", "debater", "item", "acc_judge", "acc_debater"]]
+    return df.merge(refs, on=["judge", "debater", "item"], how="inner")
+
+
+def summarize_multiround(items: pd.DataFrame, by: list[str]) -> pd.DataFrame:
+    out = []
+    for key, g in items.groupby(by + ["mechanism", "mode", "n"]):
+        key = dict(zip(by + ["mechanism", "mode", "n"], key if isinstance(key, tuple) else (key,)))
+        g = g.dropna(subset=["accuracy", "acc_judge"])
+        row = dict(key)
+        for name, stat in (("accuracy", mean_of("accuracy")), ("delta", diff_of("accuracy", "acc_judge")),
+                           ("gap_recovered", ratio_of("accuracy", "acc_judge", "acc_debater", "acc_judge")),
+                           ("asd", mean_of("asd"))):
+            est, lo, hi = boot(g.dropna(subset=["asd"]) if name == "asd" else g, stat, n_boot=N_BOOT)
+            row.update({name: est, f"{name}_lo": lo, f"{name}_hi": hi})
+        row["judge_alone"] = float(g.acc_judge.mean())
+        row["items"] = int(g.item.nunique())
+        out.append(row)
+    return pd.DataFrame(out)
+
+
+def figure_multiround(pooled: pd.DataFrame, out: Path) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.6), sharey=True)
+    for ax, m in zip(axes, ("consultancy", "debate_seq")):
+        _axes(ax)
+        for k, (mode, name) in enumerate((("liar", "liar optimized"), ("both", "both sides optimized"))):
+            g = pooled[(pooled.mechanism == m) & (pooled["mode"] == mode)].sort_values("n")
+            ax.fill_between(g.n, g.delta_lo, g.delta_hi, color=SERIES[k], alpha=0.15, lw=0)
+            ax.plot(g.n, g.delta, "o-", color=SERIES[k], lw=2, ms=6, mec="white", label=name)
+        ax.axhline(0, color=INK2, lw=1)
+        ax.text(1, 0.005, "judge alone", color=INK2, fontsize=7.5, va="bottom")
+        ax.set_xscale("log", base=2)
+        ax.set_xticks([1, 4, 16], ["1", "4", "16"])
+        ax.set_xlabel("best-of-n on every speech (fresh preview judge)", color=INK2, fontsize=8.5)
+        ax.set_title(f"{LABEL[m]}, 3 rounds", color=INK, fontsize=9, loc="left")
+    axes[0].set_ylabel("accuracy minus the judge alone\n(pooled over 3 judges; 95% CI)", color=INK2, fontsize=8.5)
+    axes[0].legend(fontsize=7.5, frameon=False)
+    fig.tight_layout()
+    fig.savefig(out / "decisive_multiround.png", dpi=170)
+    plt.close(fig)
+
+
+def table(df: pd.DataFrame, cols: list[str]) -> str:
+    t = df.copy()
+    for c in ("accuracy", "delta", "gap_recovered", "asd"):
+        if c in t and f"{c}_lo" in t:
+            t[c] = [fmt_ci(r, c, c == "delta") for r in t.to_dict("records")]
+    return md(t[cols])
+
+
+def promptsearch(run: Path) -> tuple[list[str], dict]:
+    base = run / "promptsearch"
+    lines, data = [], {}
+    if not base.exists():
+        return lines, data
+    margins, ladders, cands = [], [], []
+    for jdir in sorted(p for p in base.iterdir() if p.is_dir()):
+        for f in sorted(jdir.glob("open-*.margin.json")):
+            m = json.loads(f.read_text())
+            mech = f.name.split("open-")[1].split(".margin")[0]
+            for basis in ("measured", "directive"):
+                r = m[basis]
+                margins.append({"judge": jdir.name, "mechanism": mech, "basis": basis, "margin": r["margin"],
+                                "ci_low": r["ci_low"], "ci_high": r["ci_high"], "honest_reward": r["honest_reward"],
+                                "deceptive_reward": r["deceptive_reward"], "honest_value": r["honest_value"],
+                                "deceptive_value": r["deceptive_value"], "n_items": r["n_items"]})
+        for f in sorted(jdir.glob("ladder-*.ladder.csv")):
+            ladders.append(pd.read_csv(f))
+        for f in sorted(jdir.glob("*.candidates.csv")):
+            cands.append(pd.read_csv(f))
+    if margins:
+        mg = pd.DataFrame(margins)
+        data["margins"] = mg
+        lines += ["## Prompt search: honesty margin (agent chooses its side; held-out items)", "",
+                  "margin = held-out reward of the best honest strategy minus the best deceptive one (log score); "
+                  "value = 2 x share of episodes defending the true answer - 1.", "",
+                  md(mg.round(3)), ""]
+    if ladders:
+        ld = pd.concat(ladders, ignore_index=True)
+        data["ladder"] = ld
+        lines += ["## Prompt search: best-response ladder (assigned sides; held-out items)", "", md(ld.round(3)), ""]
+    if cands:
+        data["candidates"] = pd.concat(cands, ignore_index=True)
+    return lines, data
+
+
+def main(run: str, out: str = "docs/results") -> None:
+    run, out = Path(run), Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    lines = ["# Decisive study: extended results", ""]
+    spend = json.loads((run / "spend.json").read_text()) if (run / "spend.json").exists() else {}
+    if spend:
+        lines += ["## Spend", "", "| stage | $ |", "|---|---|"] + [f"| {k} | {v:.2f} |" for k, v in sorted(spend.items())]
+        lines += [f"| **total** | **{sum(spend.values()):.2f}** |", ""]
+    ref = references(run)
+
+    if (run / "multiround" / "rows.csv").exists():
+        mi = multiround_items(run, ref)
+        mi.to_csv(run / "multiround_items.csv.gz", index=False)
+        pooled = summarize_multiround(mi, [])
+        per_judge = summarize_multiround(mi, ["judge"])
+        pooled.to_csv(out / "decisive_multiround.csv", index=False)
+        per_judge.to_csv(out / "decisive_multiround_by_judge.csv", index=False)
+        figure_multiround(pooled, out)
+        cols = ["mechanism", "mode", "n", "accuracy", "judge_alone", "delta", "gap_recovered", "asd", "items"]
+        lines += ["## Multi-round best-of-n (3 rounds; preview judge on fresh samples)", "",
+                  "Pooled over judges; delta = accuracy minus the judge alone (points); ASD in log score.", "",
+                  table(pooled, cols), "", "Per judge:", "", table(per_judge, ["judge"] + cols), ""]
+
+    for suffix, title in (("", "in-sample"), ("_holdout", "held-out")):
+        f = out / f"decisive_ic{suffix}.csv"
+        if f.exists():
+            ic = pd.read_csv(f)
+            p = ic[(ic.debater == "all") & (ic.kind == "bon")][["mechanism", "mode", "level", "accuracy", "asd",
+                                                                "asd_lo", "asd_hi", "concordant"]]
+            lines += [f"## One-round best-of-n incentives ({title} judging)", "", md(p.round(3)), ""]
+            o = out / f"decisive_open_choice{suffix}.csv"
+            if o.exists():
+                oc = pd.read_csv(o)
+                oc = oc[(oc.judge == "all") & (oc.kind == "bon")][["debater", "level", "honest", "honest_lo",
+                                                                     "honest_hi", "accuracy"]]
+                lines += [f"Consultant choosing its side ({title}): share of selected arguments defending the truth", "",
+                          md(oc.round(3)), ""]
+
+    ps_lines, _ = promptsearch(run)
+    lines += ps_lines
+
+    if (run / "quality" / "rows.csv").exists():
+        q = pd.read_csv(run / "quality" / "rows.csv")
+        qi = with_references(item_table(q))
+        from decisive_report import summarize
+
+        pooled_q = summarize(qi, ["debater", "mechanism"])
+        overall_q = summarize(qi, ["mechanism"]).assign(debater="all")
+        perj_q = summarize(qi, ["judge", "debater", "mechanism"])
+        qq = pd.concat([overall_q, pooled_q])
+        qq.to_csv(out / "decisive_quality.csv", index=False)
+        perj_q.to_csv(out / "decisive_quality_by_judge.csv", index=False)
+        cols = ["debater", "mechanism", "accuracy", "judge_alone", "debater_alone", "delta", "gap_recovered", "asd",
+                "concordance", "items"]
+        lines += ["## QuALITY (information asymmetry, verified quotes)", "", table(qq, cols), ""]
+
+    for name, title in (("decisive_auditcheck_agreement.csv", "Auditor agreement"),
+                        ("decisive_auditcheck_rates.csv", "Share of liar texts not committed, by auditor")):
+        if (out / name).exists():
+            lines += [f"## {title}", "", md(pd.read_csv(out / name).round(3)), ""]
+    if (out / "decisive_tournament.csv").exists():
+        t = pd.read_csv(out / "decisive_tournament.csv")
+        keep = [c for c in ("model", "elo", "elo_lo", "elo_hi", "alone", "self_play", "consultancy", "win_as_honest",
+                            "win_as_liar") if c in t]
+        lines += ["## Tournament", "", md(t[keep].round(3)), ""]
+        s = out / "decisive_tournament_summary.txt"
+        if s.exists():
+            lines += [s.read_text(), ""]
+    (out / "decisive_extended.md").write_text("\n".join(lines))
+    print("\n".join(lines))
+
+
+if __name__ == "__main__":
+    main(*sys.argv[1:])
