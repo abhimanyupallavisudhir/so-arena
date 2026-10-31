@@ -1,6 +1,7 @@
 """Decisive study, report: gap achieved, every protocol against the judge alone, liars audited and optimized.
 
     python experiments/decisive_report.py runs/decisive [docs/results]
+    python experiments/decisive_report.py docs/results/decisive_data   # from the committed data bundle
 
 Reads the stage outputs under the run directory and writes, to the output directory (``docs/results`` by
 default), ``decisive_*.csv`` tables, ``decisive.md`` and two figures. Every CI is a percentile bootstrap over
@@ -309,10 +310,16 @@ def fmt_ci(r, col, pct=False):
     return f"{f(r[col])} [{f(r[col + '_lo'])}, {f(r[col + '_hi'])}]"
 
 
+def _found(path: Path) -> Path:
+    """A stage output, or its gzipped copy (the committed data bundle, ``docs/results/decisive_data``)."""
+    gz = path.with_name(path.name + ".gz")
+    return gz if not path.exists() and gz.exists() else path
+
+
 def main(run: str, out: str = "docs/results") -> None:
     run, out = Path(run), Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    rows = pd.read_csv(run / "protocols" / "rows.csv")
+    rows = pd.read_csv(_found(run / "protocols" / "rows.csv"))
     it = with_references(item_table(rows))
     per_pair = summarize(it, ["judge", "debater", "mechanism"])
     pooled = summarize(it, ["debater", "mechanism"])
@@ -329,7 +336,7 @@ def main(run: str, out: str = "docs/results") -> None:
     # gap: selection draws vs fresh draws
     sel = json.loads((run / "select" / "selected.json").read_text())
     ran = set(rows.item)
-    cand = pd.read_csv(run / "select" / "candidates.csv").set_index("item")
+    cand = pd.read_csv(_found(run / "select" / "candidates.csv")).set_index("item")
     cand = cand.loc[cand.index.intersection(list(ran))]
     ep = lead_rows(rows)
     gap_rows = []
@@ -366,7 +373,7 @@ def main(run: str, out: str = "docs/results") -> None:
     lines += table(pooled, "Prompted liars: per debater, pooled over judges")
     lines += table(per_pair, "Prompted liars: per (judge, debater) pair")
 
-    vf = run / "audit" / "verdicts.jsonl"
+    vf = _found(run / "audit" / "verdicts.jsonl")
     pooled_c = None
     if vf.exists():
         verdicts = pd.read_csv(run / "audit" / "rows.csv.gz").merge(
@@ -397,14 +404,8 @@ def main(run: str, out: str = "docs/results") -> None:
     if cf.exists():
         cur = pd.read_csv(cf)
         cur.to_csv(out / "decisive_optimization_curves.csv", index=False)
-        opt_items = None
-        trees_dir = run / "optimize"
-        try:
-            from so_arena.samplers.pools import load_trees
-            d0, j0 = next(iter(DEBATERS)), next(iter(JUDGES))
-            opt_items = {t.item_id for t in load_trees(trees_dir / d0 / j0 / "debate_1r-true.jsonl")}
-        except Exception:  # noqa: BLE001
-            pass
+        ci_path = run / "optimize" / "curve_items.csv.gz"
+        opt_items = set(pd.read_csv(ci_path, usecols=["item"]).item) if ci_path.exists() else None
         refs = {}
         if opt_items:
             sub = it[it.item.isin(opt_items)].drop_duplicates(["judge", "debater", "item"])
@@ -414,7 +415,6 @@ def main(run: str, out: str = "docs/results") -> None:
         pooled_cur.to_csv(out / "decisive_optimization_pooled.csv", index=False)
         figure_optimization(pooled_cur, refs, out)
         pairs = cur[cur.debater != "all"]
-        ci_path = run / "optimize" / "curve_items.csv.gz"
         if ci_path.exists():
             ci = pd.read_csv(ci_path)
             vs = pd.concat([optimized_vs_references(ci, it, []).assign(debater="all"),
