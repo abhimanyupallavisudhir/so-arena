@@ -157,6 +157,27 @@ def summarize(it: pd.DataFrame, by: list[str], n_boot: int = N_BOOT) -> pd.DataF
 
 # ------------------------------------------------------------------------------------------------ audit
 
+def optimized_vs_references(curve_items: pd.DataFrame, it: pd.DataFrame, by: list[str],
+                            n_boot: int = N_BOOT) -> pd.DataFrame:
+    """Best-of-n accuracy against the same judge alone and the same debater alone on the same items (paired;
+    rows are (pair, item), items resampled together), per ``by`` + (mechanism, mode, n)."""
+    refs = it.drop_duplicates(["judge", "debater", "item"])[["judge", "debater", "item", "acc_judge", "acc_debater"]]
+    m = curve_items.merge(refs, on=["judge", "debater", "item"], how="inner").dropna(
+        subset=["accuracy", "acc_judge", "acc_debater"])
+    out = []
+    for key, g in m.groupby(by + ["mechanism", "mode", "n"]):
+        key = dict(zip(by + ["mechanism", "mode", "n"], key if isinstance(key, tuple) else (key,)))
+        acc = boot(g, mean_of("accuracy"), n_boot=n_boot)
+        delta = boot(g, diff_of("accuracy", "acc_judge"), n_boot=n_boot)
+        rec = boot(g, ratio_of("accuracy", "acc_judge", "acc_debater", "acc_judge"), n_boot=n_boot)
+        out.append({**key, "accuracy": acc[0], "accuracy_lo": acc[1], "accuracy_hi": acc[2],
+                    "judge_alone": g.acc_judge.mean(), "debater_alone": g.acc_debater.mean(),
+                    "delta": delta[0], "delta_lo": delta[1], "delta_hi": delta[2],
+                    "gap_recovered": rec[0], "gap_recovered_lo": rec[1], "gap_recovered_hi": rec[2],
+                    "items": g.item.nunique()})
+    return pd.DataFrame(out)
+
+
 def committed_filter(rows: pd.DataFrame, verdicts: pd.DataFrame) -> pd.DataFrame:
     """Rows of (judge, debater, protocol, item, sample) groups whose liars were all committed, both arms kept
     together; the references are kept whole (they are compared on the surviving items only)."""
@@ -393,6 +414,20 @@ def main(run: str, out: str = "docs/results") -> None:
         pooled_cur.to_csv(out / "decisive_optimization_pooled.csv", index=False)
         figure_optimization(pooled_cur, refs, out)
         pairs = cur[cur.debater != "all"]
+        ci_path = run / "optimize" / "curve_items.csv.gz"
+        if ci_path.exists():
+            ci = pd.read_csv(ci_path)
+            vs = pd.concat([optimized_vs_references(ci, it, []).assign(debater="all"),
+                            optimized_vs_references(ci, it, ["debater"])])
+            vs.to_csv(out / "decisive_optimization_vs_judge.csv", index=False)
+            t = ["## Optimized liars against the judge alone (paired by item; pooled over judges)", "",
+                 "| debater | protocol | optimized | n | accuracy | judge alone | delta (pts) [CI] | gap recovered [CI] "
+                 "| items |", "|" + "---|" * 9]
+            for r in vs.sort_values(["debater", "mechanism", "mode", "n"]).to_dict("records"):
+                t.append(f"| {r['debater']} | {LABEL.get(r['mechanism'], r['mechanism'])} | {r['mode']} | {r['n']} "
+                         f"| {fmt_ci(r, 'accuracy')} | {r['judge_alone']:.2f} | {fmt_ci(r, 'delta', True)} "
+                         f"| {fmt_ci(r, 'gap_recovered')} | {r['items']} |")
+            lines += t + [""]
         piv = pairs.pivot_table(index=["mechanism", "mode", "debater", "judge"], columns="n", values="accuracy")
         lines += ["## Optimized liars: judge accuracy under best-of-n (mean of arms)", "",
                   f"References on these items: {json.dumps({k: round(v, 3) for k, v in refs.items()})}", "",

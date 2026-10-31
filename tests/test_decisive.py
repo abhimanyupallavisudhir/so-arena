@@ -192,6 +192,18 @@ def test_summarize_curves_pools_pairs_on_shared_items():
     assert pooled["lo"] <= pooled["accuracy"] <= pooled["hi"]
 
 
+def test_optimized_vs_references_pairs_each_judge_with_itself():
+    ci = pd.DataFrame([{"debater": "d", "judge": j, "mechanism": "debate_1r", "mode": "liar", "n": 16, "item": it,
+                        "accuracy": acc} for j, it, acc in [("a", "x", 0.5), ("a", "y", 0.0), ("b", "x", 1.0),
+                                                            ("b", "y", 1.0)]])
+    it = pd.DataFrame([{"judge": j, "debater": "d", "item": i, "acc_judge": aj, "acc_debater": 1.0}
+                       for j, i, aj in [("a", "x", 0.5), ("a", "y", 0.5), ("b", "x", 0.0), ("b", "y", 0.0)]])
+    r = dr.optimized_vs_references(ci, it, [], n_boot=200).iloc[0]
+    assert r["accuracy"] == pytest.approx(0.625) and r["judge_alone"] == pytest.approx(0.25)
+    assert r["delta"] == pytest.approx(0.375) and r["items"] == 2
+    assert r["gap_recovered"] == pytest.approx(0.375 / 0.75)
+
+
 def test_cache_spend_sums_every_cached_completion(tmp_path):
     from so_arena.core.types import Completion, Usage
     from so_arena.models.cache import ResponseCache
