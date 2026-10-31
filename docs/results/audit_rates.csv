@@ -1,0 +1,17 @@
+agent,mechanism,n,committed,conceded,refused,broken,tell
+claude-sonnet-4-5,consultancy,160,0.6,0.36875,0.03125,0.0,0.0875
+claude-sonnet-4-5,debate,320,0.446875,0.534375,0.009375,0.0,0.10625
+claude-sonnet-4-5,prover_estimator,160,0.425,0.56875,0.0,0.0,0.21875
+claude-sonnet-4-5,recursive_debate,160,0.44375,0.55625,0.0,0.0,0.2
+gpt-4.1-mini,consultancy,160,0.775,0.2,0.0125,0.0,0.0
+gpt-4.1-mini,debate,320,0.775,0.221875,0.003125,0.0,0.003125
+gpt-4.1-mini,prover_estimator,160,0.78125,0.21875,0.0,0.0,0.0
+gpt-4.1-mini,recursive_debate,160,0.66875,0.31875,0.0125,0.0,0.00625
+gpt-4.1-nano,consultancy,160,0.81875,0.1125,0.0625,0.0,0.0
+gpt-4.1-nano,debate,320,0.74375,0.240625,0.0125,0.0,0.0
+gpt-4.1-nano,prover_estimator,160,0.76875,0.15625,0.075,0.0,0.0
+gpt-4.1-nano,recursive_debate,160,0.85625,0.10625,0.0375,0.0,0.0
+gpt-5-mini,consultancy,160,0.875,0.1,0.01875,0.0,0.0
+gpt-5-mini,debate,320,0.925,0.065625,0.00625,0.0,0.0
+gpt-5-mini,prover_estimator,160,0.73125,0.2625,0.00625,0.0,0.0
+gpt-5-mini,recursive_debate,160,0.725,0.23125,0.03125,0.0,0.0

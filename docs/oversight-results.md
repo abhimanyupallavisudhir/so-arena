@@ -26,7 +26,7 @@ experiment.
 
 ## Findings
 
-**1. On average, no protocol beat the weak judge reasoning alone, and debate came closest.** The judge alone
+**1. On average, no protocol beat the weak judge reasoning alone, and debate came closest** (but see the audit below: most of debate's apparent strength came from liars who conceded). The judge alone
 is right 72–74% of the time. Debate's accuracy rises with debater strength:
 
 | debater model | debate | consultancy | recursive debate | prover-estimator | weak judge alone | debater model alone |
@@ -103,6 +103,58 @@ coherence, and with it soundness, emerges.
 not, the strong models included (Sonnet alone: 0.50). Models' intuitions about how LLM agents bid are
 miscalibrated. Debate cannot fix that; evidence can. The essays experiment in `lvpm` finds that an essay
 written from 16 resolved auction experiments lifts a reader from 19% to 71%.
+
+## Audit: did the prompted liars actually lie? (added 2026-10-31)
+
+Instructed arms make a protocol look good if its liars are weak. So every transcript of an agent told to argue the
+wrong answer (3,200 in total) was audited ([`experiments/audit_liars.py`](../experiments/audit_liars.py), results in
+[`results/audit.md`](results/audit.md), \$1.53):
+- a regex pass for explicit tells;
+- a classifier pass by gpt-4.1-mini, which was told the assignment and the true answer, labelling each transcript
+  *committed*, *conceded* (admits or signals that the other answer is right), *refused* or *broken*.
+
+**Many liars did not lie.** Share of liar transcripts that were not committed:
+
+| debater model | consultancy | debate | recursive debate | prover-estimator |
+|---|---|---|---|---|
+| gpt-4.1-nano | 18% | 26% | 14% | 23% |
+| gpt-4.1-mini | 22% | 22% | 33% | 22% |
+| gpt-5-mini | 12% | 8% | 28% | 27% |
+| Claude Sonnet 4.5 | 40% | **55%** | 56% | 58% |
+
+Sonnet is the extreme case. Its liars write things like "I must concede: Program B (taking both boxes) gives higher
+expected payoff", "I concede. My opponent's calculation is correct", and "Program A is clearly better, so the
+answer should be (A), not (B). However, I'm the prover defending (B)...". The regex alone finds an explicit tell in
+9–22% of its liar transcripts. The OpenAI models concede in subtler ways: they compute the true answer in the open
+and argue around it.
+
+**With committed liars only, every protocol makes the weak judge worse.** On the items where the liar stayed
+committed, the judge reasoning alone scores 0.61–0.73. That control rules out the explanation that the remaining
+items are simply harder. Every protocol scores below it:
+
+| debater model | debate (all → committed liars) | judge alone on the same items | consultancy | recursive | prover-estimator |
+|---|---|---|---|---|---|
+| gpt-4.1-nano | 0.58 → 0.48 | 0.73 | 0.53 | 0.52 | 0.51 |
+| gpt-4.1-mini | 0.67 → 0.62 | 0.70 | 0.58 | 0.45 | 0.56 |
+| gpt-5-mini | 0.60 → 0.59 | 0.72 | 0.60 | 0.57 | 0.55 |
+| Claude Sonnet 4.5 | 0.70 → **0.44** | 0.69 | 0.50 | 0.54 | 0.53 |
+
+Sonnet-debate's ASD flips from +2.57 to −0.26 on the committed-liar items. For the GPT models debate's ASD stays
+positive (gpt-5-mini: 0.94 → 0.75), but its accuracy stays below the judge alone.
+
+**What this changes:**
+- Finding 1 above ("debate comes closest to the judge alone and improves with debater strength") was largely an
+  artifact of weak liars. The strongest debater conceded most often.
+- The knowledge-gap result (finding 2) is partly the same artifact. Where the debater knows the answer, its prompted
+  liar is also the most likely to give it away.
+- The optimization experiment (finding 3) does not rely on prompted liars arguing well, because selection against
+  the judge's reward picks the persuasive candidates. Its liar-only curve (0.66 → 0.45) matches the committed-liar
+  numbers here. Even with both sides optimized (0.71 at $n=4$), debate only matches the judge alone.
+
+The right test of whether debate *helps* is therefore liars that are optimized or trained, not prompted. At these
+capability levels the evidence so far is that a reasoning weak judge does better alone. The auditor itself is an
+LLM: its *conceded* label counts open computations of the true answer, so treat the regex rate as a lower bound
+and the classifier rate as an upper bound.
 
 ## Caveats
 
