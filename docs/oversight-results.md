@@ -156,6 +156,45 @@ capability levels the evidence so far is that a reasoning weak judge does better
 LLM: its *conceded* label counts open computations of the true answer, so treat the regex rate as a lower bound
 and the classifier rate as an upper bound.
 
+## Exact configuration, and what this scale can and cannot show
+
+**Setup.**
+
+| | |
+|---|---|
+| Items | 160: 10 testbed families × 16 (Newcomb, lesion, twin PD, Sleeping-Beauty bets, social-choice rankings and winners, number-theory counts and Collatz, RL reward hacking, LLM auctions) |
+| Arms | the agent argues the true answer in one episode and a false one in the other, so 320 episodes per protocol and debater model; one sample each (no repeats) |
+| Judge | gpt-4.1-nano (retired by OpenAI a week later), reasoning before its verdict (chain of thought, temperature 0, ≤ 2,000 tokens), verbalized probabilities |
+| Debaters / agents | gpt-4.1-nano, gpt-4.1-mini, Claude Sonnet 4.5 (temperature 0.7, ≤ 1,500 tokens), gpt-5-mini (low reasoning effort, ≤ 8,000 tokens), all prompted with their assigned side |
+| Consultancy | 2 rounds, ≤ 150 words per message, the judge asks one question between rounds |
+| Debate | 2 rounds, simultaneous, ≤ 150 words per speech (about 520 words of debate in total), no judge questions, log-score reward |
+| Recursive debate | depth 2, ≤ 3 subclaims plus a bridge subclaim per level, final statements ≤ 150 words each |
+| Prover-estimator debate | depth 2, width 3, ρ = 2, coherence constraint stated to the estimator |
+| References | the judge alone; the debater model alone, reasoning at temperature 0 |
+| Optimization run | 120 items; single argument with a pool of 8 candidates; debate 1 round with 4 × 4 candidates; gpt-4.1-mini arguers at temperature 1; gpt-4.1-nano judge; exact best-of-n over the pools |
+
+**Size.** One protocol episode is 1–9 model calls and 0.3k–19k tokens. For example, a gpt-4.1-mini debate is 5 calls, 3.5k input and 1.2k output tokens, \$0.002. The whole comparison was 6,400 protocol episodes plus 1,280 references, about 30M tokens in total, for \$87, of which \$83 was the gpt-5-mini and Sonnet arms. That is cheap because the models are small, the protocols are short, and each item was run once.
+
+**What this cannot show: "these mechanisms do not work".** Six reasons:
+
+1. **There was almost nothing to transfer.** Debate can at most move the judge toward what the debaters know. The debater models alone beat the weak judge by only 2–9 points overall: judge alone 0.72–0.74, debater alone 0.74–0.83. Only 8 of the 40 (family, debater model) cells had a gap above 15 points. In those, debate did help (Sonnet on Newcomb: 0.62 → 0.97). This was not a test in the sandwiching regime the theory is about.
+2. **The adversary was weak.** Prompted liars conceded in 8–58% of transcripts (the audit above). Instructed arms underestimate how persuasive optimized deception is, and so overstate robustness. They also shrink the measured gain from protocols designed to expose liars.
+3. **Protocols were short and fixed.** Two 150-word rounds, with no quotes, tools or verifiable claims, which so-arena supports and earlier positive debate results relied on, and no training of the judge.
+4. **One judge, one seed.** Accuracy CIs are ±5 points overall and ±20 points per family. The judge model has since been retired.
+5. **Little optimization.** Best-of-n reached n = 8 (single argument) and n = 4 per debater; nothing was trained.
+6. **A narrow item mix.** Testbed families, not conceptual essays.
+
+**What it does show, in this regime.** With small capability gaps, prompted agents and a judge that reasons, adding a protocol did not help and usually hurt. Debate under optimization of the liar alone is Goodhartable. Prover-estimator debate needs a coherent estimator, which a prompted model is not.
+
+**What a decisive study needs.**
+- Items selected for a large gap: the debater alone ≥ 90%, the judge alone ≤ 60%, chosen on a pilot split.
+- Several judges and debater scales.
+- Liars that are optimized (best-of-n ≥ 16) or trained, and audited.
+- 3–4 rounds, with verified quotes where the domain allows.
+- At least 500 items and 3 samples.
+
+Roughly 50–100k episodes, about \$1–3k on mid-sized API models; see lvpm `notes/essays-plan.md` for the training version.
+
 ## Caveats
 
 - There are 16 items per family and one judge model. Per-family numbers are noisy (±0.2).
