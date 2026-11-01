@@ -194,7 +194,11 @@ def figure(tables: dict, out: Path) -> None:
     for ax, (key, x, xlabel, title) in zip(axes, panels):
         _axes(ax)
         acc = tables[key]
-        for k, (col, name) in enumerate((("self_play", "debate (self-play)"), ("consultancy", "consultancy"))):
+        # committed-only consultancy pairs a committed false arm with every true arm: not comparable across
+        # models (Opus 5.5 keeps 30 false-arm episodes), so that panel shows debate only
+        cols = (("self_play", "debate (self-play)"),) if key == "committed" else (
+            ("self_play", "debate (self-play)"), ("consultancy", "consultancy"))
+        for k, (col, name) in enumerate(cols):
             yerr = np.clip([acc[col] - acc[f"{col}_lo"], acc[f"{col}_hi"] - acc[col]], 0, None)
             ax.errorbar(acc[x], acc[col], yerr=yerr, fmt="o", color=SERIES[k], ms=6, mec="white", lw=1.2, label=name)
             b = np.polyfit(acc[x], acc[col], 1)
