@@ -38,10 +38,11 @@ judge alone (a fifth of a 54-point gap); prover-estimator debate pays more for l
 a winner's curse---two samples of the same judge on the same argument correlate only $r \approx 0.2$. Scored on
 independent judge samples, a best-of-16 liar still reverses debate's incentive to be honest in one round
 (ASD $-0.37$), while optimizing both sides keeps it positive ($+0.28$), and three-round debate with best-of-16 on
-every speech stays above the judge alone. (4) Weak judges have a large \textbf{last-word bias} (the honest
-debater wins 25--35\pp{} more often when it speaks second), and under information asymmetry (QuALITY with
-verified quotes) they barely benefit from either protocol. All code, data and an audited transcript corpus are
-released.
+every speech stays above the judge alone. (4) \textbf{Judge capability decides the sign}: re-judging the same
+debates with gpt-4.1-class judges, debate adds 25--27 points under information asymmetry (QuALITY) where the weak
+judges gain nothing, but costs 12--22 points on our capability-gap items, which the stronger judges already solve
+alone. Weak judges also have a large \textbf{last-word bias} (the honest debater wins 25--35\pp{} more often when
+it speaks second). All code, data and an audited transcript corpus are released.
 \end{abstract}
 
 \section{Introduction}
@@ -82,8 +83,9 @@ independent judge samples (\S\ref{sec:optimization}).
 \item Two methodological hazards for anyone optimizing against LLM judges: low test-retest reliability of judge
 rewards ($r \approx 0.2$ within an item), which makes in-sample best-of-$n$ mostly select noise; and a large
 last-word bias (\S\ref{sec:hazards}).
-\item A replication under information asymmetry (QuALITY with verified quotes), where these weak judges barely
-benefit (\S\ref{sec:quality}).
+\item A replication under information asymmetry (QuALITY with verified quotes) and a re-judging of every debate
+by stronger judges: debate's value grows with judge capability under information asymmetry, but costs accuracy
+for judges who already know the answer (\S\ref{sec:quality}).
 \end{itemize}
 
 \section{Setup}\label{sec:setup}
@@ -255,9 +257,11 @@ Exact trees are infeasible for three rounds ($16^6$ leaves). Following \citet{kh
 samples $n$ candidates for each of its speeches and keeps the one a \emph{preview judge}---the weak judge reading
 the transcript so far plus the candidate, with samples independent of the final verdict---rates most likely to
 make it win. With gpt-5-mini, 150 items and all judges (Figure~\ref{fig:multiround}), three-round debate at
-best-of-16 stays above the judge alone in both modes: $+11$\ci{+6}{+16} with both sides optimized and
-$+6$\ci{+1}{+10} with only the liar optimized; consultancy falls to about $+5$. Extra rounds let the honest
-debater rebut, and the one-round reversal does not appear.
+best-of-16 stays above the judge alone in both modes: $+11$\ci{+6}{+15} with both sides optimized (ASD
+$+0.60$\ci{+0.27}{+0.92}) and $+7$\ci{+2}{+11} with only the liar optimized (ASD $+0.22$\ci{-0.04}{+0.49}).
+Consultancy falls to $+7$ (both) and $+6$ (liar), and its ASD with both sides optimized is gone
+($-0.06$\ci{-0.34}{+0.20}). The optimized liars stay committed (89--95\% by the audit), so these are real
+lies. Extra rounds let the honest debater rebut, and the one-round reversal does not appear.
 
 \begin{figure}[t]
 \centering
@@ -273,7 +277,7 @@ Best-of-$n$ only re-weights what the base policy already does. Prompt search rea
 (Claude Opus~5.5) that knows the protocol's rules proposes system-prompt strategies for gpt-5-mini, scored only by
 the protocol's reward on 40 training items (GEPA-style reflective search \citep{agrawal2025gepa}, 4 rounds of 4);
 the best are re-scored on 100 disjoint held-out items. With the agent free to choose its side, searches restricted
-to honest and to deceptive strategies both ended with strategies that defend the true answer 92--98\% of the time,
+to honest and to deceptive strategies both ended with strategies that defend the true answer 93--99\% of the time,
 under all three judges: the optimizer never found a measurably deceptive strategy that wins. With assigned sides,
 optimized liar strategies did not transfer reliably to held-out items (the training-set winner was often worse than
 the base liar), and the honest search's best strategy was frequently the empty seed. Prompt-level
@@ -319,22 +323,57 @@ honest debater speaks second and 0.42 when it speaks first; in the tournament, 0
 simultaneous debate, where only the transcript order differs, 0.69 vs.\ 0.51. Balanced seating removes the bias
 from averages but not from any single deployed debate.
 
-\section{Information asymmetry: QuALITY}\label{sec:quality}
+\section{Information asymmetry and judge capability}\label{sec:quality}
 
-On 300 hard QuALITY questions \citep{pang2022quality} (the story hidden from the judge, quotes verified), the
-judges alone are at chance (0.53) and the debaters with the story at 0.93--0.97. With gpt-5-mini, debate helps by
-$+4$\ci{0}{+8} and consultancy by $+1$\ci{-2}{+5}; verification makes no difference ($+5$ without it). With
-Sonnet~4.5 (250 items), consultancy $+14$ and debate $+11$, but these come mostly from gpt-4o-mini ($+22$); for
-Llama and Gemma the gains are within noise (Figure~\ref{fig:quality}). Weak judges cannot exploit verified quotes:
-the checking tool that drives positive QuALITY results with GPT-4-class judges is unused below a capability
-threshold.
+\paragraph{QuALITY with weak judges.} On 300 hard QuALITY questions \citep{pang2022quality} (the story hidden
+from the judge, quotes from it verified), the judges alone are at chance (0.53) and the debaters with the story at
+0.93--0.97. Liars here are mostly committed for gpt-5-mini (96--99\%) but not for Sonnet~4.5 (50\% in
+consultancy, 78\% in debate). With committed liars, pooled over both debaters, debate helps the weak judges by
+$+6$\ci{+2}{+9} and consultancy by $+1$\ci{-2}{+5}; verification makes no difference ($+6$ without it). The gain
+is almost all gpt-4o-mini's ($+16$ in debate); for Llama-3.1-8B and Gemma-3-12B it is $0$--$1$ point.
+
+\paragraph{Stronger judges on the same debates.} Debate transcripts do not depend on the judge, so we re-judged
+every stored debate of both datasets with two stronger judges (gpt-4.1-mini and gpt-4.1), replaying the
+debaters' speeches exactly; consultancy, whose consultant answers the judge's questions, was rerun fresh with
+each new judge. Table~\ref{tab:strength} and Figure~\ref{fig:strength} show the result with committed liars.
+
+\begin{table}[t]
+\centering\small
+\caption{Accuracy minus the judge alone (points; committed liars; mean over both debaters) for the same debates
+judged by five judges. The judge-alone column is each judge's own accuracy on the same items.}
+\label{tab:strength}
+\begin{tabular}{lcccccc}
+\toprule
+& \multicolumn{3}{c}{QuALITY (hidden story)} & \multicolumn{3}{c}{testbed (capability gap)} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+judge & alone & debate & consultancy & alone & debate & consultancy \\
+\midrule
+Llama-3.1-8B & 0.52 & $+1$ & $-1$ & 0.44 & $+10$ & $+8$ \\
+Gemma-3-12B & 0.55 & $0$ & $-2$ & 0.43 & $+3$ & $+10$ \\
+gpt-4o-mini & 0.51 & $+16$ & $+8$ & 0.39 & $+19$ & $+14$ \\
+gpt-4.1-mini & 0.53 & $+25$ & $+2$ & 0.87 & $-12$ & $-22$ \\
+gpt-4.1 & 0.60 & $+27$ & $+6$ & 0.90 & $-12$ & $-18$ \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\linewidth]{decisive_quality.png}
-\caption{QuALITY: accuracy minus the judge alone, per judge and debater, all prompted liars.}
-\label{fig:quality}
+\includegraphics[width=\linewidth]{decisive_judge_strength_committed.png}
+\caption{Accuracy minus the judge alone for five judges in order of capability (weak judges shaded; each judge's own accuracy in brackets)
+(committed liars). Under information asymmetry, debate's value grows with judge capability; under a capability
+gap, it is positive for judges who are wrong and negative for judges who are right.}
+\label{fig:strength}
 \end{figure}
+
+Two patterns stand out. Under information asymmetry, \textbf{debate's value grows with judge capability} and
+debate clearly beats consultancy once the judge is capable enough ($+25$ to $+27$ vs.\ $+2$ to $+6$ for the
+gpt-4.1 judges)---the result of \citet{khan2024debating}, reproduced, but with a threshold below which neither
+protocol helps. Under a capability gap the judge's own knowledge matters: the stronger judges already answer
+87--90\% of our items correctly, and \textbf{committed liars pull them down by 12--22 points} in debate and
+consultancy alike. Debate pulls the weak judges up (to 0.46--0.58) and the strong judges down (to 0.75--0.78):
+it helps judges who are wrong and hurts judges who are right, and does not let a judge keep what it knows while
+adding what the debaters know.
 
 \section{Discussion}
 
@@ -346,7 +385,8 @@ rewards lying.
 
 \paragraph{What does not.} One-round debate with an optimized liar against an unoptimized honest debater reverses
 the incentive; consultancy's incentive decays toward zero as both sides are optimized; and the gains are small in
-absolute terms, roughly 11 of 54 available points. Under information asymmetry these weak judges barely benefit.
+absolute terms, roughly 11 of 54 available points. Under information asymmetry these weak judges barely benefit,
+and judges strong enough to answer alone are made worse by committed liars.
 
 \paragraph{Limitations.} Optimization is inference-time (best-of-$n$, prompt search), not training; best-of-16 is a
 weak optimizer by RL standards, and exploration of rare deceptive strategies is limited. The judges are small

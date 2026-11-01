@@ -127,6 +127,12 @@ def stage_rows(run: Path) -> list[dict]:
         for store in sorted(mr.glob("*/*/*")):
             if store.is_dir():
                 add("multiround", store, debater=store.parent.parent.name, judge=store.parent.name, config=store.name)
+    jd = run / "judges"  # the stronger judges' fresh consultancies (their debates replay audited transcripts)
+    if jd.exists():
+        for store in sorted(jd.glob("*/*/*/consultancy")):
+            ds, d, j = store.parent.parent.parent.name, store.parent.parent.name, store.parent.name
+            if d in DEBATERS:
+                add("judges", store, debater=d, judge=j, dataset=ds)
     q = run / "quality"
     if q.exists():
         for store in sorted(q.glob("*/*/*")):
@@ -228,7 +234,8 @@ def main(argv=None):
     ap.add_argument("--run", default="runs/decisive")
     ap.add_argument("--estimate", action="store_true")
     ap.add_argument("--auditor", default="gpt-4.1-mini", choices=list(AUDITORS))
-    ap.add_argument("--kinds", nargs="*", default=["prompted", "optimized", "tournament", "multiround", "quality"])
+    ap.add_argument("--kinds", nargs="*", default=["prompted", "optimized", "tournament", "multiround", "quality",
+                                                   "judges"])
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.WARNING)
     map_keys()
@@ -242,7 +249,7 @@ def main(argv=None):
     if "optimized" in a.kinds:
         rows += optimized_rows(run)
     later = [r for r in stage_rows(run) if r["kind"] in a.kinds]
-    if any(r["kind"] == "quality" for r in later):
+    if any(r["kind"] in ("quality", "judges") for r in later):
         from decisive_quality import quality_items
 
         items.update({it.id: it for it in quality_items(10_000)[1]})

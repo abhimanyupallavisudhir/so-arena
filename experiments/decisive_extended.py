@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from decisive_report import (INK, INK2, LABEL, SERIES, _axes, _found, boot, diff_of, fmt_ci, item_table,  # noqa: E402
+from decisive_report import (GRID, INK, INK2, LABEL, SERIES, _axes, _found, boot, diff_of, fmt_ci, item_table,  # noqa: E402
                              mean_of, md, ratio_of, with_references)
 
 N_BOOT = 2000
@@ -204,14 +204,24 @@ def figure_quality(perj: pd.DataFrame, out: Path) -> None:
     plt.close(fig)
 
 
-def judge_strength(run: Path, out: Path) -> pd.DataFrame | None:
-    """Every judge (weak and strong) on the same protocols, per dataset: accuracy, the judge alone, and delta."""
+def _drop_conceding(rows: pd.DataFrame, bad: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    m = rows.merge(bad[keys].drop_duplicates().assign(_bad=True), on=keys, how="left")
+    return m[m._bad.isna()].drop(columns="_bad")
+
+
+def judge_strength(run: Path, out: Path, committed: bool = False) -> pd.DataFrame | None:
+    """Every judge (weak and strong) on the same protocols, per dataset: accuracy, the judge alone, and delta.
+    ``committed``: only (judge, debater, protocol, item, sample)s whose liars the gpt-5 audit found committed; a
+    replayed debate inherits the verdict of the transcript it replays (the same speeches for every judge)."""
     from decisive_report import summarize
 
     f = run / "judges" / "rows.csv"
     if not f.exists():
         return None
     strong = pd.read_csv(f)
+    verdicts = audit_verdicts(run) if committed else None
+    if committed and verdicts is None:
+        return None
     res = []
     for ds, src in (("testbed", run / "protocols" / "rows.csv"), ("quality", run / "quality" / "rows.csv")):
         base = pd.read_csv(_found(src))
@@ -222,46 +232,64 @@ def judge_strength(run: Path, out: Path) -> pd.DataFrame | None:
         mechs = set(st.mechanism) - {"direct"}
         weak = base[base.item.isin(items) & (base.mechanism.isin(mechs | {"direct"}))]
         refs = base[(base.mechanism == "direct_strong") & base.item.isin(items)]
+        if committed:
+            kind = "prompted" if ds == "testbed" else "quality"
+            v = verdicts[verdicts.verdict != "committed"]
+            vk = v[v.kind == kind]
+            weak = _drop_conceding(weak, vk, ["judge", "debater", "mechanism", "item", "repeat"])
+            src = vk[vk.judge == "gpt-4o-mini"]  # the replayed transcripts
+            debates = st[st.mechanism != "consultancy"]
+            debates = _drop_conceding(debates, src, ["debater", "mechanism", "item", "repeat"])
+            vj = v[(v.kind == "judges")]
+            cons = _drop_conceding(st[st.mechanism == "consultancy"], vj, ["judge", "debater", "mechanism", "item",
+                                                                          "repeat"])
+            st = pd.concat([debates, cons], ignore_index=True)
         frame = pd.concat([weak, st, refs], ignore_index=True)
         t = summarize(with_references(item_table(frame)), ["judge", "debater", "mechanism"], n_boot=1000)
         res.append(t.assign(dataset=ds))
     if not res:
         return None
     df = pd.concat(res, ignore_index=True)
-    df.to_csv(out / "decisive_judge_strength.csv", index=False)
-    figure_judge_strength(df, out)
+    suffix = "_committed" if committed else ""
+    df.to_csv(out / f"decisive_judge_strength{suffix}.csv", index=False)
+    figure_judge_strength(df, out, suffix)
     return df
 
 
-def figure_judge_strength(df: pd.DataFrame, out: Path) -> None:
+JUDGE_ORDER = ["llama-3.1-8b", "gemma-3-12b", "gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1"]
+
+
+def figure_judge_strength(df: pd.DataFrame, out: Path, suffix: str = "") -> None:
+    """Accuracy minus the judge alone per judge, judges in order of capability (weak judges first)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    datasets = [d for d in ("testbed", "quality") if d in set(df.dataset)]
+    datasets = [d for d in ("quality", "testbed") if d in set(df.dataset)]
     fig, axes = plt.subplots(1, len(datasets), figsize=(5.2 * len(datasets), 3.8), sharey=True, squeeze=False)
     names = {"consultancy": "consultancy", "debate_seq": "debate (sequential)", "debate_sim": "debate (simultaneous)",
              "debate_seq_noquotes": "debate, no verification"}
     for ax, ds in zip(axes[0], datasets):
         _axes(ax)
         g = df[df.dataset == ds]
-        for k, m in enumerate(sorted(set(g.mechanism))):
-            h = g[g.mechanism == m].groupby("judge")[["judge_alone", "delta"]].mean().sort_values("judge_alone")
-            ax.plot(h.judge_alone, h.delta, "o-", color=SERIES[k % len(SERIES)], lw=1.5, ms=6, mec="white",
-                    label=names.get(m, m))
-            if k == 0:
-                for j, r in h.iterrows():
-                    ax.annotate(j, (r.judge_alone, r.delta), fontsize=6.5, color=INK2, xytext=(3, 4),
-                                textcoords="offset points")
+        judges = [j for j in JUDGE_ORDER if j in set(g.judge)]
+        x = np.arange(len(judges))
+        for k, m in enumerate([m for m in names if m in set(g.mechanism)]):
+            h = g[g.mechanism == m].groupby("judge")[["delta", "judge_alone"]].mean().reindex(judges)
+            ax.plot(x, h.delta, "o-", color=SERIES[k % len(SERIES)], lw=1.8, ms=6, mec="white", label=names[m])
+        alone = g.groupby("judge").judge_alone.mean().reindex(judges)
+        ax.set_xticks(x, [f"{j}\n(alone {a:.2f})" for j, a in zip(judges, alone)], fontsize=7)
         ax.axhline(0, color=INK2, lw=1)
-        ax.set_xlabel("judge alone accuracy on these items", color=INK2, fontsize=8.5)
-        ax.set_title("testbed (capability gap)" if ds == "testbed" else "QuALITY (hidden story)", color=INK,
+        ax.axvspan(-0.4, 2.4, color=GRID, alpha=0.35, lw=0)
+        ax.text(1, 0.27, "weak judges", ha="center", fontsize=7, color=INK2)
+        ax.set_title("QuALITY (hidden story)" if ds == "quality" else "testbed (capability gap)", color=INK,
                      fontsize=9, loc="left")
-    axes[0][0].set_ylabel("accuracy minus the judge alone\n(mean over debaters; prompted liars)", color=INK2,
-                          fontsize=8.5)
-    axes[0][0].legend(fontsize=7, frameon=False)
+    axes[0][0].set_ylabel("accuracy minus the judge alone\n(mean over debaters; " +
+                          ("committed liars)" if suffix else "prompted liars)"), color=INK2, fontsize=8.5)
+    for ax in axes[0]:
+        ax.legend(fontsize=7, frameon=False, loc="lower left")
     fig.tight_layout()
-    fig.savefig(out / "decisive_judge_strength.png", dpi=170)
+    fig.savefig(out / f"decisive_judge_strength{suffix}.png", dpi=170)
     plt.close(fig)
 
 
@@ -395,6 +423,10 @@ def main(run: str, out: str = "docs/results") -> None:
                 "gap_recovered", "items"]
         lines += ["## Judge strength: the same debates, weak and strong judges (prompted liars)", "",
                   table(js.sort_values(["dataset", "mechanism", "judge_alone"]), cols), ""]
+        jsc = judge_strength(run, out, committed=True)
+        if jsc is not None:
+            lines += ["## Judge strength, committed liars only", "",
+                      table(jsc.sort_values(["dataset", "mechanism", "judge_alone"]), cols), ""]
 
     for name, title in (("decisive_auditcheck_agreement.csv", "Auditor agreement"),
                         ("decisive_auditcheck_rates.csv", "Share of liar texts not committed, by auditor")):

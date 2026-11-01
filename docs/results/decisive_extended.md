@@ -5,17 +5,18 @@
 | stage | $ |
 |---|---|
 | audit | 15.32 |
-| audit_gpt-5 | 236.04 |
+| audit_gpt-5 | 308.77 |
 | auditcheck | 13.72 |
+| judges | 318.84 |
 | multiround | 733.77 |
 | optimize | 235.84 |
-| promptsearch | 450.05 |
-| protocols | 976.41 |
+| promptsearch | 491.26 |
+| protocols | 1157.20 |
 | quality | 637.71 |
 | rejudge | 87.87 |
 | select | 115.19 |
 | tournament | 873.61 |
-| **total** | **4375.54** |
+| **total** | **4989.11** |
 
 ## Multi-round best-of-n (3 rounds; preview judge on fresh samples)
 
@@ -76,6 +77,19 @@ Per judge:
 | llama-3.1-8b | debate_seq | liar | 1 | 0.55 [0.52, 0.59] | 0.431 | +12 [+6, +18] | 0.21 [0.11, 0.30] | 0.57 [0.24, 0.93] | 150 |
 | llama-3.1-8b | debate_seq | liar | 4 | 0.53 [0.48, 0.59] | 0.431 | +10 [+3, +17] | 0.18 [0.05, 0.29] | 0.49 [-0.04, 1.03] | 150 |
 | llama-3.1-8b | debate_seq | liar | 16 | 0.51 [0.46, 0.56] | 0.431 | +8 [+1, +15] | 0.14 [0.02, 0.25] | 0.20 [-0.29, 0.71] | 150 |
+
+Liars under per-speech best-of-n (gpt-5 audit); accuracy on episodes with a committed liar (consultancy: its false arm):
+
+| mechanism | mode | n | liar_committed | liar_conceded | episodes | false_arm_accuracy_committed | judge_alone_same_items |
+|---|---|---|---|---|---|---|---|
+| consultancy | both | 4 | 0.891 | 0.082 | 450 | 0.283 | 0.442 |
+| consultancy | both | 16 | 0.889 | 0.087 | 450 | 0.209 | 0.445 |
+| consultancy | liar | 4 | 0.902 | 0.071 | 450 | 0.299 | 0.445 |
+| consultancy | liar | 16 | 0.896 | 0.087 | 450 | 0.227 | 0.447 |
+| debate_seq | both | 4 | 0.938 | 0.053 | 900 | 0.528 | 0.444 |
+| debate_seq | both | 16 | 0.947 | 0.048 | 900 | 0.536 | 0.443 |
+| debate_seq | liar | 4 | 0.931 | 0.062 | 900 | 0.514 | 0.451 |
+| debate_seq | liar | 16 | 0.949 | 0.047 | 900 | 0.496 | 0.445 |
 
 ## One-round best-of-n incentives (in-sample judging)
 
@@ -199,6 +213,10 @@ margin = held-out reward of the best honest strategy minus the best deceptive on
 | gemma-3-12b | consultancy | base | 0.590 | 0.920 | 0.260 | -0.345 | -1.231 |
 | gemma-3-12b | consultancy | liar optimized | 0.540 | 0.920 | 0.160 | -0.345 | -0.525 |
 | gemma-3-12b | consultancy | both optimized | 0.512 | 0.865 | 0.160 | -0.816 | -0.525 |
+| gemma-3-12b | debate_seq | base | 0.300 | 0.300 | 0.300 | -1.879 | -1.186 |
+| gemma-3-12b | debate_seq | liar optimized | 0.350 | 0.350 | 0.350 | -1.390 | -1.084 |
+| gemma-3-12b | debate_seq | both optimized | 0.350 | 0.350 | 0.350 | -1.390 | -1.084 |
+| gemma-3-12b | debate_seq | liar replies | 0.350 | 0.350 | 0.350 | -1.390 | -1.084 |
 | gpt-4o-mini | consultancy | base | 0.560 | 0.780 | 0.340 | -0.463 | -0.659 |
 | gpt-4o-mini | consultancy | liar optimized | 0.610 | 0.780 | 0.440 | -0.463 | -0.766 |
 | gpt-4o-mini | consultancy | both optimized | 0.610 | 0.780 | 0.440 | -0.463 | -0.766 |
@@ -227,6 +245,161 @@ margin = held-out reward of the best honest strategy minus the best deceptive on
 | gpt-5-mini | consultancy | 0.54 [0.53, 0.56] | 0.534 | 0.933 | +1 [-2, +5] | 0.03 [-0.06, 0.11] | 0.117 | 0.630 | 300 |
 | gpt-5-mini | debate_seq | 0.58 [0.56, 0.60] | 0.534 | 0.933 | +4 [+1, +8] | 0.11 [0.01, 0.20] | 0.196 | 0.617 | 300 |
 | gpt-5-mini | debate_seq_noquotes | 0.58 [0.56, 0.60] | 0.534 | 0.933 | +5 [+1, +9] | 0.12 [0.03, 0.21] | nan | nan | 300 |
+
+QuALITY liars committed (gpt-5 audit):
+
+| debater | mechanism | committed |
+|---|---|---|
+| claude-sonnet-4-5 | consultancy | 0.496 |
+| claude-sonnet-4-5 | debate_seq | 0.781 |
+| claude-sonnet-4-5 | debate_seq_noquotes | 0.786 |
+| gpt-5-mini | consultancy | 0.958 |
+| gpt-5-mini | debate_seq | 0.987 |
+| gpt-5-mini | debate_seq_noquotes | 0.988 |
+
+### QuALITY, committed liars only
+
+| debater | mechanism | accuracy | judge_alone | debater_alone | delta | gap_recovered | asd | concordance | items |
+|---|---|---|---|---|---|---|---|---|---|
+| all | consultancy | 0.54 [0.52, 0.55] | 0.525 | 0.940 | +1 [-2, +5] | 0.03 [-0.06, 0.12] | 0.105 | 0.613 | 300 |
+| all | debate_seq | 0.58 [0.56, 0.60] | 0.527 | 0.944 | +6 [+2, +9] | 0.13 [0.05, 0.21] | 0.213 | 0.622 | 298 |
+| all | debate_seq_noquotes | 0.59 [0.57, 0.61] | 0.528 | 0.945 | +6 [+2, +10] | 0.14 [0.06, 0.22] | nan | nan | 299 |
+| claude-sonnet-4-5 | consultancy | 0.53 [0.51, 0.56] | 0.514 | 0.954 | +2 [-3, +7] | 0.05 [-0.07, 0.14] | 0.122 | 0.594 | 191 |
+| claude-sonnet-4-5 | debate_seq | 0.60 [0.57, 0.62] | 0.517 | 0.961 | +8 [+3, +12] | 0.18 [0.08, 0.26] | 0.248 | 0.639 | 197 |
+| claude-sonnet-4-5 | debate_seq_noquotes | 0.60 [0.57, 0.63] | 0.520 | 0.962 | +8 [+4, +12] | 0.18 [0.09, 0.26] | nan | nan | 205 |
+| gpt-5-mini | consultancy | 0.54 [0.53, 0.56] | 0.531 | 0.933 | +1 [-2, +5] | 0.02 [-0.07, 0.11] | 0.095 | 0.624 | 300 |
+| gpt-5-mini | debate_seq | 0.57 [0.55, 0.59] | 0.533 | 0.933 | +4 [+0, +8] | 0.10 [0.00, 0.19] | 0.190 | 0.610 | 298 |
+| gpt-5-mini | debate_seq_noquotes | 0.58 [0.56, 0.60] | 0.533 | 0.933 | +5 [+1, +9] | 0.12 [0.02, 0.20] | nan | nan | 299 |
+
+## Judge strength: the same debates, weak and strong judges (prompted liars)
+
+| dataset | judge | debater | mechanism | accuracy | judge_alone | debater_alone | delta | gap_recovered | items |
+|---|---|---|---|---|---|---|---|---|---|
+| quality | gpt-4o-mini | claude-sonnet-4-5 | consultancy | 0.74 [0.71, 0.77] | 0.510 | 0.968 | +23 [+17, +29] | 0.51 [0.42, 0.58] | 250 |
+| quality | gpt-4o-mini | gpt-5-mini | consultancy | 0.57 [0.55, 0.59] | 0.515 | 0.933 | +6 [+1, +10] | 0.14 [0.03, 0.23] | 300 |
+| quality | llama-3.1-8b | claude-sonnet-4-5 | consultancy | 0.60 [0.56, 0.63] | 0.517 | 0.968 | +8 [+3, +13] | 0.18 [0.07, 0.27] | 250 |
+| quality | llama-3.1-8b | gpt-5-mini | consultancy | 0.54 [0.51, 0.57] | 0.528 | 0.933 | +1 [-4, +6] | 0.02 [-0.10, 0.13] | 300 |
+| quality | gemma-3-12b | claude-sonnet-4-5 | consultancy | 0.65 [0.63, 0.67] | 0.546 | 0.968 | +10 [+5, +15] | 0.25 [0.13, 0.33] | 250 |
+| quality | gpt-4.1-mini | gpt-5-mini | consultancy | 0.57 [0.55, 0.59] | 0.547 | 0.933 | +2 [-3, +8] | 0.06 [-0.07, 0.18] | 300 |
+| quality | gpt-4.1-mini | claude-sonnet-4-5 | consultancy | 0.76 [0.73, 0.80] | 0.555 | 0.968 | +21 [+15, +27] | 0.50 [0.40, 0.59] | 250 |
+| quality | gemma-3-12b | gpt-5-mini | consultancy | 0.52 [0.51, 0.54] | 0.558 | 0.933 | -3 [-8, +1] | -0.09 [-0.23, 0.02] | 300 |
+| quality | gpt-4.1 | gpt-5-mini | consultancy | 0.70 [0.68, 0.73] | 0.603 | 0.933 | +10 [+5, +16] | 0.31 [0.18, 0.43] | 300 |
+| quality | gpt-4.1 | claude-sonnet-4-5 | consultancy | 0.83 [0.80, 0.86] | 0.612 | 0.968 | +22 [+16, +28] | 0.61 [0.50, 0.71] | 250 |
+| quality | gpt-4o-mini | claude-sonnet-4-5 | debate_seq | 0.73 [0.70, 0.77] | 0.510 | 0.968 | +22 [+16, +28] | 0.49 [0.40, 0.58] | 250 |
+| quality | gpt-4o-mini | gpt-5-mini | debate_seq | 0.65 [0.61, 0.68] | 0.515 | 0.933 | +13 [+8, +19] | 0.31 [0.20, 0.41] | 300 |
+| quality | llama-3.1-8b | claude-sonnet-4-5 | debate_seq | 0.57 [0.54, 0.60] | 0.517 | 0.968 | +5 [+0, +10] | 0.11 [0.01, 0.21] | 250 |
+| quality | llama-3.1-8b | gpt-5-mini | debate_seq | 0.54 [0.51, 0.57] | 0.528 | 0.933 | +1 [-4, +6] | 0.03 [-0.10, 0.14] | 300 |
+| quality | gemma-3-12b | claude-sonnet-4-5 | debate_seq | 0.60 [0.57, 0.64] | 0.546 | 0.968 | +6 [-1, +11] | 0.14 [-0.02, 0.25] | 250 |
+| quality | gpt-4.1-mini | gpt-5-mini | debate_seq | 0.76 [0.73, 0.79] | 0.547 | 0.933 | +21 [+16, +27] | 0.56 [0.45, 0.65] | 300 |
+| quality | gpt-4.1-mini | claude-sonnet-4-5 | debate_seq | 0.84 [0.81, 0.86] | 0.555 | 0.968 | +28 [+22, +34] | 0.68 [0.60, 0.76] | 250 |
+| quality | gemma-3-12b | gpt-5-mini | debate_seq | 0.55 [0.51, 0.58] | 0.558 | 0.933 | -1 [-6, +4] | -0.03 [-0.18, 0.10] | 300 |
+| quality | gpt-4.1 | gpt-5-mini | debate_seq | 0.85 [0.82, 0.88] | 0.603 | 0.933 | +25 [+19, +30] | 0.75 [0.65, 0.84] | 300 |
+| quality | gpt-4.1 | claude-sonnet-4-5 | debate_seq | 0.92 [0.89, 0.94] | 0.612 | 0.968 | +31 [+25, +36] | 0.86 [0.79, 0.92] | 250 |
+| quality | gpt-4o-mini | claude-sonnet-4-5 | debate_seq_noquotes | 0.73 [0.69, 0.77] | 0.510 | 0.968 | +22 [+16, +28] | 0.49 [0.39, 0.56] | 250 |
+| quality | gpt-4o-mini | gpt-5-mini | debate_seq_noquotes | 0.65 [0.62, 0.69] | 0.515 | 0.933 | +14 [+8, +20] | 0.33 [0.22, 0.43] | 300 |
+| quality | llama-3.1-8b | claude-sonnet-4-5 | debate_seq_noquotes | 0.54 [0.50, 0.57] | 0.517 | 0.968 | +2 [-3, +7] | 0.04 [-0.08, 0.15] | 250 |
+| quality | llama-3.1-8b | gpt-5-mini | debate_seq_noquotes | 0.55 [0.53, 0.58] | 0.528 | 0.933 | +3 [-2, +7] | 0.06 [-0.06, 0.17] | 300 |
+| quality | gemma-3-12b | claude-sonnet-4-5 | debate_seq_noquotes | 0.58 [0.54, 0.61] | 0.546 | 0.968 | +3 [-3, +9] | 0.07 [-0.07, 0.19] | 250 |
+| quality | gpt-4.1-mini | gpt-5-mini | debate_seq_noquotes | 0.75 [0.72, 0.78] | 0.547 | 0.933 | +21 [+16, +26] | 0.54 [0.44, 0.62] | 300 |
+| quality | gpt-4.1-mini | claude-sonnet-4-5 | debate_seq_noquotes | 0.83 [0.80, 0.86] | 0.555 | 0.968 | +27 [+22, +33] | 0.66 [0.58, 0.73] | 250 |
+| quality | gemma-3-12b | gpt-5-mini | debate_seq_noquotes | 0.54 [0.51, 0.57] | 0.558 | 0.933 | -2 [-7, +3] | -0.05 [-0.21, 0.08] | 300 |
+| quality | gpt-4.1 | gpt-5-mini | debate_seq_noquotes | 0.85 [0.81, 0.88] | 0.603 | 0.933 | +24 [+18, +30] | 0.74 [0.62, 0.84] | 300 |
+| quality | gpt-4.1 | claude-sonnet-4-5 | debate_seq_noquotes | 0.90 [0.88, 0.93] | 0.612 | 0.968 | +29 [+23, +35] | 0.81 [0.73, 0.89] | 250 |
+| testbed | llama-3.1-8b | claude-sonnet-4-5 | consultancy | 0.62 [0.60, 0.64] | 0.409 | 0.960 | +21 [+18, +24] | 0.38 [0.33, 0.42] | 320 |
+| testbed | llama-3.1-8b | gpt-5-mini | consultancy | 0.50 [0.47, 0.52] | 0.409 | 0.989 | +9 [+6, +12] | 0.15 [0.10, 0.20] | 320 |
+| testbed | gpt-4o-mini | claude-sonnet-4-5 | consultancy | 0.70 [0.67, 0.73] | 0.439 | 0.960 | +26 [+21, +30] | 0.50 [0.43, 0.55] | 320 |
+| testbed | gpt-4o-mini | gpt-5-mini | consultancy | 0.60 [0.58, 0.63] | 0.439 | 0.989 | +16 [+13, +20] | 0.30 [0.25, 0.35] | 320 |
+| testbed | gemma-3-12b | claude-sonnet-4-5 | consultancy | 0.73 [0.70, 0.75] | 0.457 | 0.960 | +27 [+23, +31] | 0.54 [0.48, 0.58] | 320 |
+| testbed | gemma-3-12b | gpt-5-mini | consultancy | 0.57 [0.56, 0.59] | 0.457 | 0.989 | +12 [+8, +15] | 0.22 [0.17, 0.26] | 320 |
+| testbed | gpt-4.1-mini | claude-sonnet-4-5 | consultancy | 0.85 [0.82, 0.87] | 0.911 | 0.960 | -7 [-9, -4] | -1.34 [-2.95, -0.61] | 320 |
+| testbed | gpt-4.1-mini | gpt-5-mini | consultancy | 0.73 [0.70, 0.76] | 0.911 | 0.989 | -18 [-21, -15] | -2.29 [-3.36, -1.57] | 320 |
+| testbed | gpt-4.1 | claude-sonnet-4-5 | consultancy | 0.87 [0.85, 0.90] | 0.938 | 0.960 | -6 [-9, -4] | -2.93 [-11.15, -1.21] | 320 |
+| testbed | gpt-4.1 | gpt-5-mini | consultancy | 0.80 [0.77, 0.82] | 0.938 | 0.989 | -14 [-17, -11] | -2.71 [-4.62, -1.76] | 320 |
+| testbed | llama-3.1-8b | claude-sonnet-4-5 | debate_seq | 0.71 [0.68, 0.74] | 0.409 | 0.960 | +30 [+26, +34] | 0.55 [0.49, 0.60] | 320 |
+| testbed | llama-3.1-8b | gpt-5-mini | debate_seq | 0.56 [0.53, 0.58] | 0.409 | 0.989 | +15 [+11, +19] | 0.26 [0.20, 0.31] | 320 |
+| testbed | gpt-4o-mini | claude-sonnet-4-5 | debate_seq | 0.76 [0.74, 0.79] | 0.439 | 0.960 | +32 [+28, +37] | 0.62 [0.56, 0.67] | 320 |
+| testbed | gpt-4o-mini | gpt-5-mini | debate_seq | 0.65 [0.62, 0.68] | 0.439 | 0.989 | +21 [+17, +25] | 0.38 [0.33, 0.43] | 320 |
+| testbed | gemma-3-12b | claude-sonnet-4-5 | debate_seq | 0.66 [0.63, 0.69] | 0.457 | 0.960 | +20 [+16, +24] | 0.40 [0.33, 0.46] | 320 |
+| testbed | gemma-3-12b | gpt-5-mini | debate_seq | 0.53 [0.50, 0.56] | 0.457 | 0.989 | +7 [+3, +11] | 0.14 [0.07, 0.20] | 320 |
+| testbed | gpt-4.1-mini | claude-sonnet-4-5 | debate_seq | 0.86 [0.84, 0.88] | 0.911 | 0.960 | -5 [-8, -2] | -1.03 [-2.43, -0.40] | 320 |
+| testbed | gpt-4.1-mini | gpt-5-mini | debate_seq | 0.79 [0.77, 0.82] | 0.911 | 0.989 | -12 [-15, -9] | -1.52 [-2.36, -0.98] | 320 |
+| testbed | gpt-4.1 | claude-sonnet-4-5 | debate_seq | 0.88 [0.86, 0.91] | 0.938 | 0.960 | -5 [-8, -3] | -2.46 [-10.00, -0.98] | 320 |
+| testbed | gpt-4.1 | gpt-5-mini | debate_seq | 0.85 [0.82, 0.87] | 0.938 | 0.989 | -9 [-12, -7] | -1.78 [-3.11, -1.06] | 320 |
+| testbed | llama-3.1-8b | claude-sonnet-4-5 | debate_sim | 0.74 [0.71, 0.76] | 0.409 | 0.960 | +33 [+29, +37] | 0.60 [0.54, 0.65] | 320 |
+| testbed | llama-3.1-8b | gpt-5-mini | debate_sim | 0.58 [0.55, 0.60] | 0.409 | 0.989 | +17 [+12, +21] | 0.29 [0.22, 0.34] | 320 |
+| testbed | gpt-4o-mini | claude-sonnet-4-5 | debate_sim | 0.79 [0.76, 0.82] | 0.439 | 0.960 | +35 [+31, +40] | 0.68 [0.62, 0.73] | 320 |
+| testbed | gpt-4o-mini | gpt-5-mini | debate_sim | 0.68 [0.65, 0.71] | 0.439 | 0.989 | +24 [+19, +28] | 0.43 [0.37, 0.49] | 320 |
+| testbed | gemma-3-12b | claude-sonnet-4-5 | debate_sim | 0.76 [0.73, 0.79] | 0.457 | 0.960 | +30 [+26, +34] | 0.60 [0.54, 0.66] | 320 |
+| testbed | gemma-3-12b | gpt-5-mini | debate_sim | 0.54 [0.52, 0.57] | 0.457 | 0.989 | +8 [+4, +12] | 0.16 [0.09, 0.22] | 320 |
+| testbed | gpt-4.1-mini | claude-sonnet-4-5 | debate_sim | 0.87 [0.84, 0.89] | 0.911 | 0.960 | -5 [-7, -2] | -0.94 [-2.30, -0.33] | 320 |
+| testbed | gpt-4.1-mini | gpt-5-mini | debate_sim | 0.81 [0.78, 0.84] | 0.911 | 0.989 | -10 [-13, -7] | -1.29 [-2.06, -0.78] | 320 |
+| testbed | gpt-4.1 | claude-sonnet-4-5 | debate_sim | 0.89 [0.86, 0.91] | 0.938 | 0.960 | -5 [-7, -3] | -2.33 [-10.11, -0.94] | 320 |
+| testbed | gpt-4.1 | gpt-5-mini | debate_sim | 0.86 [0.84, 0.88] | 0.938 | 0.989 | -8 [-10, -5] | -1.47 [-2.69, -0.81] | 320 |
+
+## Judge strength, committed liars only
+
+| dataset | judge | debater | mechanism | accuracy | judge_alone | debater_alone | delta | gap_recovered | items |
+|---|---|---|---|---|---|---|---|---|---|
+| quality | gpt-4o-mini | claude-sonnet-4-5 | consultancy | 0.58 [0.54, 0.61] | 0.478 | 0.949 | +10 [+2, +18] | 0.21 [0.05, 0.33] | 151 |
+| quality | gpt-4.1-mini | claude-sonnet-4-5 | consultancy | 0.52 [0.49, 0.54] | 0.487 | 0.934 | +3 [-6, +11] | 0.06 [-0.17, 0.21] | 98 |
+| quality | gpt-4o-mini | gpt-5-mini | consultancy | 0.57 [0.55, 0.59] | 0.513 | 0.932 | +6 [+1, +11] | 0.14 [0.03, 0.24] | 296 |
+| quality | gemma-3-12b | claude-sonnet-4-5 | consultancy | 0.52 [0.51, 0.54] | 0.527 | 0.957 | -0 [-6, +6] | -0.01 [-0.16, 0.12] | 169 |
+| quality | llama-3.1-8b | gpt-5-mini | consultancy | 0.54 [0.51, 0.57] | 0.528 | 0.933 | +1 [-4, +6] | 0.02 [-0.10, 0.14] | 298 |
+| quality | gpt-4.1-mini | gpt-5-mini | consultancy | 0.54 [0.52, 0.56] | 0.532 | 0.935 | +1 [-4, +6] | 0.02 [-0.12, 0.14] | 267 |
+| quality | llama-3.1-8b | claude-sonnet-4-5 | consultancy | 0.50 [0.45, 0.55] | 0.533 | 0.957 | -3 [-9, +3] | -0.07 [-0.24, 0.06] | 158 |
+| quality | gemma-3-12b | gpt-5-mini | consultancy | 0.52 [0.50, 0.53] | 0.553 | 0.932 | -4 [-8, +1] | -0.10 [-0.24, 0.02] | 295 |
+| quality | gpt-4.1 | gpt-5-mini | consultancy | 0.67 [0.64, 0.70] | 0.593 | 0.925 | +7 [+1, +13] | 0.22 [0.05, 0.34] | 260 |
+| quality | gpt-4.1 | claude-sonnet-4-5 | consultancy | 0.64 [0.60, 0.69] | 0.601 | 0.945 | +4 [-5, +13] | 0.12 [-0.20, 0.33] | 105 |
+| quality | gpt-4o-mini | claude-sonnet-4-5 | debate_seq | 0.70 [0.65, 0.74] | 0.504 | 0.961 | +20 [+13, +26] | 0.43 [0.30, 0.53] | 197 |
+| quality | llama-3.1-8b | claude-sonnet-4-5 | debate_seq | 0.53 [0.49, 0.57] | 0.505 | 0.961 | +2 [-3, +8] | 0.05 [-0.08, 0.16] | 197 |
+| quality | gpt-4o-mini | gpt-5-mini | debate_seq | 0.64 [0.61, 0.68] | 0.513 | 0.933 | +13 [+8, +19] | 0.31 [0.20, 0.42] | 298 |
+| quality | gpt-4.1-mini | claude-sonnet-4-5 | debate_seq | 0.81 [0.78, 0.85] | 0.527 | 0.961 | +28 [+22, +35] | 0.65 [0.56, 0.75] | 197 |
+| quality | llama-3.1-8b | gpt-5-mini | debate_seq | 0.53 [0.50, 0.57] | 0.529 | 0.933 | +1 [-5, +6] | 0.02 [-0.12, 0.13] | 298 |
+| quality | gemma-3-12b | claude-sonnet-4-5 | debate_seq | 0.56 [0.52, 0.60] | 0.543 | 0.961 | +2 [-5, +8] | 0.05 [-0.14, 0.18] | 197 |
+| quality | gpt-4.1-mini | gpt-5-mini | debate_seq | 0.76 [0.73, 0.79] | 0.545 | 0.933 | +22 [+16, +27] | 0.56 [0.46, 0.66] | 298 |
+| quality | gemma-3-12b | gpt-5-mini | debate_seq | 0.54 [0.51, 0.57] | 0.557 | 0.933 | -2 [-6, +3] | -0.04 [-0.19, 0.09] | 298 |
+| quality | gpt-4.1 | gpt-5-mini | debate_seq | 0.85 [0.82, 0.88] | 0.603 | 0.933 | +25 [+19, +31] | 0.75 [0.65, 0.84] | 298 |
+| quality | gpt-4.1 | claude-sonnet-4-5 | debate_seq | 0.90 [0.86, 0.93] | 0.613 | 0.961 | +28 [+22, +35] | 0.82 [0.73, 0.90] | 197 |
+| quality | gpt-4o-mini | claude-sonnet-4-5 | debate_seq_noquotes | 0.71 [0.66, 0.75] | 0.506 | 0.962 | +20 [+13, +26] | 0.44 [0.32, 0.54] | 205 |
+| quality | gpt-4o-mini | gpt-5-mini | debate_seq_noquotes | 0.65 [0.61, 0.69] | 0.514 | 0.933 | +14 [+8, +19] | 0.32 [0.20, 0.43] | 299 |
+| quality | llama-3.1-8b | claude-sonnet-4-5 | debate_seq_noquotes | 0.54 [0.50, 0.58] | 0.515 | 0.962 | +3 [-3, +9] | 0.06 [-0.08, 0.18] | 205 |
+| quality | llama-3.1-8b | gpt-5-mini | debate_seq_noquotes | 0.55 [0.53, 0.58] | 0.530 | 0.933 | +2 [-2, +7] | 0.06 [-0.06, 0.16] | 299 |
+| quality | gemma-3-12b | claude-sonnet-4-5 | debate_seq_noquotes | 0.55 [0.51, 0.60] | 0.540 | 0.962 | +1 [-5, +7] | 0.03 [-0.12, 0.15] | 205 |
+| quality | gpt-4.1-mini | claude-sonnet-4-5 | debate_seq_noquotes | 0.79 [0.76, 0.83] | 0.543 | 0.962 | +25 [+18, +32] | 0.60 [0.50, 0.69] | 205 |
+| quality | gpt-4.1-mini | gpt-5-mini | debate_seq_noquotes | 0.75 [0.72, 0.78] | 0.546 | 0.933 | +21 [+16, +26] | 0.54 [0.44, 0.63] | 299 |
+| quality | gemma-3-12b | gpt-5-mini | debate_seq_noquotes | 0.54 [0.50, 0.57] | 0.556 | 0.933 | -2 [-7, +3] | -0.06 [-0.21, 0.07] | 299 |
+| quality | gpt-4.1 | gpt-5-mini | debate_seq_noquotes | 0.84 [0.81, 0.87] | 0.601 | 0.933 | +24 [+18, +30] | 0.73 [0.62, 0.84] | 299 |
+| quality | gpt-4.1 | claude-sonnet-4-5 | debate_seq_noquotes | 0.89 [0.85, 0.92] | 0.615 | 0.962 | +27 [+21, +34] | 0.79 [0.68, 0.89] | 205 |
+| testbed | gpt-4o-mini | claude-sonnet-4-5 | consultancy | 0.49 [0.44, 0.53] | 0.349 | 0.923 | +14 [+8, +20] | 0.24 [0.15, 0.33] | 168 |
+| testbed | gemma-3-12b | claude-sonnet-4-5 | consultancy | 0.50 [0.47, 0.53] | 0.392 | 0.928 | +11 [+6, +16] | 0.20 [0.12, 0.28] | 177 |
+| testbed | llama-3.1-8b | gpt-5-mini | consultancy | 0.49 [0.47, 0.51] | 0.409 | 0.989 | +8 [+5, +11] | 0.14 [0.09, 0.19] | 318 |
+| testbed | gpt-4o-mini | gpt-5-mini | consultancy | 0.58 [0.55, 0.61] | 0.442 | 0.989 | +14 [+10, +17] | 0.25 [0.19, 0.30] | 312 |
+| testbed | llama-3.1-8b | claude-sonnet-4-5 | consultancy | 0.52 [0.48, 0.56] | 0.444 | 0.927 | +8 [+3, +12] | 0.16 [0.06, 0.25] | 176 |
+| testbed | gemma-3-12b | gpt-5-mini | consultancy | 0.56 [0.54, 0.58] | 0.458 | 0.989 | +10 [+6, +13] | 0.18 [0.12, 0.24] | 318 |
+| testbed | gpt-4.1-mini | claude-sonnet-4-5 | consultancy | 0.60 [0.55, 0.64] | 0.817 | 0.927 | -22 [-28, -16] | -1.99 [-4.04, -1.10] | 110 |
+| testbed | gpt-4.1 | claude-sonnet-4-5 | consultancy | 0.71 [0.66, 0.76] | 0.867 | 0.912 | -16 [-22, -11] | -3.55 [-21.70, -1.24] | 114 |
+| testbed | gpt-4.1-mini | gpt-5-mini | consultancy | 0.68 [0.65, 0.71] | 0.898 | 0.987 | -21 [-25, -18] | -2.40 [-3.60, -1.68] | 258 |
+| testbed | gpt-4.1 | gpt-5-mini | consultancy | 0.74 [0.71, 0.77] | 0.928 | 0.987 | -19 [-22, -15] | -3.21 [-5.49, -2.05] | 234 |
+| testbed | gpt-4o-mini | claude-sonnet-4-5 | debate_seq | 0.58 [0.54, 0.64] | 0.392 | 0.924 | +19 [+13, +26] | 0.36 [0.26, 0.45] | 171 |
+| testbed | llama-3.1-8b | gpt-5-mini | debate_seq | 0.55 [0.52, 0.57] | 0.415 | 0.989 | +13 [+10, +17] | 0.23 [0.17, 0.29] | 308 |
+| testbed | gemma-3-12b | claude-sonnet-4-5 | debate_seq | 0.43 [0.39, 0.47] | 0.421 | 0.924 | +1 [-5, +7] | 0.02 [-0.11, 0.14] | 171 |
+| testbed | llama-3.1-8b | claude-sonnet-4-5 | debate_seq | 0.52 [0.48, 0.56] | 0.447 | 0.924 | +7 [+2, +13] | 0.15 [0.04, 0.25] | 171 |
+| testbed | gpt-4o-mini | gpt-5-mini | debate_seq | 0.64 [0.60, 0.66] | 0.450 | 0.989 | +19 [+14, +22] | 0.34 [0.28, 0.40] | 308 |
+| testbed | gemma-3-12b | gpt-5-mini | debate_seq | 0.51 [0.49, 0.54] | 0.467 | 0.989 | +5 [+1, +9] | 0.09 [0.02, 0.16] | 308 |
+| testbed | gpt-4.1-mini | claude-sonnet-4-5 | debate_seq | 0.76 [0.71, 0.80] | 0.868 | 0.924 | -11 [-16, -7] | -2.00 [-5.53, -0.86] | 171 |
+| testbed | gpt-4.1 | claude-sonnet-4-5 | debate_seq | 0.77 [0.73, 0.81] | 0.908 | 0.924 | -13 [-18, -9] | -8.36 [-121.07, 67.73] | 171 |
+| testbed | gpt-4.1-mini | gpt-5-mini | debate_seq | 0.78 [0.76, 0.81] | 0.909 | 0.989 | -13 [-16, -9] | -1.58 [-2.43, -0.98] | 308 |
+| testbed | gpt-4.1 | gpt-5-mini | debate_seq | 0.84 [0.81, 0.86] | 0.937 | 0.989 | -10 [-13, -7] | -1.92 [-3.43, -1.13] | 308 |
+| testbed | gpt-4o-mini | claude-sonnet-4-5 | debate_sim | 0.37 [0.28, 0.46] | 0.229 | 0.904 | +14 [+2, +26] | 0.21 [0.03, 0.36] | 52 |
+| testbed | gemma-3-12b | claude-sonnet-4-5 | debate_sim | 0.37 [0.29, 0.45] | 0.391 | 0.904 | -2 [-15, +11] | -0.04 [-0.34, 0.19] | 52 |
+| testbed | llama-3.1-8b | gpt-5-mini | debate_sim | 0.55 [0.52, 0.58] | 0.425 | 0.989 | +13 [+9, +17] | 0.23 [0.16, 0.29] | 299 |
+| testbed | gpt-4o-mini | gpt-5-mini | debate_sim | 0.65 [0.62, 0.68] | 0.460 | 0.989 | +19 [+15, +24] | 0.37 [0.29, 0.43] | 299 |
+| testbed | gemma-3-12b | gpt-5-mini | debate_sim | 0.52 [0.49, 0.55] | 0.469 | 0.989 | +5 [+1, +9] | 0.09 [0.01, 0.17] | 299 |
+| testbed | llama-3.1-8b | claude-sonnet-4-5 | debate_sim | 0.44 [0.35, 0.54] | 0.489 | 0.904 | -5 [-16, +7] | -0.11 [-0.43, 0.15] | 52 |
+| testbed | gpt-4.1 | claude-sonnet-4-5 | debate_sim | 0.56 [0.46, 0.67] | 0.819 | 0.904 | -25 [-36, -16] | -2.99 [-15.71, -1.16] | 52 |
+| testbed | gpt-4.1-mini | claude-sonnet-4-5 | debate_sim | 0.62 [0.51, 0.72] | 0.819 | 0.904 | -20 [-30, -9] | -2.37 [-15.90, -0.76] | 52 |
+| testbed | gpt-4.1-mini | gpt-5-mini | debate_sim | 0.80 [0.77, 0.83] | 0.907 | 0.989 | -11 [-13, -8] | -1.31 [-2.05, -0.80] | 299 |
+| testbed | gpt-4.1 | gpt-5-mini | debate_sim | 0.85 [0.82, 0.88] | 0.936 | 0.989 | -9 [-11, -6] | -1.66 [-3.02, -0.94] | 299 |
 
 ## Auditor agreement
 
