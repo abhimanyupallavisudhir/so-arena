@@ -47,10 +47,14 @@ KEY_ALIASES = {"OPENAI_API_KEY": "OPENAI_API_KEY_ASTRA_2", "ANTHROPIC_API_KEY": 
 
 
 def map_keys() -> None:
-    """Provider keys live under non-standard names in this environment; expose them under the standard ones."""
+    """Provider keys live under non-standard names in this environment; expose them under the standard ones.
+    Also caps provider retries: a request a provider keeps failing (OpenRouter's Gemma returns server errors
+    for some prompts indefinitely) raises after 6 retries of at most 5 minutes each instead of stalling a
+    stage; its episode errors, is left out, and re-runs on resumption."""
     for std, alias in KEY_ALIASES.items():
         if not os.environ.get(std) and os.environ.get(alias):
             os.environ[std] = os.environ[alias]
+    soa.configure(max_retries=6, attempt_timeout=300)
 
 
 def is_reasoning(model: str) -> bool:

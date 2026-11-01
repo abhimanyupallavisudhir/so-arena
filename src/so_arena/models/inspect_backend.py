@@ -48,6 +48,7 @@ class InspectModel(Model):
                 converted.append(ChatMessageAssistant(content=m.content))
             else:
                 converted.append(ChatMessageUser(content=m.content))
+        from so_arena.config import settings
         from so_arena.models.base import draw_seed
 
         seed = None
@@ -63,6 +64,8 @@ class InspectModel(Model):
             stop_seqs=list(options.stop) if options.stop else None,
             reasoning_effort=options.reasoning_effort,  # type: ignore[arg-type]
             max_connections=self._max_connections,
+            max_retries=settings.max_retries,
+            attempt_timeout=settings.attempt_timeout,
         )
         out = await self._get().generate(converted, config=config, cache=False)
 

@@ -373,14 +373,26 @@ def main(run: str, out: str = "docs/results") -> None:
     lines += table(pooled, "Prompted liars: per debater, pooled over judges")
     lines += table(per_pair, "Prompted liars: per (judge, debater) pair")
 
-    vf = _found(run / "audit" / "verdicts.jsonl")
+    # the primary auditor is gpt-5 where its verdicts exist (validated against Claude Sonnet 5, decisive_auditcheck.py);
+    # gpt-4.1-mini's verdicts give the robustness row
+    audit_files = {name: _found(run / "audit" / f) for name, f in (("gpt-5", "verdicts_gpt-5.jsonl"),
+                                                                  ("gpt-4.1-mini", "verdicts.jsonl"))}
+    audit_files = {k: v for k, v in audit_files.items() if v.exists()}
     pooled_c = None
-    if vf.exists():
-        verdicts = pd.read_csv(run / "audit" / "rows.csv.gz").merge(
-            pd.read_json(vf, lines=True).drop_duplicates("key", keep="last"), on="key", how="left")
+    if audit_files:
+        audit_rows = pd.read_csv(run / "audit" / "rows.csv.gz")
+        robustness = []
+        for name, f in list(audit_files.items())[1:]:
+            v = audit_rows.merge(pd.read_json(f, lines=True).drop_duplicates("key", keep="last"), on="key", how="left")
+            alt = summarize(with_references(item_table(committed_filter(rows, v))), ["mechanism"])
+            robustness.append(alt.assign(auditor=name))
+            audit_rates(v).to_csv(out / f"decisive_audit_rates_{name}.csv", index=False)
+        primary, vf = next(iter(audit_files.items()))
+        verdicts = audit_rows.merge(pd.read_json(vf, lines=True).drop_duplicates("key", keep="last"), on="key",
+                                    how="left")
         rates = audit_rates(verdicts)
         rates.to_csv(out / "decisive_audit_rates.csv", index=False)
-        lines += ["## Audit of prompted liars (distinct transcripts)", "", md(rates), ""]
+        lines += [f"## Audit of prompted liars (distinct transcripts; auditor {primary})", "", md(rates), ""]
         kept = committed_filter(rows, verdicts)
         itc = with_references(item_table(kept))
         # the references are compared on the items that keep at least one sample of the protocol
@@ -389,7 +401,9 @@ def main(run: str, out: str = "docs/results") -> None:
         per_pair_c = summarize(itc, ["judge", "debater", "mechanism"])
         pd.concat([per_pair_c, pooled_c.assign(judge="all"), overall_c.assign(judge="all", debater="all")]).to_csv(
             out / "decisive_committed.csv", index=False)
-        lines += table(overall_c, "Committed liars only: pooled over all pairs")
+        lines += table(overall_c, f"Committed liars only (auditor {primary}): pooled over all pairs")
+        for alt in robustness:
+            lines += table(alt, f"Committed liars only, auditor {alt.auditor.iloc[0]} (robustness): pooled")
         lines += table(pooled_c, "Committed liars only: per debater")
         lines += table(per_pair_c, "Committed liars only: per pair")
         sel_path = run / "optimize" / "selection.csv.gz"

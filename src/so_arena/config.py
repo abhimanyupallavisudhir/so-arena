@@ -11,6 +11,10 @@ class Settings(BaseModel):
     cache_dir: Path | None = None
     simulate: bool = False
     concurrency: int = 16
+    # provider calls: retries after a failed attempt (None: the backend's default, which for Inspect is
+    # unlimited) and a per-attempt timeout in seconds; a call that keeps failing then raises instead of stalling
+    max_retries: int | None = None
+    attempt_timeout: int | None = None
 
 
 settings = Settings()
@@ -21,6 +25,8 @@ def configure(
     cache_dir: str | Path | None = None,
     simulate: bool | None = None,
     concurrency: int | None = None,
+    max_retries: int | None = None,
+    attempt_timeout: int | None = None,
 ) -> Settings:
     """Set global options.
 
@@ -29,6 +35,8 @@ def configure(
         simulate: if True, every real model is replaced by a SimulatedModel (a dry run that
             estimates token usage and cost without calling any API).
         concurrency: default maximum number of concurrent episodes.
+        max_retries: retries of a failed provider call (default: unlimited, Inspect's default).
+        attempt_timeout: seconds after which a provider call attempt is abandoned and retried.
     """
     from so_arena.models import base
 
@@ -38,5 +46,9 @@ def configure(
         settings.simulate = simulate
     if concurrency is not None:
         settings.concurrency = concurrency
+    if max_retries is not None:
+        settings.max_retries = max_retries
+    if attempt_timeout is not None:
+        settings.attempt_timeout = attempt_timeout
     base._MODEL_CACHE.clear()
     return settings

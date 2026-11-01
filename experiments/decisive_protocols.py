@@ -81,7 +81,8 @@ def experiment(mechs, items, *, agent, judge, store, repeats, concurrency) -> AS
                          store=store, concurrency=concurrency)
 
 
-async def run_chunk(items, run: Path, *, repeats: int, concurrency: int, estimate: bool) -> list[dict]:
+async def run_chunk(items, run: Path, *, repeats: int, concurrency: int, estimate: bool,
+                    debaters: list[str] | None = None) -> list[dict]:
     """Phase A: the references, every protocol for the first judge and consultancy (whose agents see the judge)
     for the others, all concurrently. Phase B: the other judges on the judge-independent protocols, whose agent
     calls replay phase A's from the cache."""
@@ -96,15 +97,16 @@ async def run_chunk(items, run: Path, *, repeats: int, concurrency: int, estimat
     def pair(mech, j, d):
         return go(mech, j, d, judge_policy(JUDGES[j]), debater_policy(DEBATERS[d]), st(d, j, mech.name))
 
+    debaters = debaters or list(DEBATERS)
     first, *others = JUDGES
     phase_a = [go(DirectJudge(), j, "-", judge_policy(m), None, st("direct", j)) for j, m in JUDGES.items()]
     phase_a += [go(DirectJudge(name="direct_strong"), "-", d, solo_policy(m), None, st("strong", d))
-                for d, m in DEBATERS.items()]
-    phase_a += [pair(mech, first, d) for d in DEBATERS for mech in protocols()]
-    phase_a += [pair(mech, j, d) for j in others for d in DEBATERS for mech in protocols()
+                for d, m in DEBATERS.items() if d in debaters]
+    phase_a += [pair(mech, first, d) for d in debaters for mech in protocols()]
+    phase_a += [pair(mech, j, d) for j in others for d in debaters for mech in protocols()
                 if mech.name == "consultancy"]
     await asyncio.gather(*phase_a)
-    await asyncio.gather(*[pair(mech, j, d) for j in others for d in DEBATERS for mech in protocols()
+    await asyncio.gather(*[pair(mech, j, d) for j in others for d in debaters for mech in protocols()
                            if mech.name != "consultancy"])
     return rows
 
@@ -124,6 +126,7 @@ def main(argv=None):
     ap.add_argument("--reserve", type=float, default=0.0, help="keep this much of the study budget for later stages")
     ap.add_argument("--estimate", action="store_true")
     ap.add_argument("--concurrency", type=int, default=32, help="per (protocol, judge, debater)")
+    ap.add_argument("--debaters", nargs="*", default=None, help="a subset of the debater models (default: all)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     for noisy in ("httpx", "openai", "anthropic", "inspect_ai"):
@@ -147,7 +150,8 @@ def main(argv=None):
             log.warning("stopping before chunk %d: $%.0f spent, next chunk ~$%.0f, budget $%.0f", i, spent,
                         per_item * len(chunk), budget)
             break
-        rows = run_sync(run_chunk(chunk, run, repeats=a.repeats, concurrency=a.concurrency, estimate=a.estimate))
+        rows = run_sync(run_chunk(chunk, run, repeats=a.repeats, concurrency=a.concurrency, estimate=a.estimate,
+                                   debaters=a.debaters))
         new_cost = sum(r["cost"] for r in rows)
         per_item = max(per_item or 0.0, new_cost / len(chunk)) if new_cost > 0 else per_item
         if a.estimate:

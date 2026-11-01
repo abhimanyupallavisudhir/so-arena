@@ -95,10 +95,10 @@ def main(argv=None):
     verdicts = pd.read_json(adir / "verdicts.jsonl", lines=True).drop_duplicates("key", keep="last")
     rows = pd.DataFrame(prompted_rows(run) + optimized_rows(run)).drop_duplicates("key")
     rows = rows.merge(verdicts[["key", "verdict"]], on="key", how="inner")
-    rows["assigned"] = rows.get("assigned")
     strata = rows.groupby(["kind", "debater", "verdict"])
     sizes = strata.size().rename("stratum_size")
-    sample = strata.apply(lambda g: g.sample(min(len(g), a.per_cell), random_state=0)).reset_index(drop=True)
+    sample = rows.sample(frac=1, random_state=0).groupby(["kind", "debater", "verdict"]).head(a.per_cell)
+    sample = sample.reset_index(drop=True)
     items = {it.id: it for it in RunStore(str(run / "select")).items()} or {it.id: it for it in selected_items(run)}
     out = adir / "strong_verdicts.jsonl"
     asyncio.run(reaudit(sample, items, out))

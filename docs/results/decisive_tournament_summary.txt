@@ -1,0 +1,17 @@
+honesty advantage (Elo), all debates: 100.4 [87.8, 114.5]
+honesty advantage (Elo), committed liars: 30.6 [20.1, 42.0]
+[all] slope of self_play accuracy per 100 elo: -0.2036
+[all] slope of consultancy accuracy per 100 elo: -0.2083
+[all] slope of self_play accuracy per 100 elo_honest: +0.1629
+[all] slope of consultancy accuracy per 100 elo_honest: +0.1395
+[all] slope of self_play accuracy per 100 elo_liar: -0.1366
+[all] slope of consultancy accuracy per 100 elo_liar: -0.1349
+[all] slope of self-play accuracy per +0.10 liar commitment: -0.0404
+[committed] slope of self_play accuracy per 100 elo: +0.0045
+[committed] slope of consultancy accuracy per 100 elo: +0.1521
+[committed] slope of self_play accuracy per 100 elo_honest: +0.0333
+[committed] slope of consultancy accuracy per 100 elo_honest: +0.1335
+[committed] slope of self_play accuracy per 100 elo_liar: -0.0332
+[committed] slope of consultancy accuracy per 100 elo_liar: +0.1321
+[committed] slope of self-play accuracy per +0.10 liar commitment: +0.0262
+debates: 21570 judge verdicts on 200 items
