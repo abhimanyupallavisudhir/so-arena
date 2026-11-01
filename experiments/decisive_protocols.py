@@ -82,11 +82,11 @@ def experiment(mechs, items, *, agent, judge, store, repeats, concurrency) -> AS
 
 
 async def run_chunk(items, run: Path, *, repeats: int, concurrency: int, estimate: bool,
-                    debaters: list[str] | None = None) -> list[dict]:
+                    debaters: list[str] | None = None, store_root: str = "protocols") -> list[dict]:
     """Phase A: the references, every protocol for the first judge and consultancy (whose agents see the judge)
     for the others, all concurrently. Phase B: the other judges on the judge-independent protocols, whose agent
     calls replay phase A's from the cache."""
-    st = (lambda *p: None) if estimate else (lambda *p: str(run / "protocols" / Path(*p)))
+    st = (lambda *p: None) if estimate else (lambda *p: str(run / store_root / Path(*p)))
     rows: list[dict] = []
 
     async def go(mech, j, d, judge, agent, store):
@@ -127,6 +127,10 @@ def main(argv=None):
     ap.add_argument("--estimate", action="store_true")
     ap.add_argument("--concurrency", type=int, default=32, help="per (protocol, judge, debater)")
     ap.add_argument("--debaters", nargs="*", default=None, help="a subset of the debater models (default: all)")
+    ap.add_argument("--offset", type=int, default=0, help="skip the first N selected items (already run)")
+    ap.add_argument("--store-root", default="protocols",
+                    help="directory under the run for the episode stores (a new one keeps memory low: resuming "
+                         "reads every episode of a store); rows always go to <run>/protocols/rows.csv")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     for noisy in ("httpx", "openai", "anthropic", "inspect_ai"):
@@ -134,7 +138,7 @@ def main(argv=None):
     map_keys()
     run = Path(a.run)
     soa.configure(cache_dir=str(run / "cache" / "protocols"), simulate=a.estimate or None, concurrency=a.concurrency)
-    items = selected_items(run, a.limit)
+    items = selected_items(run, a.limit)[a.offset:]
     ledger = Ledger(run)
     done_before = stage_cost(run)
     budget = a.budget if a.budget is not None else ledger.remaining() + ledger.data.get("protocols", 0.0) - a.reserve
@@ -151,7 +155,7 @@ def main(argv=None):
                         per_item * len(chunk), budget)
             break
         rows = run_sync(run_chunk(chunk, run, repeats=a.repeats, concurrency=a.concurrency, estimate=a.estimate,
-                                   debaters=a.debaters))
+                                   debaters=a.debaters, store_root=a.store_root))
         new_cost = sum(r["cost"] for r in rows)
         per_item = max(per_item or 0.0, new_cost / len(chunk)) if new_cost > 0 else per_item
         if a.estimate:
