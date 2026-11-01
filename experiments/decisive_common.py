@@ -27,6 +27,21 @@ JUDGES = {
     "llama-3.1-8b": "openrouter/meta-llama/llama-3.1-8b-instruct",
     "gemma-3-12b": "openrouter/google/gemma-3-12b-it",
 }
+# stronger judges for the judge-capability comparison (not used for item selection; reported separately)
+STRONG_JUDGES = {
+    "gpt-4.1-mini": "openai/gpt-4.1-mini",
+    "gpt-4.1": "openai/gpt-4.1",
+}
+
+
+def judge_set(names: list[str] | None) -> dict[str, str]:
+    """The judges named (weak or strong), in order; all weak judges by default."""
+    if not names:
+        return dict(JUDGES)
+    pool = {**JUDGES, **STRONG_JUDGES}
+    return {n: pool[n] for n in names}
+
+
 DEBATERS = {
     "claude-sonnet-4-5": "anthropic/claude-sonnet-4-5",
     "gpt-5-mini": "openai/gpt-5-mini",

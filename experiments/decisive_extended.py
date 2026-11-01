@@ -73,6 +73,38 @@ def multiround_items(run: Path, ref: pd.DataFrame) -> pd.DataFrame:
     return df.merge(refs, on=["judge", "debater", "item"], how="inner")
 
 
+def audit_verdicts(run: Path) -> pd.DataFrame | None:
+    """Every audited liar row with its gpt-5 verdict."""
+    vf, rf = run / "audit" / "verdicts_gpt-5.jsonl", run / "audit" / "rows.csv.gz"
+    if not (vf.exists() and rf.exists()):
+        return None
+    v = pd.read_json(vf, lines=True).drop_duplicates("key", keep="last")[["key", "verdict"]]
+    r = pd.read_csv(rf, low_memory=False)
+    if "arm" in r:
+        r["arm"] = r.arm.astype(str).str.lower()
+    return r.merge(v, on="key", how="inner")
+
+
+def multiround_audit(run: Path, ref: pd.DataFrame) -> pd.DataFrame | None:
+    """Liar commitment under per-speech best-of-n, and accuracy on the episodes whose liar stayed committed."""
+    v = audit_verdicts(run)
+    if v is None or not (v.kind == "multiround").any():
+        return None
+    mr = pd.read_csv(run / "multiround" / "rows.csv")
+    vm = v[v.kind == "multiround"][["episode", "verdict"]].drop_duplicates("episode")
+    m = mr.merge(vm, on="episode", how="inner")
+    refs = ref.drop_duplicates(["judge", "debater", "item"])[["judge", "debater", "item", "acc_judge"]]
+    out = []
+    for (mech, mode, n), g in m.groupby(["mechanism", "mode", "n"]):
+        c = g[g.verdict == "committed"].merge(refs, on=["judge", "debater", "item"])
+        out.append({"mechanism": mech, "mode": mode, "n": n, "liar_committed": float((g.verdict == "committed").mean()),
+                    "liar_conceded": float((g.verdict == "conceded").mean()), "episodes": len(g),
+                    "false_arm_accuracy_committed": float(c[c.arm.astype(str).str.lower() == "false"].correct.mean())
+                    if mech == "consultancy" else float(c.correct.mean()),
+                    "judge_alone_same_items": float(c.acc_judge.mean())})
+    return pd.DataFrame(out)
+
+
 def summarize_multiround(items: pd.DataFrame, by: list[str]) -> pd.DataFrame:
     out = []
     for key, g in items.groupby(by + ["mechanism", "mode", "n"]):
@@ -172,6 +204,67 @@ def figure_quality(perj: pd.DataFrame, out: Path) -> None:
     plt.close(fig)
 
 
+def judge_strength(run: Path, out: Path) -> pd.DataFrame | None:
+    """Every judge (weak and strong) on the same protocols, per dataset: accuracy, the judge alone, and delta."""
+    from decisive_report import summarize
+
+    f = run / "judges" / "rows.csv"
+    if not f.exists():
+        return None
+    strong = pd.read_csv(f)
+    res = []
+    for ds, src in (("testbed", run / "protocols" / "rows.csv"), ("quality", run / "quality" / "rows.csv")):
+        base = pd.read_csv(_found(src))
+        st = strong[strong.dataset == ds].drop(columns="dataset")
+        if st.empty:
+            continue
+        items = set(st.item)
+        mechs = set(st.mechanism) - {"direct"}
+        weak = base[base.item.isin(items) & (base.mechanism.isin(mechs | {"direct"}))]
+        refs = base[(base.mechanism == "direct_strong") & base.item.isin(items)]
+        frame = pd.concat([weak, st, refs], ignore_index=True)
+        t = summarize(with_references(item_table(frame)), ["judge", "debater", "mechanism"], n_boot=1000)
+        res.append(t.assign(dataset=ds))
+    if not res:
+        return None
+    df = pd.concat(res, ignore_index=True)
+    df.to_csv(out / "decisive_judge_strength.csv", index=False)
+    figure_judge_strength(df, out)
+    return df
+
+
+def figure_judge_strength(df: pd.DataFrame, out: Path) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    datasets = [d for d in ("testbed", "quality") if d in set(df.dataset)]
+    fig, axes = plt.subplots(1, len(datasets), figsize=(5.2 * len(datasets), 3.8), sharey=True, squeeze=False)
+    names = {"consultancy": "consultancy", "debate_seq": "debate (sequential)", "debate_sim": "debate (simultaneous)",
+             "debate_seq_noquotes": "debate, no verification"}
+    for ax, ds in zip(axes[0], datasets):
+        _axes(ax)
+        g = df[df.dataset == ds]
+        for k, m in enumerate(sorted(set(g.mechanism))):
+            h = g[g.mechanism == m].groupby("judge")[["judge_alone", "delta"]].mean().sort_values("judge_alone")
+            ax.plot(h.judge_alone, h.delta, "o-", color=SERIES[k % len(SERIES)], lw=1.5, ms=6, mec="white",
+                    label=names.get(m, m))
+            if k == 0:
+                for j, r in h.iterrows():
+                    ax.annotate(j, (r.judge_alone, r.delta), fontsize=6.5, color=INK2, xytext=(3, 4),
+                                textcoords="offset points")
+        ax.axhline(0, color=INK2, lw=1)
+        ax.set_xlabel("judge alone accuracy on these items", color=INK2, fontsize=8.5)
+        ax.set_title("testbed (capability gap)" if ds == "testbed" else "QuALITY (hidden story)", color=INK,
+                     fontsize=9, loc="left")
+    axes[0][0].set_ylabel("accuracy minus the judge alone\n(mean over debaters; prompted liars)", color=INK2,
+                          fontsize=8.5)
+    axes[0][0].legend(fontsize=7, frameon=False)
+    fig.tight_layout()
+    fig.savefig(out / "decisive_judge_strength.png", dpi=170)
+    plt.close(fig)
+
+
 def table(df: pd.DataFrame, cols: list[str]) -> str:
     t = df.copy()
     for c in ("accuracy", "delta", "gap_recovered", "asd"):
@@ -235,9 +328,15 @@ def main(run: str, out: str = "docs/results") -> None:
         per_judge.to_csv(out / "decisive_multiround_by_judge.csv", index=False)
         figure_multiround(pooled, out)
         cols = ["mechanism", "mode", "n", "accuracy", "judge_alone", "delta", "gap_recovered", "asd", "items"]
+        ma = multiround_audit(run, ref)
+        if ma is not None:
+            ma.to_csv(out / "decisive_multiround_audit.csv", index=False)
         lines += ["## Multi-round best-of-n (3 rounds; preview judge on fresh samples)", "",
                   "Pooled over judges; delta = accuracy minus the judge alone (points); ASD in log score.", "",
                   table(pooled, cols), "", "Per judge:", "", table(per_judge, ["judge"] + cols), ""]
+        if ma is not None:
+            lines += ["Liars under per-speech best-of-n (gpt-5 audit); accuracy on episodes with a committed liar "
+                      "(consultancy: its false arm):", "", md(ma.round(3)), ""]
 
     for suffix, title in (("", "in-sample"), ("_holdout", "held-out")):
         f = out / f"decisive_ic{suffix}.csv"
@@ -277,6 +376,25 @@ def main(run: str, out: str = "docs/results") -> None:
         cols = ["debater", "mechanism", "accuracy", "judge_alone", "debater_alone", "delta", "gap_recovered", "asd",
                 "concordance", "items"]
         lines += ["## QuALITY (information asymmetry, verified quotes)", "", table(qq, cols), ""]
+        verdicts = audit_verdicts(run)
+        if verdicts is not None and (verdicts.kind == "quality").any():
+            from decisive_report import committed_filter
+
+            qc = with_references(item_table(committed_filter(q, verdicts, kind="quality")))
+            qqc = pd.concat([summarize(qc, ["mechanism"]).assign(debater="all"), summarize(qc, ["debater", "mechanism"])])
+            qqc.to_csv(out / "decisive_quality_committed.csv", index=False)
+            rates = (verdicts[verdicts.kind == "quality"].drop_duplicates("key").groupby(["debater", "mechanism"])
+                     .verdict.apply(lambda v: float((v == "committed").mean())).rename("committed").reset_index())
+            rates.to_csv(out / "decisive_quality_audit.csv", index=False)
+            lines += ["QuALITY liars committed (gpt-5 audit):", "", md(rates.round(3)), "",
+                      "### QuALITY, committed liars only", "", table(qqc, cols), ""]
+
+    js = judge_strength(run, out)
+    if js is not None:
+        cols = ["dataset", "judge", "debater", "mechanism", "accuracy", "judge_alone", "debater_alone", "delta",
+                "gap_recovered", "items"]
+        lines += ["## Judge strength: the same debates, weak and strong judges (prompted liars)", "",
+                  table(js.sort_values(["dataset", "mechanism", "judge_alone"]), cols), ""]
 
     for name, title in (("decisive_auditcheck_agreement.csv", "Auditor agreement"),
                         ("decisive_auditcheck_rates.csv", "Share of liar texts not committed, by auditor")):

@@ -20,6 +20,7 @@ from so_arena.samplers.arms import ASDExperiment  # noqa: E402
 from so_arena.samplers.pools import expand_tree  # noqa: E402
 
 import decisive_common as dc  # noqa: E402
+import decisive_judges as dj  # noqa: E402
 import decisive_optimize as dopt  # noqa: E402
 import decisive_protocols as dp  # noqa: E402
 import decisive_report as dr  # noqa: E402
@@ -95,6 +96,32 @@ def test_judge_independent_protocols_make_identical_agent_calls_for_any_judge(me
     # the response cache keys on exactly these, so a second judge replays the first judge's transcripts
     a, b = _record_debater_calls(mech, 0.8), _record_debater_calls(mech, 0.3)
     assert a == b and len(set(a)) == len(a)  # and repeats are distinct samples
+
+
+def test_replayed_debates_show_a_new_judge_the_stored_transcript():
+    def speak(messages, options, sample_index):
+        return f"speech {sample_index} " + messages[-1].content[-40:].replace("\n", " ")
+
+    seen = []
+
+    def judge2(messages, options, sample_index):
+        seen.append(messages[-1].content)
+        return '{"A": 0.6, "B": 0.4}'
+
+    mech = Debate(rounds=2, simultaneous=False)
+    first = ASDExperiment([mech], _items(), agent=soa.LLMPolicy(FunctionModel(speak, name="deb")),
+                          fixtures={"judge": soa.LLMPolicy(_judge(0.7, "j1"))}, ground_truth=dp.GT, repeats=2).run()
+    replay = dj.ReplayPolicy(first, source="test")
+    again = ASDExperiment([mech], _items(), agent=replay, fixtures={"judge": soa.LLMPolicy(FunctionModel(judge2, name="j2"))},
+                          ground_truth=dp.GT, repeats=2).run()
+    assert replay.missing == 0 and all(e.error is None for e in again)
+    key = lambda e: (e.item_id, e.repeat, e.tags.get("arm"))  # noqa: E731
+    by_key = {key(e): e for e in first}
+    for e in again:
+        old = by_key[key(e)]
+        speeches = lambda ep: [(t.role, t.phase, t.text) for t in ep.turns if t.role != "judge"]  # noqa: E731
+        assert speeches(e) == speeches(old)
+    assert all("speech" in s for s in seen)
 
 
 def test_consultancy_agent_calls_depend_on_the_judge():

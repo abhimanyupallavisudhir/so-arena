@@ -38,7 +38,7 @@ from so_arena.core.runner import run_sync
 from so_arena.mechanisms import Consultancy, Debate, DirectJudge, ProverEstimatorDebate, RecursiveDebate
 from so_arena.samplers.arms import ASDExperiment
 
-from decisive_common import (DEBATERS, JUDGES, Ledger, chunks, debater_policy, episode_cost, judge_policy,
+from decisive_common import (DEBATERS, JUDGES, Ledger, judge_set, chunks, debater_policy, episode_cost, judge_policy,
                              map_keys, selected_items, solo_policy)
 
 GT = [StanceValue(), JudgeCorrectness()]
@@ -82,7 +82,8 @@ def experiment(mechs, items, *, agent, judge, store, repeats, concurrency) -> AS
 
 
 async def run_chunk(items, run: Path, *, repeats: int, concurrency: int, estimate: bool,
-                    debaters: list[str] | None = None, store_root: str = "protocols") -> list[dict]:
+                    debaters: list[str] | None = None, store_root: str = "protocols",
+                    judges: dict[str, str] | None = None, mechanisms: list[str] | None = None) -> list[dict]:
     """Phase A: the references, every protocol for the first judge and consultancy (whose agents see the judge)
     for the others, all concurrently. Phase B: the other judges on the judge-independent protocols, whose agent
     calls replay phase A's from the cache."""
@@ -94,25 +95,30 @@ async def run_chunk(items, run: Path, *, repeats: int, concurrency: int, estimat
                          concurrency=concurrency)
         rows.extend(episode_rows(await exp.arun(), judge=j, debater=d))
 
+    judges = judges or dict(JUDGES)
+
     def pair(mech, j, d):
-        return go(mech, j, d, judge_policy(JUDGES[j]), debater_policy(DEBATERS[d]), st(d, j, mech.name))
+        return go(mech, j, d, judge_policy(judges[j]), debater_policy(DEBATERS[d]), st(d, j, mech.name))
+
+    def protos():
+        return [m for m in protocols() if mechanisms is None or m.name in mechanisms]
 
     debaters = debaters or list(DEBATERS)
-    first, *others = JUDGES
-    phase_a = [go(DirectJudge(), j, "-", judge_policy(m), None, st("direct", j)) for j, m in JUDGES.items()]
+    first, *others = judges
+    phase_a = [go(DirectJudge(), j, "-", judge_policy(m), None, st("direct", j)) for j, m in judges.items()]
     phase_a += [go(DirectJudge(name="direct_strong"), "-", d, solo_policy(m), None, st("strong", d))
                 for d, m in DEBATERS.items() if d in debaters]
-    phase_a += [pair(mech, first, d) for d in debaters for mech in protocols()]
-    phase_a += [pair(mech, j, d) for j in others for d in debaters for mech in protocols()
+    phase_a += [pair(mech, first, d) for d in debaters for mech in protos()]
+    phase_a += [pair(mech, j, d) for j in others for d in debaters for mech in protos()
                 if mech.name == "consultancy"]
     await asyncio.gather(*phase_a)
-    await asyncio.gather(*[pair(mech, j, d) for j in others for d in debaters for mech in protocols()
+    await asyncio.gather(*[pair(mech, j, d) for j in others for d in debaters for mech in protos()
                            if mech.name != "consultancy"])
     return rows
 
 
-def stage_cost(run: Path) -> float:
-    f = run / "protocols" / "rows.csv"
+def stage_cost(run: Path, stage: str = "protocols") -> float:
+    f = run / stage / "rows.csv"
     return float(pd.read_csv(f).cost.sum()) if f.exists() else 0.0
 
 
@@ -128,6 +134,9 @@ def main(argv=None):
     ap.add_argument("--concurrency", type=int, default=32, help="per (protocol, judge, debater)")
     ap.add_argument("--debaters", nargs="*", default=None, help="a subset of the debater models (default: all)")
     ap.add_argument("--offset", type=int, default=0, help="skip the first N selected items (already run)")
+    ap.add_argument("--judges", nargs="*", default=None, help="judges by name (weak or STRONG_JUDGES; default: weak)")
+    ap.add_argument("--protocols", nargs="*", default=None, help="a subset of the protocols by name")
+    ap.add_argument("--stage", default="protocols", help="ledger key and rows file prefix")
     ap.add_argument("--store-root", default="protocols",
                     help="directory under the run for the episode stores (a new one keeps memory low: resuming "
                          "reads every episode of a store); rows always go to <run>/protocols/rows.csv")
@@ -140,10 +149,10 @@ def main(argv=None):
     soa.configure(cache_dir=str(run / "cache" / "protocols"), simulate=a.estimate or None, concurrency=a.concurrency)
     items = selected_items(run, a.limit)[a.offset:]
     ledger = Ledger(run)
-    done_before = stage_cost(run)
-    budget = a.budget if a.budget is not None else ledger.remaining() + ledger.data.get("protocols", 0.0) - a.reserve
+    done_before = stage_cost(run, a.stage)
+    budget = a.budget if a.budget is not None else ledger.remaining() + ledger.data.get(a.stage, 0.0) - a.reserve
     log = logging.getLogger("decisive")
-    out = run / "protocols"
+    out = run / a.stage
     out.mkdir(parents=True, exist_ok=True)
     rows_path = out / "rows.csv"
     all_rows: list[dict] = []
@@ -155,7 +164,8 @@ def main(argv=None):
                         per_item * len(chunk), budget)
             break
         rows = run_sync(run_chunk(chunk, run, repeats=a.repeats, concurrency=a.concurrency, estimate=a.estimate,
-                                   debaters=a.debaters, store_root=a.store_root))
+                                   debaters=a.debaters, store_root=a.store_root, judges=judge_set(a.judges),
+                                   mechanisms=a.protocols))
         new_cost = sum(r["cost"] for r in rows)
         per_item = max(per_item or 0.0, new_cost / len(chunk)) if new_cost > 0 else per_item
         if a.estimate:
@@ -166,7 +176,7 @@ def main(argv=None):
         df = pd.concat([prev, pd.DataFrame(rows)]).drop_duplicates(["episode", "role"], keep="last")
         df.to_csv(rows_path, index=False)
         done_before = float(df.cost.sum())
-        ledger.set("protocols", done_before)
+        ledger.set(a.stage, done_before)
         log.info("chunk %d done: %d items, stage $%.2f, study $%.2f", i, len(chunk), done_before, ledger.total)
     if a.estimate:
         df = pd.DataFrame(all_rows)

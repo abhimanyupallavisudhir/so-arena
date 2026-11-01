@@ -36,7 +36,7 @@ from so_arena.domains import get_domain
 from so_arena.mechanisms import Consultancy, Debate, DirectJudge
 from so_arena.samplers.arms import ASDExperiment
 
-from decisive_common import DEBATERS, JUDGES, Ledger, chunks, debater_policy, judge_policy, map_keys, solo_policy
+from decisive_common import DEBATERS, JUDGES, Ledger, judge_set, chunks, debater_policy, judge_policy, map_keys, solo_policy
 from decisive_protocols import GT, episode_rows
 
 WORDS = 200
@@ -60,7 +60,8 @@ def quality_items(n: int, seed: int = 0):
     return dom, random.Random(seed).sample(items, len(items))[:n]  # a fixed order: smaller runs are prefixes
 
 
-async def run_chunk(items, run: Path, ctx, *, debaters: list[str], repeats: int, concurrency: int) -> list[dict]:
+async def run_chunk(items, run: Path, ctx, *, debaters: list[str], repeats: int, concurrency: int,
+                    judges: dict[str, str] | None = None) -> list[dict]:
     st = lambda *p: str(run / "quality" / Path(*p))  # noqa: E731
     rows: list[dict] = []
 
@@ -69,17 +70,18 @@ async def run_chunk(items, run: Path, ctx, *, debaters: list[str], repeats: int,
                             store=store, concurrency=concurrency, ctx=ctx)
         rows.extend(episode_rows(await exp.arun(), judge=j, debater=d))
 
-    first, *others = JUDGES
-    phase_a = [go(DirectJudge(), j, "-", judge_policy(m), None, st("direct", j)) for j, m in JUDGES.items()]
+    judges = judges or dict(JUDGES)
+    first, *others = judges
+    phase_a = [go(DirectJudge(), j, "-", judge_policy(m), None, st("direct", j)) for j, m in judges.items()]
     phase_a += [go(DirectJudge(name="direct_strong", affordances={"judge": ["passage"]}), "-", d,
                    solo_policy(DEBATERS[d]), None, st("strong", d)) for d in debaters]
     for d in debaters:
         for mech in protocols():
-            judges = list(JUDGES) if mech.name == "consultancy" else [first]  # only consultancy's agents see the judge
-            phase_a += [go(mech, j, d, judge_policy(JUDGES[j]), debater_policy(DEBATERS[d]), st(d, j, mech.name))
-                        for j in judges]
+            js = list(judges) if mech.name == "consultancy" else [first]  # only consultancy's agents see the judge
+            phase_a += [go(mech, j, d, judge_policy(judges[j]), debater_policy(DEBATERS[d]), st(d, j, mech.name))
+                        for j in js]
     await asyncio.gather(*phase_a)
-    await asyncio.gather(*[go(mech, j, d, judge_policy(JUDGES[j]), debater_policy(DEBATERS[d]), st(d, j, mech.name))
+    await asyncio.gather(*[go(mech, j, d, judge_policy(judges[j]), debater_policy(DEBATERS[d]), st(d, j, mech.name))
                            for j in others for d in debaters for mech in protocols() if mech.name != "consultancy"])
     return rows
 
@@ -93,6 +95,8 @@ def main(argv=None):
     ap.add_argument("--debaters", nargs="*", default=list(DEBATERS))
     ap.add_argument("--concurrency", type=int, default=16)
     ap.add_argument("--budget", type=float, default=900.0)
+    ap.add_argument("--judges", nargs="*", default=None, help="judges by name (weak or STRONG_JUDGES; default: weak)")
+    ap.add_argument("--stage", default="quality", help="ledger key and output directory (rows.csv)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     for noisy in ("httpx", "openai", "anthropic", "inspect_ai"):
@@ -103,7 +107,7 @@ def main(argv=None):
     dom, items = quality_items(a.items)
     ctx = dom.context()
     ledger = Ledger(run)
-    out = run / "quality"
+    out = run / a.stage
     out.mkdir(parents=True, exist_ok=True)
     rows_path = out / "rows.csv"
     log = logging.getLogger("decisive")
@@ -114,14 +118,15 @@ def main(argv=None):
             log.warning("stopping before chunk %d: $%.0f spent, next ~$%.0f", i, spent, per_item * len(chunk))
             break
         before = spent
-        rows = run_sync(run_chunk(chunk, run, ctx, debaters=a.debaters, repeats=a.repeats, concurrency=a.concurrency))
+        rows = run_sync(run_chunk(chunk, run, ctx, debaters=a.debaters, repeats=a.repeats, concurrency=a.concurrency,
+                                  judges=judge_set(a.judges)))
         prev = pd.read_csv(rows_path) if rows_path.exists() else pd.DataFrame()
         df = pd.concat([prev, pd.DataFrame(rows)]).drop_duplicates(["episode", "role"], keep="last")
         df.to_csv(rows_path, index=False)
         spent = float(df.cost.sum())
         if spent > before:
             per_item = max(per_item or 0.0, (spent - before) / len(chunk))
-        ledger.set("quality", spent)
+        ledger.set(a.stage, spent)
         log.info("chunk %d done: %d items, stage $%.2f, study $%.2f", i, len(chunk), spent, ledger.total)
     print(json.dumps(ledger.data, indent=1), f"total ${ledger.total:.2f}")
 

@@ -179,10 +179,10 @@ def optimized_vs_references(curve_items: pd.DataFrame, it: pd.DataFrame, by: lis
     return pd.DataFrame(out)
 
 
-def committed_filter(rows: pd.DataFrame, verdicts: pd.DataFrame) -> pd.DataFrame:
+def committed_filter(rows: pd.DataFrame, verdicts: pd.DataFrame, kind: str = "prompted") -> pd.DataFrame:
     """Rows of (judge, debater, protocol, item, sample) groups whose liars were all committed, both arms kept
     together; the references are kept whole (they are compared on the surviving items only)."""
-    v = verdicts[verdicts.kind == "prompted"]
+    v = verdicts[verdicts.kind == kind]
     bad = v[v.verdict != "committed"][["judge", "debater", "mechanism", "item", "repeat"]].drop_duplicates()
     bad["bad"] = True
     m = rows.merge(bad, on=["judge", "debater", "mechanism", "item", "repeat"], how="left")
