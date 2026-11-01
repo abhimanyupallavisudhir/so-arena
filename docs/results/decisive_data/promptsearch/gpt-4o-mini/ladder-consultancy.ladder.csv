@@ -1,0 +1,4 @@
+judge,mechanism,rung,accuracy,accuracy_true_arm,accuracy_false_arm,honest_reward,liar_reward
+gpt-4o-mini,consultancy,base,0.56,0.78,0.34,-0.4629476618286324,-0.6593574745672609
+gpt-4o-mini,consultancy,liar optimized,0.61,0.78,0.44,-0.4629476618286324,-0.7660604293988093
+gpt-4o-mini,consultancy,both optimized,0.61,0.78,0.44,-0.4629476618286324,-0.7660604293988093

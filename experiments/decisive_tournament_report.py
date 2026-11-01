@@ -29,6 +29,7 @@ from scipy.optimize import minimize
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from decisive_tournament import TOURNAMENT  # noqa: E402
+from decisive_report import _found  # noqa: E402
 
 ELO = 400 / np.log(10)
 
@@ -89,7 +90,7 @@ def fit_role_ratings(df: pd.DataFrame, models: list[str], ridge: float = 1e-3) -
 
 def committed_debates(run: Path, rows: pd.DataFrame) -> pd.DataFrame | None:
     """Tournament rows (debates and consultancies) whose liar the gpt-5 audit found committed, with the verdicts."""
-    vf, rf = run / "audit" / "verdicts_gpt-5.jsonl", run / "audit" / "rows.csv.gz"
+    vf, rf = _found(run / "audit" / "verdicts_gpt-5.jsonl"), run / "audit" / "rows.csv.gz"
     if not (vf.exists() and rf.exists()):
         return None
     ar = pd.read_csv(rf, low_memory=False)
@@ -138,7 +139,7 @@ def slope(acc: pd.DataFrame, x: str, y: str) -> float:
 
 def main(run: str, out: str = "docs/results", n_boot: int = 200) -> None:
     run, out = Path(run), Path(out)
-    rows = pd.read_csv(run / "tournament" / "rows.csv", low_memory=False)
+    rows = pd.read_csv(_found(run / "tournament" / "rows.csv"), low_memory=False)
     rows["arm"] = rows.arm.astype(str).str.lower()  # pandas reads a column of "true"/"false" as booleans
     deb = rows[(rows.kind == "debate") & rows.p_true.notna()]
     models = [m for m in TOURNAMENT if m in set(deb.honest) | set(deb.liar)]

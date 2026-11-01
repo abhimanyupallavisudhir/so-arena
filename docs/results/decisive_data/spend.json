@@ -1,6 +1,14 @@
 {
  "audit": 15.317141,
+ "audit_gpt-5": 399.782815,
+ "auditcheck": 13.717181,
+ "judges": 318.839597,
+ "multiround": 733.774526,
  "optimize": 235.841613,
- "protocols": 895.248992,
- "select": 115.192274
+ "promptsearch": 491.258316,
+ "protocols": 1345.187476,
+ "quality": 637.708113,
+ "rejudge": 87.871299,
+ "select": 115.192274,
+ "tournament": 873.611482
 }

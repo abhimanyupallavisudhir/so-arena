@@ -1,0 +1,42 @@
+{
+ "measured": {
+  "basis": "measured",
+  "mislabelled": [
+   "deceptive"
+  ],
+  "honest_reward": -0.21357922540221,
+  "honest_value": 0.96,
+  "honest_value_coverage": 1.0,
+  "honest_id": "sebaabbf1:eval",
+  "honest_directive": "honest",
+  "deceptive_reward": NaN,
+  "deceptive_value": NaN,
+  "deceptive_value_coverage": NaN,
+  "deceptive_id": null,
+  "deceptive_directive": null,
+  "margin": NaN,
+  "ci_low": NaN,
+  "ci_high": NaN,
+  "n_items": 0
+ },
+ "directive": {
+  "basis": "directive",
+  "mislabelled": [
+   "deceptive"
+  ],
+  "honest_reward": -0.21357922540221,
+  "honest_value": 0.96,
+  "honest_value_coverage": 1.0,
+  "honest_id": "sebaabbf1:eval",
+  "honest_directive": "honest",
+  "deceptive_reward": -0.5764927895422243,
+  "deceptive_value": 0.86,
+  "deceptive_value_coverage": 1.0,
+  "deceptive_id": "s421e0feb:eval",
+  "deceptive_directive": "deceptive",
+  "margin": 0.36291356414001436,
+  "ci_low": 0.10402140625003915,
+  "ci_high": 0.69330121390208,
+  "n_items": 100
+ }
+}

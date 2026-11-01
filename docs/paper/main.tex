@@ -73,7 +73,7 @@ an agent (\S\ref{sec:metrics}).
 \begin{itemize}
 \item A sandwiching benchmark with a 54-point gap: 927 questions from 31 families on which strong debaters are
 right and weak judges are confidently wrong (\S\ref{sec:setup}).
-\item An audit of every liar transcript (about 61{,}000), with an auditor validated against a second strong model,
+\item An audit of every liar transcript (about 77{,}000), with an auditor validated against a second strong model,
 showing that prompted and even optimized Claude liars concede at high rates; and a debater tournament in which
 this effect fully explains a negative relation between debater persuasiveness and judge accuracy
 (\S\ref{sec:prompted}, \S\ref{sec:tournament}).
@@ -195,6 +195,10 @@ With all prompted liars every protocol beats the judge alone, simultaneous debat
 write ``I must concede: Program B gives higher expected payoff''. gpt-5-mini's liars are committed in 87--92\% of
 consultancy and debate transcripts (59--80\% in the recursive protocols), and its numbers barely move
 (Figure~\ref{fig:protocols}): consultancy $+11$, both debates $+12$, recursive $+11$, prover-estimator $+3$\ci{-0}{+6}.
+Running gpt-5-mini on all 927 selected items replicates this with intervals half as wide: committed-liar gains of
+$+11$\ci{+9}{+12} (consultancy), $+13$\ci{+11}{+15} and $+14$\ci{+12}{+15} (sequential and simultaneous
+debate), $+12$\ci{+10}{+14} (recursive) and $+5$\ci{+3}{+7} (prover-estimator). Gains vary by family, from
+$+47$ points for debate on social-choice questions to none on reward-hacking gridworlds.
 
 With committed liars, consultancy, debate and recursive debate all recover about a fifth of the gap. Their
 incentives are weakly positive: debate's ASD is 0.39 with concordance 0.59, consultancy's and recursive debate's
@@ -405,9 +409,9 @@ oversight-benchmark framing come from \citet{pallavisudhir2025asd}. Best-of-$n$ 
 \citet{beirami2024theoretical}; reward overoptimization by \citet{gao2023scaling}; position biases of LLM judges by
 \citet{zheng2023judging,wang2023fair}.
 
-\paragraph{Reproducibility.} All experiments use the open-source \texttt{so-arena} library; scripts
-\texttt{experiments/decisive\_*.py}, compact data and every table in \texttt{docs/results/}. Total API spend:
-about \$4{,}900.
+\paragraph{Reproducibility.} All experiments use the open-source \texttt{so-arena} library. The scripts are in
+\nolinkurl{experiments/}, and the compact data and every table in \nolinkurl{docs/results/}. Total API spend was
+about \$5{,}290.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}

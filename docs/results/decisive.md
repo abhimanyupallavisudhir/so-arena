@@ -5,17 +5,18 @@
 | stage | $ |
 |---|---|
 | audit | 15.32 |
-| audit_gpt-5 | 236.04 |
+| audit_gpt-5 | 399.78 |
 | auditcheck | 13.72 |
+| judges | 318.84 |
 | multiround | 733.77 |
 | optimize | 235.84 |
-| promptsearch | 450.05 |
-| protocols | 976.41 |
+| promptsearch | 491.26 |
+| protocols | 1345.19 |
 | quality | 637.71 |
 | rejudge | 87.87 |
 | select | 115.19 |
 | tournament | 873.61 |
-| **total** | **4375.54** |
+| **total** | **5268.10** |
 
 ## Items and the gap achieved
 
@@ -100,11 +101,11 @@ Families of the items run: numbers/prime_race 31, dtbench/capabilities 29, decis
 | claude-sonnet-4-5 | debate_sim | 0.000 | 0.234 | 0.690 | 0.074 | 0.002 | 0.228 | 1920 |
 | claude-sonnet-4-5 | prover_estimator | 0.001 | 0.119 | 0.818 | 0.061 | 0.001 | 0.267 | 960 |
 | claude-sonnet-4-5 | recursive_debate | 0.002 | 0.218 | 0.718 | 0.060 | 0.002 | 0.287 | 960 |
-| gpt-5-mini | consultancy | 0.000 | 0.873 | 0.108 | 0.016 | 0.003 | 0.001 | 2880 |
-| gpt-5-mini | debate_seq | 0.000 | 0.924 | 0.073 | 0.001 | 0.002 | 0.004 | 1920 |
-| gpt-5-mini | debate_sim | 0.000 | 0.902 | 0.097 | 0.000 | 0.002 | 0.000 | 1920 |
-| gpt-5-mini | prover_estimator | 0.002 | 0.593 | 0.361 | 0.043 | 0.001 | 0.000 | 960 |
-| gpt-5-mini | recursive_debate | 0.000 | 0.795 | 0.198 | 0.007 | 0.000 | 0.002 | 960 |
+| gpt-5-mini | consultancy | 0.000 | 0.861 | 0.117 | 0.018 | 0.003 | 0.001 | 8457 |
+| gpt-5-mini | debate_seq | 0.000 | 0.926 | 0.070 | 0.001 | 0.003 | 0.005 | 5562 |
+| gpt-5-mini | debate_sim | 0.000 | 0.906 | 0.091 | 0.000 | 0.003 | 0.001 | 5562 |
+| gpt-5-mini | prover_estimator | 0.001 | 0.587 | 0.358 | 0.053 | 0.001 | 0.000 | 2781 |
+| gpt-5-mini | recursive_debate | 0.000 | 0.764 | 0.224 | 0.008 | 0.003 | 0.001 | 2781 |
 
 ## Committed liars only (auditor gpt-5): pooled over all pairs
 
@@ -320,22 +321,22 @@ References on these items: {"judge alone": 0.439, "debater alone": 0.982}
 | debate_1r | liar | gpt-5-mini | gpt-4o-mini | 0.593 | 0.520 | 0.456 | 0.401 | 0.357 |
 | debate_1r | liar | gpt-5-mini | llama-3.1-8b | 0.538 | 0.480 | 0.426 | 0.377 | 0.333 |
 
-## gpt-5-mini on all 440 items it ran (prompted liars)
+## gpt-5-mini on all 927 items it ran (prompted liars)
 
 | judge | debater | protocol | accuracy | judge alone | debater alone | delta (pts) [CI] | gap recovered [CI] | IGR [CI] | ASD | concordance | items |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| all | gpt-5-mini | consultancy | 0.56 [0.55, 0.57] | 0.44 | 0.99 | +12 [+10, +14] | 0.22 [0.19, 0.25] | 0.18 [0.16, 0.21] | 0.38 | 0.61 | 440 |
-| all | gpt-5-mini | debate (sequential) | 0.59 [0.57, 0.60] | 0.44 | 0.99 | +15 [+13, +17] | 0.27 [0.23, 0.31] | 0.26 [0.23, 0.30] | 0.78 | 0.65 | 440 |
-| all | gpt-5-mini | debate (simultaneous) | 0.60 [0.58, 0.62] | 0.44 | 0.99 | +16 [+14, +19] | 0.29 [0.26, 0.33] | 0.27 [0.24, 0.31] | 0.81 | 0.69 | 440 |
-| all | gpt-5-mini | prover-estimator | 0.49 [0.47, 0.50] | 0.44 | 0.99 | +5 [+2, +7] | 0.09 [0.05, 0.13] | 0.06 [0.03, 0.09] | -0.14 | 0.37 | 440 |
-| all | gpt-5-mini | recursive debate | 0.54 [0.53, 0.55] | 0.44 | 0.99 | +10 [+8, +13] | 0.19 [0.15, 0.23] | 0.21 [0.17, 0.24] | 0.09 | 0.64 | 440 |
+| all | gpt-5-mini | consultancy | 0.55 [0.54, 0.56] | 0.43 | 0.99 | +12 [+11, +13] | 0.22 [0.20, 0.24] | 0.18 [0.16, 0.20] | 0.38 | 0.59 | 927 |
+| all | gpt-5-mini | debate (sequential) | 0.58 [0.57, 0.59] | 0.43 | 0.99 | +15 [+14, +17] | 0.27 [0.25, 0.30] | 0.27 [0.25, 0.29] | 0.74 | 0.66 | 927 |
+| all | gpt-5-mini | debate (simultaneous) | 0.60 [0.58, 0.61] | 0.43 | 0.99 | +17 [+15, +18] | 0.30 [0.27, 0.32] | 0.28 [0.25, 0.30] | 0.79 | 0.67 | 927 |
+| all | gpt-5-mini | prover-estimator | 0.49 [0.48, 0.50] | 0.43 | 0.99 | +6 [+5, +8] | 0.11 [0.09, 0.14] | 0.07 [0.05, 0.10] | -0.13 | 0.39 | 927 |
+| all | gpt-5-mini | recursive debate | 0.54 [0.54, 0.55] | 0.43 | 0.99 | +11 [+10, +13] | 0.21 [0.18, 0.23] | 0.22 [0.20, 0.25] | 0.10 | 0.64 | 927 |
 
-## gpt-5-mini on all 440 items, committed liars only
+## gpt-5-mini on all 927 items, committed liars only
 
 | judge | debater | protocol | accuracy | judge alone | debater alone | delta (pts) [CI] | gap recovered [CI] | IGR [CI] | ASD | concordance | items |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| all | gpt-5-mini | consultancy | 0.55 [0.53, 0.56] | 0.44 | 0.99 | +11 [+9, +13] | 0.20 [0.17, 0.23] | 0.16 [0.13, 0.19] | 0.26 | 0.58 | 440 |
-| all | gpt-5-mini | debate (sequential) | 0.57 [0.56, 0.59] | 0.44 | 0.99 | +13 [+11, +15] | 0.24 [0.21, 0.28] | 0.23 [0.20, 0.26] | 0.63 | 0.63 | 428 |
-| all | gpt-5-mini | debate (simultaneous) | 0.58 [0.57, 0.60] | 0.45 | 0.99 | +13 [+11, +16] | 0.25 [0.21, 0.28] | 0.23 [0.20, 0.26] | 0.61 | 0.65 | 419 |
-| all | gpt-5-mini | prover-estimator | 0.47 [0.45, 0.49] | 0.43 | 0.99 | +4 [+1, +6] | 0.06 [0.02, 0.11] | 0.05 [0.01, 0.08] | -0.23 | 0.34 | 392 |
-| all | gpt-5-mini | recursive debate | 0.54 [0.53, 0.55] | 0.44 | 0.99 | +11 [+8, +13] | 0.19 [0.15, 0.23] | 0.20 [0.16, 0.24] | 0.09 | 0.61 | 426 |
+| all | gpt-5-mini | consultancy | 0.53 [0.52, 0.54] | 0.43 | 0.99 | +11 [+9, +12] | 0.19 [0.17, 0.21] | 0.15 [0.14, 0.17] | 0.19 | 0.55 | 927 |
+| all | gpt-5-mini | debate (sequential) | 0.57 [0.56, 0.58] | 0.44 | 0.99 | +13 [+11, +15] | 0.24 [0.21, 0.26] | 0.23 [0.21, 0.25] | 0.56 | 0.62 | 898 |
+| all | gpt-5-mini | debate (simultaneous) | 0.58 [0.56, 0.59] | 0.44 | 0.98 | +14 [+12, +15] | 0.25 [0.22, 0.28] | 0.23 [0.21, 0.25] | 0.57 | 0.63 | 875 |
+| all | gpt-5-mini | prover-estimator | 0.47 [0.46, 0.49] | 0.42 | 0.98 | +5 [+3, +7] | 0.09 [0.06, 0.12] | 0.06 [0.04, 0.09] | -0.23 | 0.35 | 780 |
+| all | gpt-5-mini | recursive debate | 0.55 [0.54, 0.56] | 0.43 | 0.98 | +12 [+10, +14] | 0.22 [0.19, 0.24] | 0.22 [0.20, 0.25] | 0.10 | 0.62 | 876 |

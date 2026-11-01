@@ -40,7 +40,7 @@ def multiround_items(run: Path, ref: pd.DataFrame) -> pd.DataFrame:
     """Per (judge, debater, protocol, mode, n, item): accuracy (mean over arms and samples) and ASD (log score:
     reward arguing the truth minus arguing the falsehood). n = 1 is the protocol grid on the same items;
     consultancy's liar mode takes its true arm from the grid."""
-    mr = pd.read_csv(run / "multiround" / "rows.csv")
+    mr = pd.read_csv(_found(run / "multiround" / "rows.csv"))
     grid = pd.read_csv(_found(run / "protocols" / "rows.csv"))
     for f in (mr, grid):  # pandas reads a column of "true"/"false" as booleans
         f["arm"] = f.arm.astype(str).str.lower()
@@ -75,7 +75,7 @@ def multiround_items(run: Path, ref: pd.DataFrame) -> pd.DataFrame:
 
 def audit_verdicts(run: Path) -> pd.DataFrame | None:
     """Every audited liar row with its gpt-5 verdict."""
-    vf, rf = run / "audit" / "verdicts_gpt-5.jsonl", run / "audit" / "rows.csv.gz"
+    vf, rf = _found(run / "audit" / "verdicts_gpt-5.jsonl"), run / "audit" / "rows.csv.gz"
     if not (vf.exists() and rf.exists()):
         return None
     v = pd.read_json(vf, lines=True).drop_duplicates("key", keep="last")[["key", "verdict"]]
@@ -90,7 +90,7 @@ def multiround_audit(run: Path, ref: pd.DataFrame) -> pd.DataFrame | None:
     v = audit_verdicts(run)
     if v is None or not (v.kind == "multiround").any():
         return None
-    mr = pd.read_csv(run / "multiround" / "rows.csv")
+    mr = pd.read_csv(_found(run / "multiround" / "rows.csv"))
     vm = v[v.kind == "multiround"][["episode", "verdict"]].drop_duplicates("episode")
     m = mr.merge(vm, on="episode", how="inner")
     refs = ref.drop_duplicates(["judge", "debater", "item"])[["judge", "debater", "item", "acc_judge"]]
@@ -215,7 +215,7 @@ def judge_strength(run: Path, out: Path, committed: bool = False) -> pd.DataFram
     replayed debate inherits the verdict of the transcript it replays (the same speeches for every judge)."""
     from decisive_report import summarize
 
-    f = run / "judges" / "rows.csv"
+    f = _found(run / "judges" / "rows.csv")
     if not f.exists():
         return None
     strong = pd.read_csv(f)
@@ -347,7 +347,7 @@ def main(run: str, out: str = "docs/results") -> None:
         lines += [f"| **total** | **{sum(spend.values()):.2f}** |", ""]
     ref = references(run)
 
-    if (run / "multiround" / "rows.csv").exists():
+    if _found(run / "multiround" / "rows.csv").exists():
         mi = multiround_items(run, ref)
         mi.to_csv(run / "multiround_items.csv.gz", index=False)
         pooled = summarize_multiround(mi, [])
@@ -389,8 +389,8 @@ def main(run: str, out: str = "docs/results") -> None:
     ps_lines, _ = promptsearch(run)
     lines += ps_lines
 
-    if (run / "quality" / "rows.csv").exists():
-        q = pd.read_csv(run / "quality" / "rows.csv")
+    if _found(run / "quality" / "rows.csv").exists():
+        q = pd.read_csv(_found(run / "quality" / "rows.csv"))
         qi = with_references(item_table(q))
         from decisive_report import summarize
 

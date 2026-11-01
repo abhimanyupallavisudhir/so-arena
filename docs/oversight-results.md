@@ -9,6 +9,10 @@ experiment.
 > 3 judges, 2 debaters, 3 samples, audited and optimized liars. Against prompted liars it reverses the first study's finding:
 > consultancy, debate and recursive debate help. A liar optimized against the judge still pushes every protocol below
 > the judge alone, unless the honest side is optimized too, and then only debate keeps its gain.
+>
+> **Update (2026-11-01).** The [extended study](#decisive-study-extended-added-2026-11-01) adds a validated audit,
+> held-out best-of-n (most of the in-sample collapse was a winner's curse), 3-round optimization, prompt search, an
+> 8-debater tournament, QuALITY and stronger judges. Paper draft: [`paper/main.pdf`](paper/main.pdf).
 
 **Setup.**
 - Judge: gpt-4.1-nano, reasoning before it answers.
@@ -420,7 +424,7 @@ New scripts in `experiments/`:
 1. **The audit is validated, and the committed-liar results hold.**
    - gpt-5 and Claude Sonnet 5 agree on liar verdicts with κ = 0.76. gpt-4.1-mini, the first study's auditor,
      agrees with either at only κ ≈ 0.42.
-   - Every liar text (about 61,000) was re-audited with gpt-5. Committed-only gains barely move: consultancy,
+   - Every liar text (about 77,000) was re-audited with gpt-5. Committed-only gains barely move: consultancy,
      both debates and recursive debate +11; prover-estimator +7, with ASD −0.22.
 2. **In-sample best-of-n was mostly a winner's curse.**
    - Two samples of the same judge on the same argument correlate only r ≈ 0.2 within an item.
@@ -473,11 +477,45 @@ New scripts in `experiments/`:
 
 See [`results/decisive_extended_grid_gpt-5-mini_committed.csv`](results/decisive_extended_grid_gpt-5-mini_committed.csv)
 and the per-family table. The full protocol grid for the clean debater on every gap-selected item:
-EXTENSION_TABLE
+
+| protocol (gpt-5-mini, 927 items, 3 judges) | all prompted liars | committed liars only | ASD (committed) |
+|---|---|---|---|
+| consultancy | +12 [+11, +13] | **+11** [+9, +12] | 0.19 |
+| debate, sequential | +15 [+14, +17] | **+13** [+11, +15] | 0.56 |
+| debate, simultaneous | +17 [+15, +18] | **+14** [+12, +15] | 0.57 |
+| recursive debate | +11 [+10, +13] | **+12** [+10, +14] | 0.10 |
+| prover-estimator | +6 [+5, +8] | **+5** [+3, +7] | −0.23 |
+
+The 320-item results replicate on almost three times the items, with intervals half as wide.
+
+Gains vary by family. In sequential debate:
+- social choice: +47 points;
+- decision theory: +15;
+- number theory: +11;
+- the decision-theory capability benchmark: +8;
+- reward-hacking gridworlds: −3.
+
+Per-family tables: [`results/decisive_extended_grid_gpt-5-mini_by_family.csv`](results/decisive_extended_grid_gpt-5-mini_by_family.csv).
 
 ### Spend (whole decisive study)
 
-SPEND_TABLE
+| stage | $ |
+|---|---|
+| gap selection | 115 |
+| protocol grid (320 items × 2 debaters, then gpt-5-mini on all 927) | 1,345 |
+| one-round best-of-16 trees | 236 |
+| held-out re-judging of the trees | 88 |
+| 3-round best-of-n on every speech | 734 |
+| prompt search (Opus 5.5 optimizer) | 491 |
+| 8-debater tournament | 874 |
+| QuALITY replication | 638 |
+| stronger judges on replayed debates | 319 |
+| liar audits (gpt-4.1-mini, then gpt-5 on about 77,000 texts) and auditor check | 429 |
+| pilots outside the run ledger | 14 |
+| **total** | **about 5,290** (1,262 for the first decisive study, about 4,030 for the extension) |
+
+Spend per stage comes from the stage's recorded episode costs or its response cache. The cache records each paid
+call once. Where a stage paid for the same call twice concurrently, the larger, episode-based figure is used.
 
 ## Caveats
 
