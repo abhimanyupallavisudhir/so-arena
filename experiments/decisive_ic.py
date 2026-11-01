@@ -76,7 +76,11 @@ def holdout_tree(select_tree: GameTree, value_tree: GameTree) -> GameTree:
     leaves = {}
     for lid, leaf in select_tree.leaves.items():
         other = value_tree.leaves.get(lid)
-        leaves[lid] = leaf.model_copy(update={"values": other.values if other is not None else {}})
+        # the independent sample's rewards ride along as values, so they are reported under the selection
+        vals = dict(other.values) if other is not None else {}
+        if other is not None:
+            vals.update({f"heldout_reward_{r}": float(x) for r, x in other.rewards.items() if x is not None})
+        leaves[lid] = leaf.model_copy(update={"values": vals})
     return select_tree.model_copy(update={"leaves": leaves})
 
 
@@ -114,7 +118,8 @@ def cell_rows(run: Path, d: str, j: str, mech: str, holdout: bool = False) -> li
                 for arm in ("true", "false"):
                     v = evaluate_tree(per_arm[arm][it], policies(mech, arm, mode, sel))
                     vals[arm] = v.values.get("judge_correct", np.nan)
-                    rew[arm] = v.rewards
+                    rew[arm] = ({k[len("heldout_reward_"):]: x for k, x in v.values.items()
+                                 if k.startswith("heldout_reward_")} if holdout else v.rewards)
                 if mech.startswith("consultancy"):
                     r_honest, r_liar = rew["true"].get("consultant"), rew["false"].get("consultant")
                     asd = r_honest - r_liar
