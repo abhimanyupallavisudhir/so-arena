@@ -204,6 +204,27 @@ def test_optimized_vs_references_pairs_each_judge_with_itself():
     assert r["gap_recovered"] == pytest.approx(0.375 / 0.75)
 
 
+def test_archived_store_reads_gzipped_and_new_episodes(tmp_path):
+    import gzip
+    import shutil
+
+    from so_arena.core.store import RunStore
+
+    items = _items(2)
+    judge = soa.LLMPolicy(FunctionModel(lambda m, o, i: '{"A": 0.7, "B": 0.3}'))
+    exp = ASDExperiment([DirectJudge()], items[:1], agent=None, fixtures={"judge": judge}, ground_truth=dp.GT,
+                        store=str(tmp_path / "s"))
+    first = exp.run()
+    store = RunStore(str(tmp_path / "s"))
+    with open(store.episodes_path, "rb") as f, gzip.open(store.path / "episodes.jsonl.gz", "wb") as g:
+        shutil.copyfileobj(f, g)
+    store.episodes_path.unlink()
+    assert store.has_episodes() and {e.id for e in store.episodes()} == {e.id for e in first}
+    more = ASDExperiment([DirectJudge()], items, agent=None, fixtures={"judge": judge}, ground_truth=dp.GT,
+                         store=str(tmp_path / "s")).run()  # resumes the archived episodes, appends the new ones
+    assert {e.id for e in RunStore(str(tmp_path / "s")).episodes()} == {e.id for e in more}
+
+
 def test_cache_spend_sums_every_cached_completion(tmp_path):
     from so_arena.core.types import Completion, Usage
     from so_arena.models.cache import ResponseCache

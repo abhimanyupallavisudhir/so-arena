@@ -49,7 +49,7 @@ def prompted_rows(run: Path) -> list[dict]:
         for j in JUDGES:
             for mech, roles in ROLES.items():
                 store = run / "protocols" / d / j / mech
-                if not (store / "episodes.jsonl").exists():
+                if not RunStore(str(store)).has_episodes():
                     continue
                 for ep in RunStore(str(store)).episodes():
                     if ep.error:
@@ -103,7 +103,7 @@ def stage_rows(run: Path) -> list[dict]:
     rows = []
 
     def add(kind, store: Path, **meta):
-        if not (store / "episodes.jsonl").exists():
+        if not RunStore(str(store)).has_episodes():
             return
         for ep in RunStore(str(store)).episodes():
             if ep.error:
@@ -264,9 +264,10 @@ def main(argv=None):
         return
     frame = pd.DataFrame(rows).drop(columns=["text"])
     old = out / "rows.csv.gz"
-    if old.exists():  # keep rows of kinds not collected this time
-        prev = pd.read_csv(old)
-        frame = pd.concat([prev[~prev.kind.isin(a.kinds)], frame], ignore_index=True)
+    if old.exists():  # keep earlier rows (stores may since have been archived); new rows replace equal ones
+        prev = pd.read_csv(old, low_memory=False)
+        ids = [c for c in ("kind", "episode", "role", "judge", "pool_key", "index", "key") if c in frame]
+        frame = pd.concat([prev, frame], ignore_index=True).drop_duplicates(ids, keep="last")
     frame.to_csv(old, index=False)
     verdicts = pd.read_json(vf, lines=True).drop_duplicates("key", keep="last")
     stage = "audit" if a.auditor == "gpt-4.1-mini" else f"audit_{a.auditor}"
