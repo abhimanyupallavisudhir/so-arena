@@ -319,7 +319,12 @@ def _found(path: Path) -> Path:
 def main(run: str, out: str = "docs/results") -> None:
     run, out = Path(run), Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    rows = pd.read_csv(_found(run / "protocols" / "rows.csv"))
+    all_rows = pd.read_csv(_found(run / "protocols" / "rows.csv"))
+    # the main tables: the items every debater model ran (later extensions add items for one debater only)
+    per_debater = [set(g.item) for d, g in all_rows.groupby("debater") if d != "-"]
+    common = set.intersection(*per_debater) if per_debater else set(all_rows.item)
+    rows = all_rows[all_rows.item.isin(common)]
+    extended = all_rows.item.nunique() > len(common)
     it = with_references(item_table(rows))
     per_pair = summarize(it, ["judge", "debater", "mechanism"])
     pooled = summarize(it, ["debater", "mechanism"])
@@ -446,6 +451,27 @@ def main(run: str, out: str = "docs/results") -> None:
         lines += ["## Optimized liars: judge accuracy under best-of-n (mean of arms)", "",
                   f"References on these items: {json.dumps({k: round(v, 3) for k, v in refs.items()})}", "",
                   md(pooled_cur), "", md(piv, index=True), ""]
+    if extended:
+        # one debater on every item it ran: a larger-sample replication, overall and per family
+        for d, g in all_rows[all_rows.debater != "-"].groupby("debater"):
+            if g.item.nunique() <= len(common):
+                continue
+            sub = all_rows[all_rows.item.isin(set(g.item)) & all_rows.debater.isin([d, "-"])]
+            ite = with_references(item_table(sub))
+            ext = summarize(ite, ["mechanism"]).assign(debater=d)
+            ext.to_csv(out / f"decisive_extended_grid_{d}.csv", index=False)
+            fam = pd.read_csv(_found(run / "select" / "candidates.csv"), usecols=["item", "family"])
+            ite = ite.merge(fam, on="item", how="left")
+            ite["group"] = ite.family.str.split("/").str[0]
+            byfam = summarize(ite, ["group", "mechanism"], n_boot=500)
+            byfam.to_csv(out / f"decisive_extended_grid_{d}_by_family.csv", index=False)
+            lines += table(ext, f"{d} on all {g.item.nunique()} items it ran (prompted liars)")
+            if audit_files:
+                v = audit_rows.merge(pd.read_json(next(iter(audit_files.values())), lines=True)
+                                     .drop_duplicates("key", keep="last"), on="key", how="left")
+                extc = summarize(with_references(item_table(committed_filter(sub, v))), ["mechanism"]).assign(debater=d)
+                extc.to_csv(out / f"decisive_extended_grid_{d}_committed.csv", index=False)
+                lines += table(extc, f"{d} on all {g.item.nunique()} items, committed liars only")
     (out / "decisive.md").write_text("\n".join(lines))
     print("\n".join(lines[:80]))
 

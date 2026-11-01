@@ -42,6 +42,8 @@ def multiround_items(run: Path, ref: pd.DataFrame) -> pd.DataFrame:
     consultancy's liar mode takes its true arm from the grid."""
     mr = pd.read_csv(run / "multiround" / "rows.csv")
     grid = pd.read_csv(_found(run / "protocols" / "rows.csv"))
+    for f in (mr, grid):  # pandas reads a column of "true"/"false" as booleans
+        f["arm"] = f.arm.astype(str).str.lower()
     grid = grid[grid.mechanism.isin(["consultancy", "debate_seq"]) & grid.debater.isin(mr.debater.unique())
                 & grid.item.isin(mr.item.unique())]
     out = []
@@ -110,6 +112,63 @@ def figure_multiround(pooled: pd.DataFrame, out: Path) -> None:
     axes[0].legend(fontsize=7.5, frameon=False)
     fig.tight_layout()
     fig.savefig(out / "decisive_multiround.png", dpi=170)
+    plt.close(fig)
+
+
+def figure_holdout(ins: pd.DataFrame, out_: pd.DataFrame, judge_alone: float, out: Path) -> None:
+    """One-round best-of-n: judge accuracy selected and scored on the same judge sample vs on independent ones."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.6), sharey=True)
+    for ax, m in zip(axes, ("consultancy_1r", "debate_1r")):
+        _axes(ax)
+        for k, (mode, name) in enumerate((("liar", "liar optimized"), ("both", "both optimized"))):
+            for df, ls, tag in ((ins, ":", "in-sample"), (out_, "-", "held-out")):
+                g = df[(df.debater == "all") & (df.judge == "all") & (df.kind == "bon") & (df.mechanism == m)
+                       & (df["mode"] == mode)].sort_values("level")
+                ax.plot(g.level, g.accuracy, "o" + ls, color=SERIES[k], lw=2 if tag == "held-out" else 1.2, ms=5,
+                        mec="white", alpha=1 if tag == "held-out" else 0.6, label=f"{name}, {tag}")
+                if tag == "held-out":
+                    ax.fill_between(g.level, g.accuracy_lo, g.accuracy_hi, color=SERIES[k], alpha=0.12, lw=0)
+        ax.axhline(judge_alone, color=INK2, lw=1, ls="--")
+        ax.text(16, judge_alone + 0.005, "judge alone", color=INK2, fontsize=7.5, ha="right", va="bottom")
+        ax.set_xscale("log", base=2)
+        ax.set_xticks([1, 2, 4, 8, 16], ["1", "2", "4", "8", "16"])
+        ax.set_xlabel("best-of-n against the judge's reward", color=INK2, fontsize=8.5)
+        ax.set_title(LABEL[m], color=INK, fontsize=9, loc="left")
+    axes[0].set_ylabel("judge accuracy (pooled; 95% CI held-out)", color=INK2, fontsize=8.5)
+    axes[0].legend(fontsize=6.8, frameon=False)
+    fig.tight_layout()
+    fig.savefig(out / "decisive_holdout.png", dpi=170)
+    plt.close(fig)
+
+
+def figure_quality(perj: pd.DataFrame, out: Path) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    mechs = ["consultancy", "debate_seq", "debate_seq_noquotes"]
+    names = {"consultancy": "consultancy", "debate_seq": "debate, quotes verified", "debate_seq_noquotes": "debate, no verification"}
+    debs = sorted(perj.debater.unique())
+    judges = sorted(perj.judge.unique())
+    fig, axes = plt.subplots(1, len(debs), figsize=(4.6 * len(debs), 3.4), sharey=True, squeeze=False)
+    for ax, d in zip(axes[0], debs):
+        _axes(ax)
+        for k, m in enumerate(mechs):
+            g = perj[(perj.debater == d) & (perj.mechanism == m)].set_index("judge").reindex(judges)
+            x = np.arange(len(judges)) + (k - 1) * 0.25
+            ax.bar(x, g.delta, width=0.23, color=SERIES[k], label=names[m])
+            ax.vlines(x, g.delta_lo, g.delta_hi, color=INK2, lw=1)
+        ax.axhline(0, color=INK2, lw=1)
+        ax.set_xticks(np.arange(len(judges)), judges, fontsize=7.5)
+        ax.set_title(f"QuALITY, debater {d}", color=INK, fontsize=9, loc="left")
+    axes[0][0].set_ylabel("accuracy minus the judge alone (95% CI)", color=INK2, fontsize=8.5)
+    axes[0][0].legend(fontsize=7, frameon=False)
+    fig.tight_layout()
+    fig.savefig(out / "decisive_quality.png", dpi=170)
     plt.close(fig)
 
 
@@ -195,6 +254,11 @@ def main(run: str, out: str = "docs/results") -> None:
                 lines += [f"Consultant choosing its side ({title}): share of selected arguments defending the truth", "",
                           md(oc.round(3)), ""]
 
+    if (out / "decisive_ic.csv").exists() and (out / "decisive_ic_holdout.csv").exists():
+        refs = ref[ref.item.isin(pd.read_csv(run / "ic_items.csv.gz", usecols=["item"]).item.unique())]
+        figure_holdout(pd.read_csv(out / "decisive_ic.csv"), pd.read_csv(out / "decisive_ic_holdout.csv"),
+                       float(refs.drop_duplicates(["judge", "item"]).acc_judge.mean()), out)
+
     ps_lines, _ = promptsearch(run)
     lines += ps_lines
 
@@ -209,6 +273,7 @@ def main(run: str, out: str = "docs/results") -> None:
         qq = pd.concat([overall_q, pooled_q])
         qq.to_csv(out / "decisive_quality.csv", index=False)
         perj_q.to_csv(out / "decisive_quality_by_judge.csv", index=False)
+        figure_quality(perj_q, out)
         cols = ["debater", "mechanism", "accuracy", "judge_alone", "debater_alone", "delta", "gap_recovered", "asd",
                 "concordance", "items"]
         lines += ["## QuALITY (information asymmetry, verified quotes)", "", table(qq, cols), ""]

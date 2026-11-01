@@ -45,24 +45,23 @@ def key_of(mechanism: str, item: str, role: str, text: str) -> str:
 def prompted_rows(run: Path) -> list[dict]:
     """One row per (judge, debater, protocol, episode, liar role), with the transcript's audit key."""
     rows = []
-    for d in DEBATERS:
-        for j in JUDGES:
-            for mech, roles in ROLES.items():
-                store = run / "protocols" / d / j / mech
-                if not RunStore(str(store)).has_episodes():
+    for root, d, j in ((r, d, j) for r in ("protocols", "protocols_ext") for d in DEBATERS for j in JUDGES):
+        for mech, roles in ROLES.items():
+            store = run / root / d / j / mech
+            if not RunStore(str(store)).has_episodes():
+                continue
+            for ep in RunStore(str(store)).episodes():
+                if ep.error:
                     continue
-                for ep in RunStore(str(store)).episodes():
-                    if ep.error:
-                        continue
-                    values = (ep.ground_truth or {}).get("role_values") or {}
-                    for role in roles:
-                        if values.get(role) is None or values[role] > 0:
-                            continue  # not a liar
-                        text = "\n\n".join(f"[{t.phase}] {t.text}" for t in ep.turns if t.role == role and t.text)
-                        rows.append({"kind": "prompted", "judge": j, "debater": d, "mechanism": mech,
-                                     "item": ep.item_id, "arm": ep.tags.get("arm"), "repeat": ep.repeat,
-                                     "episode": ep.id, "role": role, "assigned": ep.positions.get(role),
-                                     "text": text, "key": key_of(mech, ep.item_id, role, text)})
+                values = (ep.ground_truth or {}).get("role_values") or {}
+                for role in roles:
+                    if values.get(role) is None or values[role] > 0:
+                        continue  # not a liar
+                    text = "\n\n".join(f"[{t.phase}] {t.text}" for t in ep.turns if t.role == role and t.text)
+                    rows.append({"kind": "prompted", "judge": j, "debater": d, "mechanism": mech,
+                                 "item": ep.item_id, "arm": ep.tags.get("arm"), "repeat": ep.repeat,
+                                 "episode": ep.id, "role": role, "assigned": ep.positions.get(role),
+                                 "text": text, "key": key_of(mech, ep.item_id, role, text)})
     return rows
 
 
