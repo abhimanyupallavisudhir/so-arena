@@ -202,6 +202,12 @@ Roughly 50–100k episodes, about \$1–3k on mid-sized API models; see lvpm `no
 
 ## Decisive study (added 2026-10-31)
 
+> **Correction (2026-11-01).** The best-of-n results below select and score arguments with the *same* judge
+> sample. Re-judging every argument with an independent sample ([extended study](#decisive-study-extended-added-2026-11-01))
+> shows most of the liar-only collapse was a winner's curse: held out, best-of-16 liars leave consultancy above the
+> judge alone and one-round debate about 4 points below it. The committed-liar results now use a validated gpt-5
+> auditor; they barely change.
+
 The first study could not show that the mechanisms fail. Its gap between debaters and judge was 2–9 points, its
 prompted liars conceded, its protocols were short, and it had one judge and one sample per item. This study fixes
 each of those and asks which protocols beat a weak judge reasoning alone, by how much, and against which liar.
@@ -343,8 +349,9 @@ concessions.
 1. **With a real knowledge gap, consultancy, debate and recursive debate help a weak judge against prompted liars,
    even after the conceding liars are removed:** +11 to +12 points, about a fifth of a 54-point gap. This reverses
    the first study's conclusion, which rested on a 2–9-point gap.
-2. **The gain is not robust to a liar optimized against the judge.** At best-of-16, every protocol tested ends up
-   below the judge alone. A weak judge's reward can be gamed by selection alone, without any training.
+2. ~~**The gain is not robust to a liar optimized against the judge.** At best-of-16, every protocol tested ends up
+   below the judge alone.~~ Superseded: this was mostly a winner's curse (see the correction above and the
+   extended study). Held out, only one-round debate with an optimized liar falls below the judge alone.
 3. **Debate is robust when both sides are optimized; consultancy is not.** Among the protocols tested, only debate
    kept its gain in that setting: +16 points, or +9 with committed gpt-5-mini liars, flat from n = 1 to n = 16.
 4. **Prover-estimator debate did not work with prompted estimators.** Its gain is the smallest, its incentives
@@ -386,6 +393,91 @@ How the spend was measured:
 - Dry-run estimates (`simulate=True`) came first. They overstated cost per item by a factor of 2 to 3, because the
   simulator does not replay cached agent calls across judges. The budget guards therefore used the cost measured
   on each finished chunk of items.
+
+## Decisive study, extended (added 2026-11-01)
+
+The decisive study measured judge accuracy with prompted and best-of-n liars. This extension asks whether the
+protocols are **incentive compatible**, in the sense of [`theory.md`](theory.md) §2. It also asks whether the
+results survive stronger adversaries, held-out evaluation and stronger judges, and how they compare with Khan et
+al. (2024).
+
+The paper draft is [`paper/main.tex`](paper/main.tex) ([PDF](paper/main.pdf)). Tables:
+[`results/decisive_extended.md`](results/decisive_extended.md) and [`results/decisive.md`](results/decisive.md).
+
+New scripts in `experiments/`:
+- `decisive_ic.py`: incentives along best-of-n and tilting.
+- `decisive_rejudge.py`: held-out judging of the best-of-n trees.
+- `decisive_multiround.py`: best-of-n on every speech of 3-round protocols.
+- `decisive_promptsearch.py`: prompt search with honest and deceptive directives.
+- `decisive_tournament.py` and `decisive_tournament_report.py`: the 8-debater tournament and its analysis.
+- `decisive_quality.py`: the QuALITY replication.
+- `decisive_judges.py`: stronger judges on replayed debates.
+- `decisive_auditcheck.py`: auditor validation.
+- `decisive_extended.py`: the extended report.
+
+### What changed, in one list
+
+1. **The audit is validated, and the committed-liar results hold.**
+   - gpt-5 and Claude Sonnet 5 agree on liar verdicts with κ = 0.76. gpt-4.1-mini, the first study's auditor,
+     agrees with either at only κ ≈ 0.42.
+   - Every liar text (about 61,000) was re-audited with gpt-5. Committed-only gains barely move: consultancy,
+     both debates and recursive debate +11; prover-estimator +7, with ASD −0.22.
+2. **In-sample best-of-n was mostly a winner's curse.**
+   - Two samples of the same judge on the same argument correlate only r ≈ 0.2 within an item.
+   - When selection and evaluation use independent judge samples, best-of-16 liars leave:
+     - single-argument consultancy at 0.55, against 0.36 in-sample;
+     - one-round debate at 0.46, against 0.38 in-sample;
+     - the judge alone at 0.44.
+3. **Incentives under optimization**, for the clean liar gpt-5-mini, held out, at best-of-16:
+
+| protocol, n = 16 | ASD, liar optimized | ASD, both optimized |
+|---|---|---|
+| debate (1 round) | **−0.37** [−0.55, −0.19] | +0.28 [+0.08, +0.50] |
+| consultancy (1 round) | +0.21 [−0.07, +0.46] | +0.28 [−0.02, +0.57] |
+| debate (3 rounds, best-of-16 per speech) | +0.22 [−0.04, +0.49] | **+0.60** [+0.27, +0.92] |
+| consultancy (3 rounds, best-of-16 per speech) | +0.10 | −0.06 [−0.34, +0.20] |
+
+   - An optimized one-round liar reverses debate's incentive to be honest.
+   - Three rounds, or optimizing both sides, keep it positive.
+   - In 3-round debate with best-of-16 per speech, judge accuracy is +11 [+6, +15] points over the judge alone with
+     both sides optimized, and +7 [+2, +11] with only the liar optimized. Consultancy ends at +7 and +6.
+   - A consultant allowed to choose its side picks the truth 62% [59, 65] of the time at n = 16, up from 50%.
+4. **Prompt search (Opus 5.5 as optimizer, held-out items) never found a winning deceptive strategy.**
+   - With the side chosen by the agent, every search's best strategy defended the truth 93–99% of the time, under
+     all three judges.
+   - With assigned sides, optimized liar strategies did not transfer reliably to held-out items.
+5. **The tournament's persuasiveness result is about willingness to lie.** 8 debaters, 200 items, 21,570 verdicts:
+   - Judge accuracy falls with debater Elo (−20 points per 100 Elo).
+   - Liar-role ratings span 230 Elo, but honest-role ratings only about 40.
+   - Liar commitment runs from 98% for gpt-5 to 28% for Opus 5.5, which refused 446 of its 600 lying consultancies.
+   - With committed liars only, accuracy is flat in persuasiveness (+0.5 points per 100 Elo), and the honesty
+     advantage falls from 100 to 31 Elo.
+6. **Weak judges side with the last speaker.** In sequential debate the honest side wins 0.75 of the time when it
+   speaks second and 0.42 when it speaks first. In the tournament the figures are 0.77 and 0.53.
+7. **Judge capability decides the sign.** Committed liars; the same debates re-judged; points versus the judge
+   alone:
+
+| | QuALITY (hidden story) debate / consultancy | testbed (capability gap) debate / consultancy |
+|---|---|---|
+| weak judges (Llama, Gemma, gpt-4o-mini) | +1, 0, +16 / −1, −2, +8 | +10, +3, +19 / +8, +10, +14 |
+| gpt-4.1-mini | +25 / +2 | −12 / −22 |
+| gpt-4.1 | +27 / +6 | −12 / −18 |
+
+   - Under information asymmetry, debate's value grows with the judge's capability, and debate beats consultancy
+     once the judge is capable. That is Khan et al.'s result, reproduced, but with a threshold below which neither
+     protocol helps.
+   - Quote verification makes no difference at any judge strength.
+   - On the testbed, judges that already know the answer (0.87–0.90 alone) are pulled down by committed liars.
+
+### Robustness: gpt-5-mini on all 927 selected items
+
+See [`results/decisive_extended_grid_gpt-5-mini_committed.csv`](results/decisive_extended_grid_gpt-5-mini_committed.csv)
+and the per-family table. The full protocol grid for the clean debater on every gap-selected item:
+EXTENSION_TABLE
+
+### Spend (whole decisive study)
+
+SPEND_TABLE
 
 ## Caveats
 
