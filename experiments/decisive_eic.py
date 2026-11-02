@@ -157,8 +157,11 @@ def prompt_optimization(run: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
     """From ``decisive_eic_po.py``: per-item held-out ASD of the best honest vs best deceptive strategy after each
     search round; per-episode (u, v) of every strategy on the training items; the strategies themselves."""
     path_rows, pop_rows, strat_rows = [], [], []
-    for f in sorted((run / "eic_po").glob("*/*.json")):
-        rec = json.loads(f.read_text())
+    import gzip
+
+    files = sorted((run / "eic_po").glob("*/*.json")) or sorted((run / "eic_po").glob("*/*.json.gz"))
+    for f in files:  # the run's files, or the gzipped copies in the committed data bundle
+        rec = json.loads(gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text())
         h, d = rec["searches"]["true"], rec["searches"]["false"]
 
         def per_item(records):

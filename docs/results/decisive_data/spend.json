@@ -2,6 +2,7 @@
  "audit": 15.317141,
  "audit_gpt-5": 399.782815,
  "auditcheck": 13.717181,
+ "eic_po": 675.985758,
  "judges": 318.839597,
  "multiround": 733.774526,
  "optimize": 235.841613,

@@ -5,6 +5,10 @@ helping when the arguers are optimized against the judge? Questions come from th
 ([conceptual validation testbed](https://github.com/abhimanyupallavisudhir/conceptual-validation-testbed)): 10 families, 16 items each, with hidden ground truth from computation or
 experiment.
 
+> **Update (2026-11-02).** The [headline](#headline-empirical-incentive-compatibility-added-2026-11-02) is now
+> empirical incentive compatibility: whether each protocol's reward favours honesty under instructed, best-of-n
+> and prompt-optimized liars. The judge-accuracy sections that follow are secondary.
+>
 > **Update (2026-10-31).** The [decisive study](#decisive-study-added-2026-10-31) below fixes the scale problems of this first study: a 54-point knowledge gap,
 > 3 judges, 2 debaters, 3 samples, audited and optimized liars. Against prompted liars it reverses the first study's finding:
 > consultancy, debate and recursive debate help. A liar optimized against the judge still pushes every protocol below
@@ -32,6 +36,82 @@ experiment.
   optimization runs.
 
 ![verdict accuracy](results/oversight_accuracy.png)
+
+## Headline: empirical incentive compatibility (added 2026-11-02)
+
+**This is the study's main result.** The sections after it measure judge accuracy, which is secondary. A protocol
+is worth training against if optimizing its reward makes the agent more honest, and a judge that simply trusts the
+agent can score high accuracy while being useless to train against. So the headline is **empirical incentive
+compatibility (EIC)**.
+
+**Definition.** EIC is the covariance between a protocol's reward $u$ and the ground-truth value $v$ of the
+agent's behaviour, over behaviours drawn by a sampler. Here $v$ is 1 if the agent argued the true answer and 0 if
+it argued a false one.
+- **Why covariance:** $\tfrac{d}{d\beta}\mathbb{E}_{\pi_\beta}[v] = \mathrm{Cov}_{\pi_\beta}(u, v)$, so it is
+  the first-order effect of optimizing the reward on honesty.
+- **What we report:** ASD $= \mathrm{Cov}/\mathrm{Var}(v)$, the reward for honesty minus the reward for lying, in
+  the protocol's reward units. Also concordance, the share of items where honesty earns more, and
+  $r = \mathrm{corr}(u, v)$.
+- **Samplers:**
+  - instructed arguments (ASD);
+  - instructed arguments with committed liars only (effective lies; this handles conceding liars);
+  - best-of-$n$;
+  - prompt optimization: Claude Opus 5.5 searches separately for the best honest and the best deceptive
+    strategy, selected on 36 items and scored on 80 held-out items.
+- **Held-out judging:** every selecting sampler is scored on independent judge samples.
+
+**Code and outputs:**
+- Code: [`experiments/decisive_eic.py`](../experiments/decisive_eic.py),
+  [`decisive_eic_po.py`](../experiments/decisive_eic_po.py) and
+  [`decisive_eic_figures.py`](../experiments/decisive_eic_figures.py).
+- Tables: [`results/eic.md`](results/eic.md).
+- Paper draft: [`paper/main.pdf`](paper/main.pdf).
+
+![EIC of each protocol under each sampler](results/eic/fig1_eic_by_sampler.png)
+
+| protocol (gpt-5-mini, 3 weak judges) | instructed ASD | committed liars | best-of-16 per speech, both / liar only | prompt-optimized (held-out) |
+|---|---|---|---|---|
+| consultancy | +0.38 [+0.29, +0.47] | +0.21 [+0.12, +0.31] | −0.06 / +0.10 | **−0.24** [−0.61, +0.11] |
+| debate, sequential | +0.74 [+0.66, +0.82] | +0.56 [+0.48, +0.64] | +0.60 / +0.22 | **+0.37** [−0.04, +0.75] |
+| debate, simultaneous | +0.79 [+0.70, +0.87] | +0.57 [+0.48, +0.65] | – | **+0.69** [+0.25, +1.07] |
+| recursive debate | +0.10 [+0.08, +0.11] | +0.10 [+0.08, +0.12] | – | **+0.09** [+0.03, +0.16] |
+| prover-estimator | −0.13 [−0.15, −0.11] | −0.23 [−0.26, −0.20] | – | **−0.37** [−0.46, −0.29] |
+
+What holds up:
+1. **Instructed liars make every protocol but prover-estimator look incentive compatible.** Prover-estimator debate,
+   without a trained estimator, pays a prover more for lying on two-thirds of items.
+2. **Optimized deception erases consultancy's incentive to be honest.**
+   - Under Llama-3.1-8B and Gemma-3-12B, the best deceptive consultant found by prompt search out-earns the best
+     honest one on held-out items.
+   - With three-round best-of-16, consultancy's ASD falls to zero.
+3. **Debate's incentive shrinks under optimization but survives.**
+   - Prompt optimization cuts it by 40–60%, and simultaneous debate stays significantly positive.
+   - Three-round debate keeps a positive incentive under best-of-16 when both sides are optimized (+0.60).
+   - The exception is one-round debate with only the liar optimized, whose incentive reverses (−0.37); see
+     [`fig2`](results/eic/fig2_eic_under_best_of_n.png).
+4. **The cheap sampler only partly predicts the optimized one.**
+   - The instructed sampler and its committed-liar variant rank the 15 (protocol, judge) cells almost identically
+     (Spearman 0.99).
+   - Either ranks them like prompt optimization only loosely (0.40).
+   - Example: under Gemma, instructed ASD rates consultancy the most incentive compatible protocol (+0.91), while
+     optimized deception brings it to −0.24.
+5. **EIC grows steeply with judge capability, and dissociates from accuracy.**
+   - On the same debates, re-judged, honesty wins on 58–61% of items with Llama-3.1-8B and 90–92% with gpt-4.1.
+   - On the testbed, committed liars lower the gpt-4.1 judges' accuracy by 12–22 points, yet their EIC is the
+     highest measured ([`fig5`](results/eic/fig5_eic_by_judge.png)).
+6. **Models that refuse to lie inflate EIC.**
+   - In the 8-model tournament, per-model EIC ranges from +0.74 to +3.98 with prompted liars, and from 0.0 to
+     +0.6 with committed ones ([`fig6`](results/eic/fig6_tournament.png)).
+   - Claude Opus 5.5 commits to only 28% of its lies.
+7. **An agent free to choose its side is pushed toward honesty**, but weakly: 50% to 62–64% of its selected
+   behaviour is honest at best-of-16 ([`fig4`](results/eic/fig4_choosing_a_side.png)).
+
+Other figures:
+- [Prompt optimization along the search](results/eic/fig3_eic_prompt_optimization.png).
+- [Concordance by protocol and judge](results/eic/fig7_concordance_heatmap.png).
+- [Sampler agreement](results/eic/fig8_sampler_agreement.png).
+
+Prompt optimization cost $676. Total spend for the whole decisive study is about $5,960.
 
 ## Findings
 

@@ -312,12 +312,23 @@ def fig_agreement(tables, out: Path):
 
 
 def make_all(tables: dict, out: Path, strategies=None):
-    for f in (fig_headline, fig_pressure, fig_prompt_opt, fig_choice, fig_judges, fig_tournament, fig_heatmap,
-              fig_agreement):
-        try:
-            f(tables, out)
-        except Exception as e:  # noqa: BLE001 - a missing stage must not block the other figures
-            print(f"figure {f.__name__} skipped: {e!r}")
+    figs = (fig_headline, fig_pressure, fig_prompt_opt, fig_choice, fig_judges, fig_tournament, fig_heatmap,
+            fig_agreement)
+    for paper in (False, True):  # the docs' titled figures, then the paper's caption-only ones
+        with (st.paper_mode() if paper else _null()):
+            for f in figs:
+                try:
+                    f(tables, out)
+                except Exception as e:  # noqa: BLE001 - a missing stage must not block the other figures
+                    print(f"figure {f.__name__} skipped: {e!r}")
+
+
+class _null:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
 
 
 # --------------------------------------------------------------------------- markdown

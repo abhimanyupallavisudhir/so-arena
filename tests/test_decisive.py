@@ -20,6 +20,7 @@ from so_arena.samplers.arms import ASDExperiment  # noqa: E402
 from so_arena.samplers.pools import expand_tree  # noqa: E402
 
 import decisive_common as dc  # noqa: E402
+import decisive_eic as de  # noqa: E402
 import decisive_judges as dj  # noqa: E402
 import decisive_optimize as dopt  # noqa: E402
 import decisive_protocols as dp  # noqa: E402
@@ -292,3 +293,52 @@ def test_selected_audit_weights_verdicts_by_selection():
                          "pool_key": "k", "index": i, "verdict": v} for i, v in enumerate(["committed", "conceded"])])
     out = dr.selected_audit(sel, ver).set_index("n")
     assert out.loc[1, "conceded"] == pytest.approx(0.5) and out.loc[2, "conceded"] == pytest.approx(0.0)
+
+
+# --------------------------------------------------------------------------------------------- incentive compatibility
+
+def test_eic_rows_asd_is_the_covariance_over_the_variance_of_v():
+    rng = np.random.default_rng(0)
+    rows = []
+    for i in range(40):
+        for v in (0.0, 1.0):
+            for _ in range(3):
+                rows.append({"item": f"q{i}", "v": v, "u": 0.5 * v + rng.normal(0, 0.1)})
+    df = pd.DataFrame(rows)
+    out = de.eic_rows(df, [], n_boot=200).iloc[0]
+    cov = np.cov(df.u, df.v, bias=True)[0, 1] / df.v.var(ddof=0)
+    assert out["asd"] == pytest.approx(cov, abs=1e-9)  # balanced design: item-weighted ASD = Cov/Var(v)
+    assert out["concordance"] == 1.0 and out["asd_lo"] < out["asd"] < out["asd_hi"]
+    assert out["r"] == pytest.approx(np.corrcoef(df.u, df.v)[0, 1], abs=1e-9)
+
+
+def test_eic_items_pools_pairs_within_an_item_before_resampling():
+    df = pd.DataFrame({"item": ["a", "a", "b", "b"], "asd": [1.0, -0.5, -1.0, -2.0]})
+    out = de.eic_items(df, [], n_boot=200).iloc[0]
+    assert out["asd"] == pytest.approx((0.25 - 1.5) / 2) and out["concordance"] == 0.5 and out["items"] == 2
+
+
+def test_sampler_agreement_ranks_cells_across_samplers():
+    cells = [("consultancy", "j1", 0.6, 0.3), ("debate_seq", "j1", 0.7, 0.9), ("prover_estimator", "j1", 0.3, 0.2),
+             ("debate_sim", "j1", 0.75, 0.8)]
+    ins = pd.DataFrame([{"mechanism": m, "judge": j, "debater": "gpt-5-mini", "concordance": a, "asd": a}
+                        for m, j, a, _ in cells])
+    po = pd.DataFrame([{"mechanism": m, "judge": j, "round": 5, "concordance": b, "asd": b} for m, j, _, b in cells])
+    got = de.sampler_agreement({"instructed": ins, "committed": ins, "po_path": po})
+    assert got is not None
+    cell_table, agreement = got
+    assert len(cell_table) == 4
+    row = agreement[(agreement.samplers == "instructed vs po") & (agreement.scope == "all cells")].iloc[0]
+    assert row.spearman == pytest.approx(0.8)
+
+
+def test_prompt_optimization_seats_are_balanced_exactly():
+    import decisive_eic_po as po
+
+    class Fake(po.ArmSearch):
+        def __init__(self):  # only what seat_map needs
+            self.seats = ["debater_a", "debater_b"]
+
+    seats = Fake().seat_map(_items(7) + _items(7)[:0])
+    counts = pd.Series(seats).value_counts()
+    assert set(counts.index) == {"debater_a", "debater_b"} and abs(counts.iloc[0] - counts.iloc[1]) <= 1

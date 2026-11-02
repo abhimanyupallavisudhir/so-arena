@@ -107,8 +107,38 @@ def spread_labels(ax, x: float, ys, texts, *, min_gap: float = 0.07, dx: int = 4
                     arrowprops=dict(arrowstyle="-", color=GRID, lw=0.8) if abs(y_lab - ys[i]) > 1e-9 else None)
 
 
+PAPER = False  # paper figures: no in-figure title or subtitle (the LaTeX caption carries them)
+
+
+class paper_mode:
+    """Render figures for the paper: figure-level titles and notes are dropped and files get a ``_paper``
+    suffix; axes titles (panel names) stay."""
+
+    def __enter__(self):
+        global PAPER
+        from matplotlib.figure import Figure
+
+        PAPER = True
+        self._sup, self._text = Figure.suptitle, Figure.text
+        Figure.suptitle = lambda self_, *a, **k: None
+        Figure.text = lambda self_, *a, **k: None
+        return self
+
+    def __exit__(self, *exc):
+        global PAPER
+        from matplotlib.figure import Figure
+
+        PAPER = False
+        Figure.suptitle, Figure.text = self._sup, self._text
+
+
 def save(fig, out: Path, name: str):
     out.mkdir(parents=True, exist_ok=True)
+    if PAPER:
+        name = f"{name}_paper"
+        for ax in fig.axes:  # single-panel figures carry their headline in the axes title: drop it too
+            if len(fig.axes) == 1 or (len(fig.axes) == 2 and ax.get_label() == "<colorbar>"):
+                ax.set_title("")
     fig.savefig(out / f"{name}.png", dpi=200, bbox_inches="tight")
     fig.savefig(out / f"{name}.pdf", bbox_inches="tight")
     plt.close(fig)
