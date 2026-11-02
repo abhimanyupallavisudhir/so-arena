@@ -89,6 +89,24 @@ def end_label(ax, x, y, text, *, dx=4, dy=0, ha="left"):
                 ha=ha)
 
 
+def spread_labels(ax, x: float, ys, texts, *, min_gap: float = 0.07, dx: int = 4):
+    """End labels for several series at one x, pushed apart vertically (in axes fraction) so none overlap,
+    each joined to its line end by a hairline leader when moved."""
+    lo, hi = ax.get_ylim()
+    frac = [(y - lo) / (hi - lo) for y in ys]
+    order = np.argsort(frac)
+    placed = list(np.array(frac)[order])
+    for i in range(1, len(placed)):
+        placed[i] = max(placed[i], placed[i - 1] + min_gap)
+    shift = max(0.0, placed[-1] - 0.98) if placed else 0.0
+    placed = [p - shift for p in placed]
+    for k, i in enumerate(order):
+        y_lab = lo + placed[k] * (hi - lo)
+        ax.annotate(texts[i], (x, ys[i]), xytext=(x, y_lab), textcoords="data", color=INK2, fontsize=7.2,
+                    va="center", ha="left",
+                    arrowprops=dict(arrowstyle="-", color=GRID, lw=0.8) if abs(y_lab - ys[i]) > 1e-9 else None)
+
+
 def save(fig, out: Path, name: str):
     out.mkdir(parents=True, exist_ok=True)
     fig.savefig(out / f"{name}.png", dpi=200, bbox_inches="tight")

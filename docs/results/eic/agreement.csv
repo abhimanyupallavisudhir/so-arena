@@ -1,0 +1,13 @@
+samplers,scope,spearman,cells
+instructed vs po,all cells,0.4666666666666666,9
+instructed vs po,within gemma-3-12b,-0.5,3
+instructed vs po,within gpt-4o-mini,0.5,3
+instructed vs po,within llama-3.1-8b,0.5,3
+committed vs po,all cells,0.4666666666666666,9
+committed vs po,within gemma-3-12b,-0.5,3
+committed vs po,within gpt-4o-mini,0.5,3
+committed vs po,within llama-3.1-8b,0.5,3
+instructed vs committed,all cells,1.0,9
+instructed vs committed,within gemma-3-12b,1.0,3
+instructed vs committed,within gpt-4o-mini,1.0,3
+instructed vs committed,within llama-3.1-8b,1.0,3

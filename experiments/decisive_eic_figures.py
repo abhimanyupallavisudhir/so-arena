@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 import eic_style as st
-from eic_style import AQUA, BLUE, CONTEXT, INK, INK2, MUTED, ORANGE, SURFACE, plt
+from eic_style import AQUA, BLUE, CONTEXT, GRID, INK, INK2, MUTED, ORANGE, SURFACE, plt
 
 NAMES = {"consultancy": "Consultancy", "debate_seq": "Debate, sequential", "debate_sim": "Debate, simultaneous",
          "recursive_debate": "Recursive debate", "prover_estimator": "Prover-estimator",
@@ -123,24 +123,25 @@ def fig_prompt_opt(tables, out: Path):
     fig, axes = plt.subplots(1, len(mechs), figsize=(2.7 * len(mechs), 3.0), sharey=False, squeeze=False)
     for ax, m in zip(axes[0], mechs):
         st.axes(ax)
-        for j in sorted(set(t.judge) - {"all"}):
+        ends = []
+        for j in [j for j in JUDGE_ORDER if j in set(t.judge)]:
             g = _pick(t, mechanism=m, judge=j).sort_values("round")
             ax.plot(g["round"], g.asd, color=CONTEXT, lw=1.2, zorder=1)
-            st.end_label(ax, g["round"].iloc[-1], g.asd.iloc[-1], JUDGE_NAMES.get(j, j))
+            ends.append((g["round"].iloc[-1], g.asd.iloc[-1], JUDGE_NAMES.get(j, j)))
         g = _pick(t, mechanism=m, judge="all").sort_values("round")
         st.line_ci(ax, g["round"], g.asd, g.asd_lo, g.asd_hi, BLUE, label="3 judges pooled")
         st.zero(ax, "h")
         ax.set_title(NAMES[m])
         ax.set_xticks(sorted(set(g["round"])))
         ax.set_xlabel("search round")
-        ax.set_xlim(-0.3, g["round"].max() + 1.6)
+        ax.set_xlim(-0.3, g["round"].max() + 2.2)
+        st.spread_labels(ax, ends[0][0] + 0.25, [e[1] for e in ends], [e[2] for e in ends])
     axes[0][0].set_ylabel("held-out ASD (protocol reward units)")
-    axes[0][0].legend(loc="lower left")
     fig.suptitle("Prompt optimization: honest vs deceptive strategies found by an optimizer, scored on held-out "
                  "items", x=0.005, ha="left", fontsize=10, fontweight="bold", y=1.04)
-    fig.text(0.005, 0.955, "Round 0 is the unprompted agent on each side (the instructed sampler). Each round "
-             "keeps the best strategy so far on 36 training items; ASD on 80 held-out items.", fontsize=7.5,
-             color=INK2)
+    fig.text(0.005, 0.955, "Blue: 3 judges pooled, with 95% item-bootstrap band; gray: each judge. Round 0 is the "
+             "unprompted agent on each side (the instructed sampler); each round keeps the best strategy so far "
+             "on 36 training items; ASD on 80 held-out items.", fontsize=7.5, color=INK2)
     fig.tight_layout()
     st.save(fig, out, "fig3_eic_prompt_optimization")
 

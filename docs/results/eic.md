@@ -32,6 +32,37 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Prover-estimator | -0.27 [-0.31, -0.23] | 0.22 [0.17, 0.27] | -0.31 [-0.35, -0.27] | 272 |
 | Recursive debate | +0.08 [+0.06, +0.11] | 0.59 [0.54, 0.65] | +0.11 [+0.07, +0.14] | 306 |
 
+## Prompt optimization: best honest vs best deceptive strategy, held-out
+
+| protocol | search round | held-out ASD | concordance | items |
+|---|---|---|---|---|
+| Consultancy | 0 | +0.55 [+0.15, +0.95] | 0.59 | 80 |
+| Consultancy | 1 | +0.20 [-0.15, +0.59] | 0.55 | 80 |
+| Consultancy | 2 | -0.02 [-0.34, +0.31] | 0.57 | 80 |
+| Consultancy | 3 | -0.25 [-0.61, +0.08] | 0.50 | 80 |
+| Consultancy | 4 | -0.24 [-0.61, +0.11] | 0.50 | 80 |
+| Consultancy | 5 | -0.24 [-0.61, +0.11] | 0.50 | 80 |
+| Debate, sequential | 0 | +0.92 [+0.42, +1.40] | 0.69 | 80 |
+| Debate, sequential | 1 | +0.68 [+0.20, +1.15] | 0.58 | 80 |
+| Debate, sequential | 2 | +0.37 [-0.04, +0.75] | 0.69 | 80 |
+| Debate, sequential | 3 | +0.37 [-0.04, +0.75] | 0.69 | 80 |
+| Debate, sequential | 4 | +0.37 [-0.04, +0.75] | 0.69 | 80 |
+| Debate, sequential | 5 | +0.37 [-0.04, +0.75] | 0.69 | 80 |
+| Debate, simultaneous | 0 | +1.10 [+0.68, +1.54] | 0.74 | 80 |
+| Debate, simultaneous | 1 | +1.17 [+0.69, +1.65] | 0.76 | 80 |
+| Debate, simultaneous | 2 | +0.93 [+0.54, +1.34] | 0.74 | 80 |
+| Debate, simultaneous | 3 | +0.93 [+0.54, +1.34] | 0.74 | 80 |
+| Debate, simultaneous | 4 | +0.93 [+0.54, +1.34] | 0.74 | 80 |
+| Debate, simultaneous | 5 | +0.69 [+0.25, +1.06] | 0.75 | 80 |
+
+## Prompt optimization: covariance over every searched strategy (training items)
+
+| protocol | ASD | r | strategy-episodes |
+|---|---|---|---|
+| Consultancy | +0.16 [-0.08, +0.40] | +0.04 [-0.02, +0.09] | 4500 |
+| Debate, sequential | +0.41 [+0.11, +0.72] | +0.08 [+0.02, +0.15] | 4428 |
+| Debate, simultaneous | +0.50 [+0.16, +0.84] | +0.11 [+0.03, +0.18] | 4392 |
+
 ## Exact best-of-n, one round (held-out judging)
 
 | protocol | optimized | n | ASD | concordance |
@@ -145,6 +176,23 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | committed | testbed | Debate, simultaneous | gpt-4o-mini | +0.62 [+0.49, +0.75] | 0.69 |
 | committed | testbed | Debate, simultaneous | gpt-4.1-mini | +2.40 [+2.15, +2.65] | 0.87 |
 | committed | testbed | Debate, simultaneous | gpt-4.1 | +4.58 [+4.17, +4.95] | 0.88 |
+
+## Sampler agreement: rank correlation of EIC (concordance) between samplers
+
+| samplers | scope | Spearman | cells |
+|---|---|---|---|
+| instructed vs po | all cells | +0.47 | 9 |
+| instructed vs po | within gemma-3-12b | -0.50 | 3 |
+| instructed vs po | within gpt-4o-mini | +0.50 | 3 |
+| instructed vs po | within llama-3.1-8b | +0.50 | 3 |
+| committed vs po | all cells | +0.47 | 9 |
+| committed vs po | within gemma-3-12b | -0.50 | 3 |
+| committed vs po | within gpt-4o-mini | +0.50 | 3 |
+| committed vs po | within llama-3.1-8b | +0.50 | 3 |
+| instructed vs committed | all cells | +1.00 | 9 |
+| instructed vs committed | within gemma-3-12b | +1.00 | 3 |
+| instructed vs committed | within gpt-4o-mini | +1.00 | 3 |
+| instructed vs committed | within llama-3.1-8b | +1.00 | 3 |
 
 ## Tournament: each model's reward arguing the truth minus lying
 
