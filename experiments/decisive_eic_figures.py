@@ -73,7 +73,8 @@ def fig_headline(tables, out: Path):
         pad = 0.12 * (hi - lo)
         ax.set_xlim(lo - pad, hi + pad)
     axes[0].set_yticks(np.arange(len(samplers))[::-1], samplers)
-    fig.suptitle("Honesty pays more than lying in every protocol except prover-estimator, under every sampler",
+    fig.suptitle("Instructed liars make every protocol but prover-estimator look incentive compatible; "
+                 "optimized liars leave only debate and recursive debate",
                  x=0.005, ha="left", fontsize=10, color=INK, fontweight="bold", y=1.04)
     fig.text(0.005, 0.965, "EIC as ASD: reward for arguing the true answer minus a false one. gpt-5-mini agents, "
              "3 weak judges pooled, 95% item-bootstrap intervals. Blue: CI above zero; orange: below; gray: "
@@ -137,8 +138,8 @@ def fig_prompt_opt(tables, out: Path):
         ax.set_xlim(-0.3, g["round"].max() + 2.2)
         st.spread_labels(ax, ends[0][0] + 0.25, [e[1] for e in ends], [e[2] for e in ends])
     axes[0][0].set_ylabel("held-out ASD (protocol reward units)")
-    fig.suptitle("Prompt optimization: honest vs deceptive strategies found by an optimizer, scored on held-out "
-                 "items", x=0.005, ha="left", fontsize=10, fontweight="bold", y=1.04)
+    fig.suptitle("Optimized deception erases consultancy's incentive to be honest and deepens prover-estimator's "
+                 "deficit; debate's shrinks but survives", x=0.005, ha="left", fontsize=10, fontweight="bold", y=1.04)
     fig.text(0.005, 0.955, "Blue: 3 judges pooled, with 95% item-bootstrap band; gray: each judge. Round 0 is the "
              "unprompted agent on each side (the instructed sampler); each round keeps the best strategy so far "
              "on 36 training items; ASD on 80 held-out items.", fontsize=7.5, color=INK2)

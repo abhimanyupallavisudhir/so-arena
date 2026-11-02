@@ -54,6 +54,18 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Debate, simultaneous | 3 | +0.93 [+0.54, +1.34] | 0.74 | 80 |
 | Debate, simultaneous | 4 | +0.93 [+0.54, +1.34] | 0.74 | 80 |
 | Debate, simultaneous | 5 | +0.69 [+0.25, +1.06] | 0.75 | 80 |
+| Prover-estimator | 0 | -0.15 [-0.23, -0.06] | 0.34 | 80 |
+| Prover-estimator | 1 | -0.27 [-0.33, -0.21] | 0.12 | 80 |
+| Prover-estimator | 2 | -0.34 [-0.41, -0.27] | 0.12 | 80 |
+| Prover-estimator | 3 | -0.38 [-0.46, -0.31] | 0.14 | 80 |
+| Prover-estimator | 4 | -0.37 [-0.45, -0.29] | 0.17 | 80 |
+| Prover-estimator | 5 | -0.37 [-0.46, -0.29] | 0.16 | 80 |
+| Recursive debate | 0 | +0.13 [+0.07, +0.19] | 0.69 | 80 |
+| Recursive debate | 1 | +0.14 [+0.09, +0.20] | 0.72 | 80 |
+| Recursive debate | 2 | +0.11 [+0.06, +0.17] | 0.62 | 80 |
+| Recursive debate | 3 | +0.11 [+0.05, +0.17] | 0.65 | 80 |
+| Recursive debate | 4 | +0.12 [+0.06, +0.18] | 0.66 | 80 |
+| Recursive debate | 5 | +0.09 [+0.03, +0.16] | 0.59 | 80 |
 
 ## Prompt optimization: covariance over every searched strategy (training items)
 
@@ -62,6 +74,8 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Consultancy | +0.16 [-0.08, +0.40] | +0.04 [-0.02, +0.09] | 4500 |
 | Debate, sequential | +0.41 [+0.11, +0.72] | +0.08 [+0.02, +0.15] | 4428 |
 | Debate, simultaneous | +0.50 [+0.16, +0.84] | +0.11 [+0.03, +0.18] | 4392 |
+| Prover-estimator | -0.21 [-0.25, -0.17] | -0.21 [-0.25, -0.17] | 3672 |
+| Recursive debate | +0.08 [+0.03, +0.12] | +0.12 [+0.05, +0.18] | 4392 |
 
 ## Exact best-of-n, one round (held-out judging)
 
@@ -181,18 +195,18 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 
 | samplers | scope | Spearman | cells |
 |---|---|---|---|
-| instructed vs po | all cells | +0.47 | 9 |
-| instructed vs po | within gemma-3-12b | -0.50 | 3 |
-| instructed vs po | within gpt-4o-mini | +0.50 | 3 |
-| instructed vs po | within llama-3.1-8b | +0.50 | 3 |
-| committed vs po | all cells | +0.47 | 9 |
-| committed vs po | within gemma-3-12b | -0.50 | 3 |
-| committed vs po | within gpt-4o-mini | +0.50 | 3 |
-| committed vs po | within llama-3.1-8b | +0.50 | 3 |
-| instructed vs committed | all cells | +1.00 | 9 |
-| instructed vs committed | within gemma-3-12b | +1.00 | 3 |
-| instructed vs committed | within gpt-4o-mini | +1.00 | 3 |
-| instructed vs committed | within llama-3.1-8b | +1.00 | 3 |
+| instructed vs po | all cells | +0.40 | 15 |
+| instructed vs po | within gemma-3-12b | +0.20 | 5 |
+| instructed vs po | within gpt-4o-mini | +0.50 | 5 |
+| instructed vs po | within llama-3.1-8b | -0.21 | 5 |
+| committed vs po | all cells | +0.41 | 15 |
+| committed vs po | within gemma-3-12b | +0.20 | 5 |
+| committed vs po | within gpt-4o-mini | +0.80 | 5 |
+| committed vs po | within llama-3.1-8b | -0.21 | 5 |
+| instructed vs committed | all cells | +0.99 | 15 |
+| instructed vs committed | within gemma-3-12b | +1.00 | 5 |
+| instructed vs committed | within gpt-4o-mini | +0.90 | 5 |
+| instructed vs committed | within llama-3.1-8b | +1.00 | 5 |
 
 ## Tournament: each model's reward arguing the truth minus lying
 
