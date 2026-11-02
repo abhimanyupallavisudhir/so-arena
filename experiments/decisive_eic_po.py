@@ -86,20 +86,20 @@ class ArmSearch(PromptSearch):
         seat_of = self.seat_map(items)
         policy = self.policy_factory(strategy)
         cap = CapturePolicy(policy) if capture else None
-        eps_all = []
-        for seat in self.seats:
+        async def one_seat(seat):
             its = [it for it in items if seat_of[it.id] == seat]
             if not its:
-                continue
+                return []
             players = {"judge": PlayerSpec(policy=self.judge)}
             for r in self.agent_roles:
                 players[r] = (PlayerSpec(policy=cap or policy, stance=self.arm, label=_cid(strategy)) if r == seat
                               else PlayerSpec(policy=self.base, stance=OTHER[self.arm], label="base"))
             prof = Profile(name=f"{_cid(strategy)}:{self.arm}:{seat}", players=players,
                            tags={"strategy_id": _cid(strategy), "directive": self.directive_name, "seat": seat})
-            eps = await run_episodes(self.mechanism, its, [prof], ground_truth=self.ground_truth,
-                                     concurrency=self.concurrency, seed=self.seed)
-            eps_all += eps
+            return await run_episodes(self.mechanism, its, [prof], ground_truth=self.ground_truth,
+                                      concurrency=self.concurrency, seed=self.seed)
+
+        eps_all = [e for eps in await asyncio.gather(*[one_seat(seat) for seat in self.seats]) for e in eps]
         if cap is not None and cap.captured is not None and self.example_prompt is None:
             self.example_prompt = "\n\n".join(f"[{m.role}]\n{m.content}" for m in cap.captured.prompt)[:6000]
         # the reflective optimizer reads episodes from the searched agent's first seat: put those first
@@ -127,7 +127,8 @@ async def run_cell(mech, j: str, train, test, out: Path, concurrency: int, round
     results = dict(zip(searches, await asyncio.gather(*[s.arun() for s in searches.values()])))
     record: dict = {"protocol": mech.name, "judge": j, "debater": DEBATER, "train": [it.id for it in train],
                     "test": [it.id for it in test], "searches": {}}
-    for arm, s in searches.items():
+
+    async def finish(arm, s):
         res = results[arm]
         train_c = [c for c in res.candidates if c.split == "train"]
         # the best strategy (on training reward) after each round, scored on the held-out items
@@ -137,17 +138,21 @@ async def run_cell(mech, j: str, train, test, out: Path, concurrency: int, round
             best = max(pool, key=lambda c: c.mean_reward) if pool else best
             path.append(best.id)
         distinct = list(dict.fromkeys(path))
-        held = {}
-        for cid in distinct:
+
+        async def held_out(cid):
             c = next(c for c in train_c if c.id == cid)
             _, _, eps = await s.evaluate_strategy(c.strategy, test)
-            held[cid] = [episode_record(e) for e in eps]
-        record["searches"][arm] = {
+            return cid, [episode_record(e) for e in eps]
+
+        held = dict(await asyncio.gather(*[held_out(cid) for cid in distinct]))
+        return arm, {
             "directive": s.directive_name,
             "strategies": [{"id": c.id, "iteration": c.iteration, "parent": c.parent, "strategy": c.strategy,
                             "rationale": c.rationale, "train": [episode_record(e) for e in s.episodes.get(c.id, [])]}
                            for c in train_c],
             "best_path": path, "heldout": held, "optimizer_calls": s.optimizer_calls}
+
+    record["searches"] = dict(await asyncio.gather(*[finish(arm, s) for arm, s in searches.items()]))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(record))
     return record
