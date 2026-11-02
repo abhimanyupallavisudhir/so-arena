@@ -15,6 +15,8 @@ class Settings(BaseModel):
     # unlimited) and a per-attempt timeout in seconds; a call that keeps failing then raises instead of stalling
     max_retries: int | None = None
     attempt_timeout: int | None = None
+    # concurrent requests per model (Inspect's default is 10, which throttles large concurrent runs)
+    max_connections: int | None = None
 
 
 settings = Settings()
@@ -27,6 +29,7 @@ def configure(
     concurrency: int | None = None,
     max_retries: int | None = None,
     attempt_timeout: int | None = None,
+    max_connections: int | None = None,
 ) -> Settings:
     """Set global options.
 
@@ -37,6 +40,7 @@ def configure(
         concurrency: default maximum number of concurrent episodes.
         max_retries: retries of a failed provider call (default: unlimited, Inspect's default).
         attempt_timeout: seconds after which a provider call attempt is abandoned and retried.
+        max_connections: concurrent requests per model (Inspect's default is 10).
     """
     from so_arena.models import base
 
@@ -50,5 +54,7 @@ def configure(
         settings.max_retries = max_retries
     if attempt_timeout is not None:
         settings.attempt_timeout = attempt_timeout
+    if max_connections is not None:
+        settings.max_connections = max_connections
     base._MODEL_CACHE.clear()
     return settings

@@ -63,7 +63,7 @@ class InspectModel(Model):
             top_logprobs=options.top_logprobs if options.logprobs else None,
             stop_seqs=list(options.stop) if options.stop else None,
             reasoning_effort=options.reasoning_effort,  # type: ignore[arg-type]
-            max_connections=self._max_connections,
+            max_connections=self._max_connections or settings.max_connections,
             max_retries=settings.max_retries,
             attempt_timeout=settings.attempt_timeout,
         )

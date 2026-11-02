@@ -69,7 +69,8 @@ def map_keys() -> None:
     for std, alias in KEY_ALIASES.items():
         if not os.environ.get(std) and os.environ.get(alias):
             os.environ[std] = os.environ[alias]
-    soa.configure(max_retries=6, attempt_timeout=300)
+    # Inspect allows 10 concurrent requests per model by default, which throttles these runs
+    soa.configure(max_retries=6, attempt_timeout=300, max_connections=64)
 
 
 def is_reasoning(model: str) -> bool:

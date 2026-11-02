@@ -305,6 +305,35 @@ def judge_strength(run: Path) -> pd.DataFrame:
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
 
+def sampler_agreement(tables: dict):
+    """Do the samplers rank the protocols alike? Per (protocol, judge) cell: concordance under the instructed
+    sampler, the committed-liar sampler and prompt optimization (final round, held-out); Spearman correlations
+    between samplers over the cells, and within each judge over the protocols."""
+    ins, com, po = tables.get("instructed"), tables.get("committed"), tables.get("po_path")
+    if po is None or po.empty:
+        return None
+    po_final = po[po["round"] == po.groupby(["mechanism", "judge"])["round"].transform("max")]
+    cells = []
+    for _, r in po_final[po_final.judge != "all"].iterrows():
+        row = {"mechanism": r.mechanism, "judge": r.judge, "po": r.concordance, "po_asd": r.asd}
+        for name, t in (("instructed", ins), ("committed", com)):
+            m = t[(t.mechanism == r.mechanism) & (t.judge == r.judge) & (t.debater == "gpt-5-mini")]
+            row[name] = float(m.concordance.iloc[0]) if len(m) else np.nan
+            row[f"{name}_asd"] = float(m.asd.iloc[0]) if len(m) else np.nan
+        cells.append(row)
+    cells = pd.DataFrame(cells)
+    from scipy.stats import spearmanr
+
+    out = []
+    for a, b in (("instructed", "po"), ("committed", "po"), ("instructed", "committed")):
+        for scope, g in [("all cells", cells)] + [(f"within {j}", h) for j, h in cells.groupby("judge")]:
+            g = g.dropna(subset=[a, b])
+            if len(g) >= 3:
+                rho = spearmanr(g[a], g[b]).statistic
+                out.append({"samplers": f"{a} vs {b}", "scope": scope, "spearman": float(rho), "cells": len(g)})
+    return cells, pd.DataFrame(out)
+
+
 # ------------------------------------------------------------------------------------------------ main
 
 def main(run: str, out: str = "docs/results") -> None:
@@ -368,6 +397,9 @@ def main(run: str, out: str = "docs/results") -> None:
     js = judge_strength(run)
     if len(js):
         tables["judge_strength"] = eic_rows(js, ["liars", "dataset", "judge", "mechanism"])
+    agreement = sampler_agreement(tables)
+    if agreement is not None:
+        tables["agreement_cells"], tables["agreement"] = agreement
     for k, t in tables.items():
         t.to_csv(eic / f"{k}.csv", index=False)
     import decisive_eic_figures as figs

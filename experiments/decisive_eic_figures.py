@@ -276,8 +276,42 @@ def fig_heatmap(tables, out: Path):
     st.save(fig, out, "fig7_concordance_heatmap")
 
 
+def fig_agreement(tables, out: Path):
+    cells = tables.get("agreement_cells")
+    if cells is None or cells.empty:
+        return
+    fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.8), sharey=True)
+    colors = dict(zip([j for j in JUDGE_ORDER if j in set(cells.judge)], (BLUE, ORANGE, AQUA)))
+    short = {"consultancy": "cons.", "debate_seq": "seq.", "debate_sim": "sim.", "recursive_debate": "rec.",
+             "prover_estimator": "PE"}
+    for ax, x, title in zip(axes, ("instructed", "committed"), ("Instructed liars", "Committed liars only")):
+        st.axes(ax)
+        for j, g in cells.groupby("judge"):
+            ax.plot(g[x], g.po, "o", color=colors[j], ms=8, mec=SURFACE, mew=1.5, label=JUDGE_NAMES[j], zorder=3)
+            for _, r in g.iterrows():
+                ax.annotate(short[r.mechanism], (r[x], r.po), xytext=(5, 3), textcoords="offset points",
+                            fontsize=6.8, color=INK2)
+        lims = [0.15, 0.95]
+        ax.plot(lims, lims, color=CONTEXT, lw=1, zorder=1)
+        ax.axhline(0.5, color=INK2, lw=0.8)
+        ax.axvline(0.5, color=INK2, lw=0.8)
+        ax.set_xlim(*lims)
+        ax.set_ylim(*lims)
+        ax.set_xlabel(f"concordance, {title.lower()}")
+        ax.set_title(title)
+    axes[0].set_ylabel("concordance, prompt-optimized strategies")
+    axes[0].legend(loc="upper left")
+    fig.suptitle("Does the cheap sampler rank protocols like prompt optimization does?", x=0.005, ha="left",
+                 fontsize=10, fontweight="bold", y=1.03)
+    fig.text(0.005, 0.95, "Each point a (protocol, judge) cell, gpt-5-mini agents; gray line: equal EIC under both "
+             "samplers.", fontsize=7.5, color=INK2)
+    fig.tight_layout()
+    st.save(fig, out, "fig8_sampler_agreement")
+
+
 def make_all(tables: dict, out: Path, strategies=None):
-    for f in (fig_headline, fig_pressure, fig_prompt_opt, fig_choice, fig_judges, fig_tournament, fig_heatmap):
+    for f in (fig_headline, fig_pressure, fig_prompt_opt, fig_choice, fig_judges, fig_tournament, fig_heatmap,
+              fig_agreement):
         try:
             f(tables, out)
         except Exception as e:  # noqa: BLE001 - a missing stage must not block the other figures
@@ -346,6 +380,11 @@ def report_markdown(tables: dict) -> str:
               [("liars", lambda r: r.liars), ("dataset", lambda r: r.dataset), ("protocol", proto),
                ("judge", lambda r: r.judge), ("ASD", _fmt), ("concordance", lambda r: f"{r.concordance:.2f}")],
               "EIC by judge capability (the same debates re-judged)")
+    t = tables.get("agreement")
+    if t is not None:
+        table(t, [("samplers", lambda r: r.samplers), ("scope", lambda r: r.scope),
+                  ("Spearman", lambda r: f"{r.spearman:+.2f}"), ("cells", lambda r: str(r.cells))],
+              "Sampler agreement: rank correlation of EIC (concordance) between samplers")
     t = tables.get("tournament")
     if t is not None:
         table(t.sort_values(["liars", "asd"]), [("liars", lambda r: r.liars), ("model", lambda r: r.model),
