@@ -342,3 +342,23 @@ def test_prompt_optimization_seats_are_balanced_exactly():
     seats = Fake().seat_map(_items(7) + _items(7)[:0])
     counts = pd.Series(seats).value_counts()
     assert set(counts.index) == {"debater_a", "debater_b"} and abs(counts.iloc[0] - counts.iloc[1]) <= 1
+
+
+def test_po_goodhart_follows_each_search_best_path_on_train_and_heldout(tmp_path):
+    ep = lambda item, r: {"item": item, "seat": "a", "reward": r, "value": 1, "judge_correct": None,  # noqa: E731
+                          "p_true": None, "error": False}
+    search = lambda base: {"directive": "d", "best_path": ["s0", "s1"],  # noqa: E731
+                           "strategies": [{"id": "s0", "iteration": 0, "parent": None, "strategy": "", "rationale": "",
+                                           "train": [ep("t1", base), ep("t2", base)]},
+                                          {"id": "s1", "iteration": 1, "parent": "s0", "strategy": "x",
+                                           "rationale": "", "train": [ep("t1", base + 1), ep("t2", None)]}],
+                           "heldout": {"s0": [ep("h1", base)], "s1": [ep("h1", base + 0.5)]}}
+    (tmp_path / "eic_po" / "j").mkdir(parents=True)
+    rec = {"protocol": "debate_seq", "judge": "j", "searches": {"true": search(0.0), "false": search(-1.0)}}
+    (tmp_path / "eic_po" / "j" / "debate_seq.json").write_text(json.dumps(rec))
+    g = de.po_goodhart(tmp_path)
+    assert len(g) == 2 * (2 + 1 + 1 + 1)  # the None reward is dropped
+    m = de.mean_items(g, ["side", "split", "round"])
+    get = lambda side, split, k: m[(m.side == side) & (m.split == split) & (m["round"] == k)].reward.item()  # noqa: E731
+    assert get("true", "train", 1) == 1.0 and get("true", "held-out", 1) == 0.5
+    assert get("false", "train", 0) == -1.0 and get("false", "held-out", 1) == -0.5

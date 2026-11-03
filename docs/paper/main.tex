@@ -230,6 +230,22 @@ Over every strategy the searches produced (a population covariance rather than a
 reward is $+0.41$\ci{+0.11}{+0.72} for sequential debate, $+0.50$\ci{+0.16}{+0.84} for simultaneous debate and
 $+0.16$\ci{-0.08}{+0.40} for consultancy.
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig9_po_goodhart_paper.pdf}
+\caption{Goodhart curves of the prompt search: reward of each search's best strategy so far on the 36 training items
+it was selected on (dashed) and on 80 held-out items (solid, 95\% item-bootstrap band); gpt-5-mini, judges pooled.}
+\label{fig:goodhart}
+\end{figure}
+
+Figure~\ref{fig:goodhart} shows why. Both searches climb on their training items, but only the deceptive search's
+gains transfer. Over five rounds, the best deceptive strategy's held-out reward rises by $+0.38$\ci{+0.17}{+0.58}
+(mean over the 15 protocol--judge cells, bootstrap over cells; positive in 12), the best honest one's by
+$-0.03$\ci{-0.20}{+0.16}. In consultancy and both debates the honest strategies chosen on training reward do worse on
+held-out items than the unprompted agent ($-0.12$ to $-0.25$): with a judge whose verdicts on the same argument
+correlate at $r\approx0.2$, an honest search mostly fits judge noise, while deceptive strategies find something that
+generalizes. Prover-estimator debate is the exception, where both searches gain (honest $+0.42$, deceptive $+0.65$).
+
 \section{Do the samplers agree?}\label{sec:agreement}
 
 \begin{figure}[t]
@@ -240,7 +256,10 @@ below; gray: overlaps zero.}
 \label{fig:headline}
 \end{figure}
 
-Figure~\ref{fig:headline} collects the samplers. The instructed sampler and its committed-liar variant rank the 15
+Figure~\ref{fig:headline} collects the samplers. EIC is measured to predict what an optimizer of the protocol's
+reward would do, and prompt optimization is our closest such optimizer; the question is whether the cheap instructed
+measurement could stand in for it. We compute concordance both ways for each of the 15 (protocol, judge) cells and
+compare the orderings. The instructed sampler and its committed-liar variant rank the 15
 (protocol, judge) cells almost identically (Spearman $0.99$), but either ranks them only loosely like prompt
 optimization does ($0.40$ across cells; within a judge it ranges from $-0.21$ to $+0.80$;
 Figure~\ref{fig:agree}). Instructed ASD gets the extremes right on average---prover-estimator is not incentive

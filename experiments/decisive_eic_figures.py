@@ -293,7 +293,7 @@ def fig_agreement(tables, out: Path):
             for _, r in g.iterrows():
                 ax.annotate(short[r.mechanism], (r[x], r.po), xytext=(5, 3), textcoords="offset points",
                             fontsize=6.8, color=INK2)
-        lims = [0.15, 0.95]
+        lims = [0.0, 1.0]
         ax.plot(lims, lims, color=CONTEXT, lw=1, zorder=1)
         ax.axhline(0.5, color=INK2, lw=0.8)
         ax.axvline(0.5, color=INK2, lw=0.8)
@@ -303,17 +303,54 @@ def fig_agreement(tables, out: Path):
         ax.set_title(title)
     axes[0].set_ylabel("concordance, prompt-optimized strategies")
     axes[0].legend(loc="upper left")
-    fig.suptitle("Does the cheap sampler rank protocols like prompt optimization does?", x=0.005, ha="left",
-                 fontsize=10, fontweight="bold", y=1.03)
-    fig.text(0.005, 0.95, "Each point a (protocol, judge) cell, gpt-5-mini agents; gray line: equal EIC under both "
-             "samplers.", fontsize=7.5, color=INK2)
+    fig.suptitle("Does EIC measured with instructed liars predict EIC under optimization? Only loosely",
+                 x=0.005, ha="left", fontsize=10, fontweight="bold", y=1.03)
+    fig.text(0.005, 0.95, "Each point: one protocol under one judge. x: share of items where honesty out-earns lying "
+             "when the agent is just told which side to argue; y: the same after prompt optimization.", fontsize=7.5, color=INK2)
     fig.tight_layout()
     st.save(fig, out, "fig8_sampler_agreement")
 
 
+# --------------------------------------------------------------------------- 9. Goodhart curves of the prompt search
+
+def fig_goodhart(tables, out: Path):
+    t = tables.get("po_goodhart")
+    if t is None or t.empty:
+        return
+    t = t.assign(side=t.side.astype(str).str.lower())  # "true"/"false" read back from CSV as booleans
+    mechs = [m for m in PROTOCOLS if m in set(t.mechanism)]
+    fig, axes = plt.subplots(1, len(mechs), figsize=(2.7 * len(mechs), 3.0), squeeze=False)
+    series = [("true", "train", BLUE, "--", "honest, training"), ("true", "held-out", BLUE, "-", "honest, held-out"),
+              ("false", "train", ORANGE, "--", "deceptive, training"),
+              ("false", "held-out", ORANGE, "-", "deceptive, held-out")]
+    for ax, m in zip(axes[0], mechs):
+        st.axes(ax)
+        ends = []
+        for side, split, color, ls, name in series:
+            g = _pick(t, mechanism=m, side=side, split=split).sort_values("round")
+            if split == "held-out":
+                st.line_ci(ax, g["round"], g.reward, g.reward_lo, g.reward_hi, color)
+            else:
+                ax.plot(g["round"], g.reward, ls=ls, color=color, lw=1.6, zorder=2)
+            ends.append((g["round"].iloc[-1], g.reward.iloc[-1], name))
+        ax.set_title(NAMES[m])
+        ax.set_xticks(sorted(set(t["round"])))
+        ax.set_xlabel("search round")
+        ax.set_xlim(-0.3, t["round"].max() + 3.2)
+        st.spread_labels(ax, ends[0][0] + 0.25, [e[1] for e in ends], [e[2] for e in ends], min_gap=0.09)
+    axes[0][0].set_ylabel("mean reward (protocol units)")
+    fig.suptitle("Optimizing against the judge pays off for lying, not for honesty", x=0.005, ha="left",
+                 fontsize=10, fontweight="bold", y=1.04)
+    fig.text(0.005, 0.955, "Best strategy so far in each search, 3 judges pooled. Dashed: reward on the 36 training "
+             "items it was selected on (the proxy the search climbs). Solid, with 95% item-bootstrap band: reward on "
+             "80 held-out items.", fontsize=7.5, color=INK2)
+    fig.tight_layout()
+    st.save(fig, out, "fig9_po_goodhart")
+
+
 def make_all(tables: dict, out: Path, strategies=None):
     figs = (fig_headline, fig_pressure, fig_prompt_opt, fig_choice, fig_judges, fig_tournament, fig_heatmap,
-            fig_agreement)
+            fig_agreement, fig_goodhart)
     for paper in (False, True):  # the docs' titled figures, then the paper's caption-only ones
         with (st.paper_mode() if paper else _null()):
             for f in figs:
@@ -368,6 +405,16 @@ def report_markdown(tables: dict) -> str:
         table(t, [("protocol", proto), ("search round", lambda r: str(int(r["round"]))), ("held-out ASD", _fmt),
                   ("concordance", lambda r: f"{r.concordance:.2f}"), ("items", lambda r: str(r["items"]))],
               "Prompt optimization: best honest vs best deceptive strategy, held-out")
+    t = tables.get("po_goodhart")
+    if t is not None and not t.empty:
+        k0, k1 = t["round"].min(), t["round"].max()
+        piv = t.pivot_table(index=["mechanism", "side", "split"], columns="round", values="reward").reset_index()
+        piv["gain"] = piv[k1] - piv[k0]
+        table(piv.sort_values(["mechanism", "side", "split"]),
+              [("protocol", proto), ("search", lambda r: "honest" if r.side == "true" else "deceptive"),
+               ("items", lambda r: r.split), (f"round {k0}", lambda r: f"{r[k0]:+.2f}"),
+               (f"round {k1}", lambda r: f"{r[k1]:+.2f}"), ("gain", lambda r: f"{r.gain:+.2f}")],
+              "Prompt optimization: reward of the best strategy so far, training vs held-out items")
     t = tables.get("po_population")
     if t is not None:
         table(t[t.judge == "all"], [("protocol", proto), ("ASD", _fmt), ("r", lambda r: f"{r.r:+.2f} [{r.r_lo:+.2f}, {r.r_hi:+.2f}]"),

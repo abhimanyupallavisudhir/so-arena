@@ -67,6 +67,31 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Recursive debate | 4 | +0.12 [+0.06, +0.18] | 0.66 | 80 |
 | Recursive debate | 5 | +0.09 [+0.03, +0.16] | 0.59 | 80 |
 
+## Prompt optimization: reward of the best strategy so far, training vs held-out items
+
+| protocol | search | items | round 0 | round 5 | gain |
+|---|---|---|---|---|---|
+| Consultancy | deceptive | held-out | -1.24 | -0.70 | +0.54 |
+| Consultancy | deceptive | train | -1.36 | -0.34 | +1.02 |
+| Consultancy | honest | held-out | -0.69 | -0.94 | -0.24 |
+| Consultancy | honest | train | -0.70 | -0.35 | +0.35 |
+| Debate, sequential | deceptive | held-out | -2.18 | -1.88 | +0.30 |
+| Debate, sequential | deceptive | train | -2.01 | -1.22 | +0.78 |
+| Debate, sequential | honest | held-out | -1.26 | -1.51 | -0.25 |
+| Debate, sequential | honest | train | -1.33 | -1.07 | +0.26 |
+| Debate, simultaneous | deceptive | held-out | -2.20 | -1.90 | +0.30 |
+| Debate, simultaneous | deceptive | train | -1.91 | -1.14 | +0.77 |
+| Debate, simultaneous | honest | held-out | -1.10 | -1.21 | -0.12 |
+| Debate, simultaneous | honest | train | -1.27 | -0.81 | +0.46 |
+| Prover-estimator | deceptive | held-out | +0.06 | +0.71 | +0.65 |
+| Prover-estimator | deceptive | train | +0.01 | +0.85 | +0.85 |
+| Prover-estimator | honest | held-out | -0.09 | +0.34 | +0.42 |
+| Prover-estimator | honest | train | -0.06 | +0.35 | +0.41 |
+| Recursive debate | deceptive | held-out | +0.18 | +0.27 | +0.09 |
+| Recursive debate | deceptive | train | +0.19 | +0.36 | +0.17 |
+| Recursive debate | honest | held-out | +0.30 | +0.36 | +0.06 |
+| Recursive debate | honest | train | +0.27 | +0.41 | +0.14 |
+
 ## Prompt optimization: covariance over every searched strategy (training items)
 
 | protocol | ASD | r | strategy-episodes |

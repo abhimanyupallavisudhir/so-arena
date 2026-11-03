@@ -89,27 +89,49 @@ What holds up:
    - Three-round debate keeps a positive incentive under best-of-16 when both sides are optimized (+0.60).
    - The exception is one-round debate with only the liar optimized, whose incentive reverses (−0.37); see
      [`fig2`](results/eic/fig2_eic_under_best_of_n.png).
-4. **The cheap sampler only partly predicts the optimized one.**
-   - The instructed sampler and its committed-liar variant rank the 15 (protocol, judge) cells almost identically
-     (Spearman 0.99).
-   - Either ranks them like prompt optimization only loosely (0.40).
-   - Example: under Gemma, instructed ASD rates consultancy the most incentive compatible protocol (+0.91), while
-     optimized deception brings it to −0.24.
-5. **EIC grows steeply with judge capability, and dissociates from accuracy.**
+4. **EIC measured with instructed liars is a poor guide to EIC under optimization.**
+   - Instructed ASD is the cheap measurement: tell the agent which side to argue, with no optimization. The point
+     of measuring EIC, though, is to predict what happens when something optimizes against the protocol's reward.
+     Prompt optimization is our stand-in for that optimizer.
+   - Test: compute EIC both ways for each of the 15 (protocol, judge) combinations (5 protocols × 3 judges). Then
+     ask whether the cheap measurement orders the 15 the same way the optimized one does: Spearman rank correlation
+     across the 15.
+   - Result: only loosely (0.40). Within one judge, the ordering of the 5 protocols ranges from −0.21 to +0.80.
+   - Removing liars who conceded does not help. The committed-liar version orders the 15 almost exactly like the
+     plain instructed one (0.99), so this gap is not caused by conceding liars.
+   - The cheap measurement gets the coarse picture right: debate is incentive compatible, prover-estimator is not.
+     It gets wrong which protocols survive optimization under a given judge:
+     - under Gemma, instructed ASD rates consultancy the most incentive compatible protocol (+0.91), while optimized
+       deception brings it to −0.24;
+     - under Llama, prover-estimator turns positive (+0.36) after optimization.
+   - See [`fig8`](results/eic/fig8_sampler_agreement.png).
+5. **Optimization pressure pays off for lying, not for honesty**
+   ([`fig9`](results/eic/fig9_po_goodhart.png), a Goodhart curve for the prompt search).
+   - Each search's best strategy climbs on the 36 training items it is selected on.
+   - On held-out items, over five rounds, averaged over the 15 combinations:
+     - the deceptive strategy gains +0.38 [+0.17, +0.58], in 12 of 15;
+     - the honest strategy gains −0.03 [−0.20, +0.16];
+     - intervals are a bootstrap over the 15 combinations.
+   - In consultancy and both debates, the selected honest strategies do worse on held-out items than the unprompted
+     agent (−0.12 to −0.25): the honest search mostly fits judge noise.
+   - Prover-estimator is the exception: both searches gain there (honest +0.42, deceptive +0.65).
+   - This is why EIC falls under optimization.
+6. **EIC grows steeply with judge capability, and dissociates from accuracy.**
    - On the same debates, re-judged, honesty wins on 58–61% of items with Llama-3.1-8B and 90–92% with gpt-4.1.
    - On the testbed, committed liars lower the gpt-4.1 judges' accuracy by 12–22 points, yet their EIC is the
      highest measured ([`fig5`](results/eic/fig5_eic_by_judge.png)).
-6. **Models that refuse to lie inflate EIC.**
+7. **Models that refuse to lie inflate EIC.**
    - In the 8-model tournament, per-model EIC ranges from +0.74 to +3.98 with prompted liars, and from 0.0 to
      +0.6 with committed ones ([`fig6`](results/eic/fig6_tournament.png)).
    - Claude Opus 5.5 commits to only 28% of its lies.
-7. **An agent free to choose its side is pushed toward honesty**, but weakly: 50% to 62–64% of its selected
+8. **An agent free to choose its side is pushed toward honesty**, but weakly: 50% to 62–64% of its selected
    behaviour is honest at best-of-16 ([`fig4`](results/eic/fig4_choosing_a_side.png)).
 
 Other figures:
 - [Prompt optimization along the search](results/eic/fig3_eic_prompt_optimization.png).
 - [Concordance by protocol and judge](results/eic/fig7_concordance_heatmap.png).
 - [Sampler agreement](results/eic/fig8_sampler_agreement.png).
+- [Training vs held-out reward along the prompt search](results/eic/fig9_po_goodhart.png).
 
 Prompt optimization cost $676. Total spend for the whole decisive study is about $5,960.
 

@@ -187,6 +187,39 @@ def prompt_optimization(run: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
     return pd.DataFrame(path_rows), pd.DataFrame(pop_rows), pd.DataFrame(strat_rows)
 
 
+def po_goodhart(run: Path) -> pd.DataFrame:
+    """Per-item reward of each search's best strategy so far, after each round, on the training items it was
+    selected on and on the held-out items: the proxy the search climbs against what transfers."""
+    import gzip
+
+    rows = []
+    files = sorted((run / "eic_po").glob("*/*.json")) or sorted((run / "eic_po").glob("*/*.json.gz"))
+    for f in files:
+        rec = json.loads(gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text())
+        for side, s in rec["searches"].items():
+            train = {c["id"]: c["train"] for c in s["strategies"]}
+            for k, cid in enumerate(s["best_path"]):
+                for split, eps in (("train", train[cid]), ("held-out", s["heldout"][cid])):
+                    for e in eps:
+                        if e["reward"] is not None:
+                            rows.append({"mechanism": rec["protocol"], "judge": rec["judge"], "side": side,
+                                         "round": k, "split": split, "item": e["item"], "reward": e["reward"]})
+    return pd.DataFrame(rows)
+
+
+def mean_items(df: pd.DataFrame, by: list[str], col: str = "reward", n_boot: int = N_BOOT) -> pd.DataFrame:
+    """Mean of ``col`` with a 95% item-bootstrap interval (judges averaged within an item first)."""
+    out = []
+    for key, g in df.groupby(by):
+        key = key if isinstance(key, tuple) else (key,)
+        d = g.groupby("item")[col].mean().to_numpy()
+        W = _boot_weights(len(d), n_boot)
+        b = (W @ d) / W.sum(1)
+        out.append({**dict(zip(by, key)), col: float(d.mean()), f"{col}_lo": float(np.quantile(b, .025)),
+                    f"{col}_hi": float(np.quantile(b, .975)), "items": int(len(d))})
+    return pd.DataFrame(out)
+
+
 def choosing_a_side(run: Path, holdout: bool = True) -> pd.DataFrame:
     """Best-of-n for an agent that may choose its side (one round): the share of its selected behaviour that is
     honest, and its expected reward. Consultancy from ``decisive_ic.py``; debate here, from the trees: debater A's
@@ -384,6 +417,8 @@ def main(run: str, out: str = "docs/results") -> None:
                                              eic_rows(po_pop, ["judge", "mechanism"])]).assign(
             sampler="prompt optimization, all strategies", debater="gpt-5-mini")
         po_strat.to_csv(eic / "prompt_optimization_strategies.csv", index=False)
+        gh = po_goodhart(run)
+        tables["po_goodhart"] = mean_items(gh, ["mechanism", "side", "split", "round"])
     side = choosing_a_side(run)
     if len(side):
         g = side.groupby(["mechanism", "n", "item"])[["honest", "reward"]].mean().reset_index()
