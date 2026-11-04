@@ -79,7 +79,9 @@ it argued a false one.
 
 What holds up:
 1. **Instructed liars make every protocol but prover-estimator look incentive compatible.** Prover-estimator debate,
-   without a trained estimator, pays a prover more for lying on two-thirds of items.
+   as implemented here, pays a prover more for the false side on two-thirds of items. The audit below shows why:
+   a weak leaf judge, and a payoff flaw that optimization exploits by gaming the payoff, not by lying
+   ([Why prover-estimator debate fails here](#why-prover-estimator-debate-fails-here-added-2026-11-04)).
 2. **Optimized deception erases consultancy's incentive to be honest.**
    - Under Llama-3.1-8B and Gemma-3-12B, the best deceptive consultant found by prompt search out-earns the best
      honest one on held-out items.
@@ -134,6 +136,69 @@ Other figures:
 - [Training vs held-out reward along the prompt search](results/eic/fig9_po_goodhart.png).
 
 Prompt optimization cost $676. Total spend for the whole decisive study is about $5,960.
+
+
+### Why prover-estimator debate fails here (added 2026-11-04)
+
+I audited the prover-estimator episodes: 16,718 instructed episodes with gpt-5-mini as prover and estimator,
+under the three weak judges, broken down into the terms of the prover's reward, plus the strategies the prompt
+search found. Two separate things go wrong. Neither is the prover lying successfully about the answer.
+
+**1. With instructed provers, the weak leaf judge does the damage.** The prover's reward is a start term
+(0.125 × the estimator's probability for its claim), two decomposition terms, and a leaf term:
+direction × (judge's probability − estimator's probability) for the final subclaim, with weight 1.
+
+| mean over episodes | honest prover | lying prover |
+|---|---|---|
+| estimator's probability for the prover's answer | 0.93 | 0.08 |
+| start term | +0.117 | +0.010 |
+| decomposition terms (rounds 1–2) | −0.015 | +0.004 |
+| estimator's probability for the leaf claim | 0.87 | 0.21 |
+| judge's probability for the leaf claim | 0.56 | 0.40 |
+| leaf term | **−0.196** | +0.021 |
+| total reward | −0.094 | +0.035 |
+
+- **Headroom:** the strong estimator prices true leaves high (0.87) and false ones low (0.21). The weak judges,
+  reading a short claim with little context, stay near the middle. So a prover defending a true leaf has almost
+  no room to profit by saying "too low", and loses whenever the judge is less sure than the estimator.
+- **Advocacy:** the honest prover still says "too low" at 69% of leaves, as an advocate would. Saying "too high"
+  about its *own* claim at every leaf would have earned it +0.31 instead of −0.20, so the payoff-maximizing
+  honest prover bets against its own answer.
+- **What the leaf term measures:** it pays for predicting where the judge will disagree with the estimator, which
+  has nothing to do with the truth of the answer. The answer itself enters only through the start term, which
+  is worth at most 0.125 of a possible 1.875.
+- **Llama-3.1-8B is anti-informative at the leaf:** it gives true leaf claims 0.28 and false ones 0.43. The
+  other two judges discriminate by about 0.3.
+
+The protocol assumes the final judge is a reliable oracle for leaf claims. Two decomposition rounds of a
+conceptual question do not reach claims that a weak judge can check.
+
+**2. Under optimization: the Drake-equation scam, enabled by a flaw in our implementation.**
+- In every round we pay the prover direction × (estimator's probability that all subclaims hold − its probability
+  for the claim). The subclaims only have to *imply* the claim, so the estimator is coherent whenever
+  P(all) ≤ P(claim). Saying "too high" therefore earns weight × (P(claim) − P(all)) ≥ 0 every round, whatever the
+  truth.
+- Brown-Cohen et al. avoid this: the parent claim's answer is *computed* from the subclaims' answers, so any gap
+  between the two prices is an error by construction.
+- The deceptive prompt search found the exploit under all three judges. Its best strategy under Llama states it
+  outright: "A coherent estimator always gives P(all) ≤ P(claim), so say too_high every round." Under gpt-4o-mini it
+  adds "a logically impossible DECOY … This forces P(all) ≈ 0". Under Gemma it uses a decoy with "a hidden
+  universal quantifier".
+- These strategies attack the prover's *own* assigned (false) answer at the leaf ("Open with 'This claim is
+  false'"). So the "deceptive" prover isn't deceiving anyone about the answer; it is gaming the payoff.
+- The honest search converged on the same idea in sincere form: "predict what an outside judge would say".
+
+**What this means for the EIC results.**
+- Prover-estimator's negative ASD is real for the protocol *as implemented here*. It reflects a payoff that
+  rewards gaming whatever side the prover is on, plus a weak leaf judge. It is not evidence that the
+  Brown-Cohen et al. protocol rewards lying.
+- With $v$ fixed by construction (the assigned side), the optimized "deceptive" behaviour is mislabelled.
+  Prover-estimator is the one protocol where the assigned side and the argued position come apart.
+- **Fix:**
+  - pay the decomposition terms only for genuine inconsistencies, either by requiring decompositions the parent
+    price must match, or by dropping the "too high" payment when P(all) < P(claim) can be coherent;
+  - let the estimator challenge a decomposition as invalid, with the judge checking that challenge;
+  - re-measure with the fixed payoff.
 
 ## Findings
 

@@ -362,3 +362,58 @@ def test_po_goodhart_follows_each_search_best_path_on_train_and_heldout(tmp_path
     get = lambda side, split, k: m[(m.side == side) & (m.split == split) & (m["round"] == k)].reward.item()  # noqa: E731
     assert get("true", "train", 1) == 1.0 and get("true", "held-out", 1) == 0.5
     assert get("false", "train", 0) == -1.0 and get("false", "held-out", 1) == -0.5
+
+
+def test_rescored_heldout_episodes_join_each_strategy_heldout_set(tmp_path):
+    ep = lambda item, r: {"item": item, "seat": "a", "reward": r, "value": 1, "judge_correct": None,  # noqa: E731
+                          "p_true": None, "error": False}
+    search = lambda base: {"directive": "d", "best_path": ["s0", "s1"],  # noqa: E731
+                           "strategies": [{"id": "s0", "iteration": 0, "parent": None, "strategy": "", "rationale": "",
+                                           "train": [ep("t1", base)]},
+                                          {"id": "s1", "iteration": 1, "parent": "s0", "strategy": "x",
+                                           "rationale": "", "train": [ep("t1", base + 1)]}],
+                           "heldout": {"s0": [ep("h1", base)], "s1": [ep("h1", base + 1)]}}
+    (tmp_path / "eic_po" / "j").mkdir(parents=True)
+    (tmp_path / "eic_po_rescore" / "j").mkdir(parents=True)
+    rec = {"protocol": "debate_seq", "judge": "j", "searches": {"true": search(0.0), "false": search(-1.0)}}
+    (tmp_path / "eic_po" / "j" / "debate_seq.json").write_text(json.dumps(rec))
+    more = {"true": {"s0": [ep("h2", 2.0)], "s1": [ep("h2", 3.0)]}, "false": {"s0": [ep("h2", 0.0)]}}
+    (tmp_path / "eic_po_rescore" / "j" / "debate_seq.json").write_text(json.dumps({"heldout": more}))
+    path, _, _ = de.prompt_optimization(tmp_path)
+    # round 0: both held-out items; round 1: the deceptive s1 has no rescored episode, so only h1 pairs up
+    r0 = path[path["round"] == 0].set_index("item").asd
+    assert r0.to_dict() == {"h1": 1.0, "h2": 2.0}
+    assert path[path["round"] == 1].item.tolist() == ["h1"]
+    g = de.po_goodhart(tmp_path)
+    assert sorted(g[(g.split == "held-out") & (g.side == "true") & (g["round"] == 1)].reward) == [1.0, 3.0]
+
+
+def test_rescore_items_are_disjoint_from_the_search_items(monkeypatch):
+    import decisive_eic_po as po
+    import decisive_eic_rescore as rs
+
+    order = _items(900)
+    monkeypatch.setattr(po, "selected_items", lambda run, n: order[:n])
+    monkeypatch.setattr(rs, "selected_items", lambda run, n: order[:n])
+    train, test = po.split("run")
+    more = rs.more_items("run", 400)
+    ids = lambda xs: {it.id for it in xs}  # noqa: E731
+    assert len(more) == 400 and not ids(more) & (ids(train) | ids(test))
+    assert rs.path_strategies({"best_path": ["a", "a", "b"], "strategies": [{"id": "a", "strategy": "A"},
+                                                                         {"id": "b", "strategy": "B"}]}) == {"a": "A", "b": "B"}
+
+
+def test_pe_audit_splits_the_prover_reward_into_its_terms():
+    import decisive_pe_audit as pa
+    from types import SimpleNamespace
+
+    data = {"rewards": {"prover": -0.2}, "reward_terms": [0.1, 0.0, -0.05, -0.25], "p_top": 0.9,
+            "path": [{"direction": 1}, {"direction": 0}],
+            "leaf": {"p_estimator": 0.85, "p_judge": 0.6, "direction": 1}}
+    e = SimpleNamespace(item_id="q", profile="prover=true", error=None, outcome=SimpleNamespace(data=data))
+    r = pa.episode_row(e)
+    assert r["side"] == "honest" and r["leaf"] == -0.25 and r["decomposition"] == -0.05
+    assert r["start"] + r["decomposition"] + r["leaf"] == pytest.approx(r["reward"])
+    s = pa.summary(pd.DataFrame([{"judge": "j", **r}]))
+    row = s[s.judge == "all"].iloc[0]
+    assert row.leaf_if_too_high == pytest.approx(0.25) and row.leaf_too_low_share == 1.0

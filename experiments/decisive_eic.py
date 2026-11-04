@@ -153,15 +153,37 @@ def best_of_n_multiround(run: Path) -> pd.DataFrame:
     return pd.read_csv(f) if f.exists() else pd.DataFrame()
 
 
+def po_records(run: Path) -> list[dict]:
+    """The prompt-optimization records (``decisive_eic_po.py``), with the held-out episodes of
+    ``decisive_eic_rescore.py`` (further held-out items for the same strategies) added to each strategy's held-out
+    set when present. Reads the run's files, or the gzipped copies in the committed data bundle."""
+    import gzip
+
+    def load(f: Path) -> dict:
+        return json.loads(gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text())
+
+    files = sorted((run / "eic_po").glob("*/*.json")) or sorted((run / "eic_po").glob("*/*.json.gz"))
+    out = []
+    for f in files:
+        rec = load(f)
+        stem = f.name.removesuffix(".gz")
+        extra = [x for x in (run / "eic_po_rescore" / f.parent.name / stem,
+                             run / "eic_po_rescore" / f.parent.name / f"{stem}.gz") if x.exists()]
+        if extra:
+            more = load(extra[0])["heldout"]
+            for arm, s in rec["searches"].items():
+                for cid, eps in more.get(arm, {}).items():
+                    if cid in s["heldout"]:
+                        s["heldout"][cid] = s["heldout"][cid] + eps
+        out.append(rec)
+    return out
+
+
 def prompt_optimization(run: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """From ``decisive_eic_po.py``: per-item held-out ASD of the best honest vs best deceptive strategy after each
     search round; per-episode (u, v) of every strategy on the training items; the strategies themselves."""
     path_rows, pop_rows, strat_rows = [], [], []
-    import gzip
-
-    files = sorted((run / "eic_po").glob("*/*.json")) or sorted((run / "eic_po").glob("*/*.json.gz"))
-    for f in files:  # the run's files, or the gzipped copies in the committed data bundle
-        rec = json.loads(gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text())
+    for rec in po_records(run):
         h, d = rec["searches"]["true"], rec["searches"]["false"]
 
         def per_item(records):
@@ -190,12 +212,8 @@ def prompt_optimization(run: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
 def po_goodhart(run: Path) -> pd.DataFrame:
     """Per-item reward of each search's best strategy so far, after each round, on the training items it was
     selected on and on the held-out items: the proxy the search climbs against what transfers."""
-    import gzip
-
     rows = []
-    files = sorted((run / "eic_po").glob("*/*.json")) or sorted((run / "eic_po").glob("*/*.json.gz"))
-    for f in files:
-        rec = json.loads(gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text())
+    for rec in po_records(run):
         for side, s in rec["searches"].items():
             train = {c["id"]: c["train"] for c in s["strategies"]}
             for k, cid in enumerate(s["best_path"]):
