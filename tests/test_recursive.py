@@ -106,3 +106,36 @@ def test_estimates_are_salvaged_from_arithmetic():
     d = _salvage_estimates('{"probabilities": [0.83, 0.99, 90%], "all_true": 0.83 * 0.99 * 0.9}')
     assert d["probabilities"] == pytest.approx([0.83, 0.99, 0.9])
     assert d["all_true"] == pytest.approx(0.83 * 0.99 * 0.9)
+
+
+def test_decoy_subclaims_pay_under_the_literal_gap_payoff_but_not_by_default():
+    """A sufficient decomposition with an implausible decoy subclaim drives P(all) towards 0. That is coherent, so
+    calling the claim "too high" should earn nothing; the literal gap payoff pays it anyway."""
+    decoy = dict(direction="too_high", leaf_direction="about_right", subclaims=("decoy", "s2"))
+    est = estimator(p_top=0.9, p_sub=(0.05, 0.9, 0.9), p_all=0.05)
+    gap = play(ProverEstimatorDebate(depth=1, width=2, round_payoff="gap"), prover(**decoy), est, judge(0.5))
+    fixed = play(ProverEstimatorDebate(depth=1, width=2), prover(**decoy), est, judge(0.5))
+    r = 0.5
+    assert gap.outcome.data["reward_terms"][1] == pytest.approx(r * (0.9 - 0.05))
+    assert fixed.outcome.data["reward_terms"][1] == 0.0
+
+
+def test_incoherence_payoff_still_pays_an_underpriced_claim():
+    est = estimator(p_top=0.3, p_sub=(0.9, 0.9, 0.95), p_all=0.8)
+    for payoff in ("gap", "incoherence"):
+        ep = play(ProverEstimatorDebate(depth=1, width=2, round_payoff=payoff), prover(), est, judge(0.9))
+        assert ep.outcome.data["reward_terms"][1] == pytest.approx(0.5 * (0.8 - 0.3))
+        # "too high" on an underpriced claim loses the same amount
+        ep = play(ProverEstimatorDebate(depth=1, width=2, round_payoff=payoff), prover(direction="too_high"), est,
+                  judge(0.9))
+        assert ep.outcome.data["reward_terms"][1] == pytest.approx(-0.5 * (0.8 - 0.3))
+
+
+def test_gap_payoff_keeps_the_original_config_and_rules():
+    old = ProverEstimatorDebate(depth=2, width=3, rho=2.0, round_payoff="gap")
+    assert "round_payoff" not in old.config
+    assert "times (the estimator's probability that all subclaims hold minus" in old._rules()
+    new = ProverEstimatorDebate(depth=2, width=3, rho=2.0)
+    assert new.config["round_payoff"] == "incoherence" and "only inconsistency" in new._rules()
+    with pytest.raises(ValueError):
+        ProverEstimatorDebate(round_payoff="nope")

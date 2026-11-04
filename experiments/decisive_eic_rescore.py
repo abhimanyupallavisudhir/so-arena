@@ -46,7 +46,7 @@ def path_strategies(search: dict) -> dict[str, str]:
 
 
 async def rescore_cell(rec: dict, train, items, out: Path, concurrency: int) -> dict:
-    mech = next(m for m in protocols() if m.name == rec["protocol"])
+    mech = next(m for m in protocols(fixed_pe=True) if m.name == rec["protocol"])
     jp = judge_policy(JUDGES[rec["judge"]])
 
     async def one(arm: str, cid: str, strategy: str):
@@ -55,14 +55,26 @@ async def rescore_cell(rec: dict, train, items, out: Path, concurrency: int) -> 
         _, _, eps = await s.evaluate_strategy(strategy, items)
         return arm, cid, [episode_record(e) for e in eps]
 
-    jobs = [one(arm, cid, st) for arm in ("true", "false")
-            for cid, st in path_strategies(rec["searches"][arm]).items()]
+    # each strategy is saved as it finishes, so an interrupted cell resumes without holding every episode
+    partial = out.with_suffix(".partial.jsonl")
     held: dict = {"true": {}, "false": {}}
-    for arm, cid, records in await asyncio.gather(*jobs):
+    if partial.exists():
+        for line in partial.read_text().splitlines():
+            r = json.loads(line)
+            held[r["arm"]][r["id"]] = r["records"]
+
+    async def save(arm, cid, st):
+        arm, cid, records = await one(arm, cid, st)
         held[arm][cid] = records
-    result = {"protocol": rec["protocol"], "judge": rec["judge"], "items": [it.id for it in items], "heldout": held}
+        with partial.open("a") as f:
+            f.write(json.dumps({"arm": arm, "id": cid, "records": records}) + "\n")
+
     out.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.gather(*[save(arm, cid, st) for arm in ("true", "false")
+                           for cid, st in path_strategies(rec["searches"][arm]).items() if cid not in held[arm]])
+    result = {"protocol": rec["protocol"], "judge": rec["judge"], "items": [it.id for it in items], "heldout": held}
     out.write_text(json.dumps(result))
+    partial.unlink(missing_ok=True)
     return result
 
 
@@ -74,6 +86,7 @@ def main(argv=None):
     ap.add_argument("--items", type=int, default=400)
     ap.add_argument("--concurrency", type=int, default=20)
     ap.add_argument("--budget", type=float, default=900.0)
+    ap.add_argument("--cells", type=int, default=4, help="cells in flight at once (memory)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     for noisy in ("httpx", "openai", "anthropic", "inspect_ai"):
@@ -87,7 +100,13 @@ def main(argv=None):
     log = logging.getLogger("decisive")
 
     async def all_cells():
+        gate = asyncio.Semaphore(a.cells)
+
         async def one(j, p):
+            async with gate:
+                await cell(j, p)
+
+        async def cell(j, p):
             src, out = run / "eic_po" / j / f"{p}.json", run / "eic_po_rescore" / j / f"{p}.json"
             if out.exists() or not src.exists():
                 return

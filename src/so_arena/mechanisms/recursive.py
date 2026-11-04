@@ -29,6 +29,14 @@ imply the claim. Every decomposition therefore carries a *bridge* subclaim, "if 
 then the claim holds", which the estimator prices and the prover can recurse on like any other - so an invalid
 decomposition is a mispriced subclaim the judge eventually checks, not a hole in the protocol. The estimator
 reports subclaim marginals and P(all hold); the latter is clipped into the Frechet bounds the marginals imply.
+
+The bridge makes a decomposition *sufficient* for the claim, not equivalent to it as in the paper (where the
+claim's answer is computed from the subclaims'). So ``P(all) <= p_k`` is coherent, and paying
+``A_k (P(all) - p_k)`` would pay "too high" for nothing: a prover can add an implausible subclaim (a decoy) and
+collect ``p_k - P(all)`` every round, whichever side it is on - optimized provers find exactly this. By default
+(``round_payoff="incoherence"``) a round pays only for the inconsistency a sufficient decomposition can reveal,
+an estimator pricing the claim *below* its subclaims: ``A_k max(0, P(all) - p_k)``. ``round_payoff="gap"`` is the
+literal translation, kept to reproduce earlier runs.
 """
 
 from __future__ import annotations
@@ -119,6 +127,9 @@ class ProverEstimatorDebate(Mechanism):
         width: subclaims per decomposition, besides the automatic bridge subclaim (the paper's ``q``, minus one).
         rho: stability parameter; rewards grow by ``rho`` per round towards the leaf (``r = 1/rho``).
         word_limit: limit for the prover's leaf argument.
+        round_payoff: ``"incoherence"`` (default) pays a decomposition round only when the estimator prices the
+            claim below its probability that all subclaims hold; ``"gap"`` pays ``P(all) - p_k`` in either
+            direction, which a sufficient (not equivalent) decomposition lets a prover exploit (module docstring).
     """
 
     name = "prover_estimator"
@@ -126,9 +137,14 @@ class ProverEstimatorDebate(Mechanism):
                    "prover recurses on a subclaim it says the estimator mispriced; a judge checks the final claim.")
 
     def __init__(self, *, depth: int = 2, width: int = 3, rho: float = 2.0, word_limit: int | None = 150,
-                 reward: RewardRule | None = None, **kw):
+                 round_payoff: str = "incoherence", reward: RewardRule | None = None, **kw):
+        if round_payoff not in ("incoherence", "gap"):
+            raise ValueError(f"round_payoff must be 'incoherence' or 'gap', not {round_payoff!r}")
         self.depth, self.width, self.rho, self.word_limit = depth, width, rho, word_limit
-        super().__init__(reward=reward, depth=depth, width=width, rho=rho, word_limit=word_limit, **kw)
+        self.round_payoff = round_payoff
+        # the literal translation keeps its original config (and so its episode ids)
+        extra = {} if round_payoff == "gap" else {"round_payoff": round_payoff}
+        super().__init__(reward=reward, depth=depth, width=width, rho=rho, word_limit=word_limit, **extra, **kw)
 
     def default_reward(self):
         return FromOutcome("rewards", description=(
@@ -165,12 +181,25 @@ class ProverEstimatorDebate(Mechanism):
             "claim is true.\n\n"
             f"Payoffs (zero-sum: the estimator gets the negative of the prover). At the start the prover earns "
             f"{self.r ** (self.depth + 1):g} times the estimator's probability for its claim. In each round the "
-            "prover earns a weight times its direction (+1 too_low, 0 about_right, -1 too_high) times (the "
-            "estimator's probability that all subclaims hold minus the estimator's probability for the claim). "
+            + self._round_rule() +
             f"Weights grow by a factor {self.rho:g} per round, reaching 1 at the final check, where the judge's "
             "probability replaces the estimator's. So the prover profits by finding where the estimator's "
             "probabilities are wrong or inconsistent, and the estimator by giving calibrated, coherent "
             "probabilities.")
+
+    def _round_rule(self) -> str:
+        if self.round_payoff == "gap":
+            return ("prover earns a weight times its direction (+1 too_low, 0 about_right, -1 too_high) times (the "
+                    "estimator's probability that all subclaims hold minus the estimator's probability for the "
+                    "claim). ")
+        return ("prover earns a weight times its direction (+1 too_low, 0 about_right, -1 too_high) times the amount "
+                "by which the estimator's probability for the claim falls below its probability that all subclaims "
+                "hold (0 if it does not): since the subclaims imply the claim, that is the only inconsistency a "
+                "decomposition can show, and a probability for all subclaims below the claim's is coherent. ")
+
+    def _round_term(self, k: int, direction: int, p_all: float, p_claim: float) -> float:
+        gap = p_all - p_claim if self.round_payoff == "gap" else max(0.0, p_all - p_claim)
+        return self.r ** k * direction * gap
 
     def _prover_system(self, g: Game, claim: str) -> str:
         return ("You are the prover in a prover-estimator debate about the question below. You defend this claim: "
@@ -251,7 +280,7 @@ class ProverEstimatorDebate(Mechanism):
             ps += [0.5] * (len(subs) - len(ps))
             lo_b = max(0.0, 1.0 - sum(1.0 - p for p in ps))
             p_all = min(min(ps), max(lo_b, _clip(ed.get("all_true", math.prod(ps)), 0.0, 1.0)))
-            rewards.append(self.r ** k * direction * (p_all - p_hat))
+            rewards.append(self._round_term(k, direction, p_all, p_hat))
             listing_p = "\n".join(f"{i}. {s} (estimator: {p:.2f})" for i, (s, p) in enumerate(zip(subs, ps), 1))
             c = await g.act("prover", kind="json", phase=f"choose{lvl['round']}", json_keys=["recurse"], prompt=[
                 Message.system(self._prover_system(g, top_claim)),

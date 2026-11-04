@@ -189,7 +189,7 @@ def main(argv=None):
     train, test = split(run, a.train, a.test)
     ledger = Ledger(run)
     log = logging.getLogger("decisive")
-    mechs = [m for m in protocols() if m.name in a.protocols]
+    mechs = [m for m in protocols(fixed_pe=True) if m.name in a.protocols]
 
     async def all_cells():
         async def one(m, j):

@@ -45,15 +45,21 @@ GT = [StanceValue(), JudgeCorrectness()]
 WORDS = 200
 LEAD_ROLES = {"direct": ["agent"], "direct_strong": ["agent"], "consultancy": ["consultant"],
               "debate_seq": ["debater_a", "debater_b"], "debate_sim": ["debater_a", "debater_b"],
-              "recursive_debate": ["prover"], "prover_estimator": ["prover"]}
+              "recursive_debate": ["prover"], "prover_estimator": ["prover"], "prover_estimator_v2": ["prover"]}
 
 
-def protocols():
-    return [Consultancy(rounds=3, word_limit=WORDS),
-            Debate(rounds=3, simultaneous=False, word_limit=WORDS, name="debate_seq"),
-            Debate(rounds=3, simultaneous=True, word_limit=WORDS, name="debate_sim"),
-            RecursiveDebate(depth=2, width=3, word_limit=WORDS),
-            ProverEstimatorDebate(depth=2, width=3, rho=2.0, word_limit=WORDS)]
+def protocols(fixed_pe: bool = False):
+    """The five protocols of the study. ``prover_estimator`` keeps the literal round payoff the study ran with
+    (``round_payoff="gap"``, exploitable by decoy subclaims); ``fixed_pe`` adds ``prover_estimator_v2``, which pays
+    a decomposition round only for a genuine inconsistency (``so_arena.mechanisms.recursive``)."""
+    out = [Consultancy(rounds=3, word_limit=WORDS),
+           Debate(rounds=3, simultaneous=False, word_limit=WORDS, name="debate_seq"),
+           Debate(rounds=3, simultaneous=True, word_limit=WORDS, name="debate_sim"),
+           RecursiveDebate(depth=2, width=3, word_limit=WORDS),
+           ProverEstimatorDebate(depth=2, width=3, rho=2.0, word_limit=WORDS, round_payoff="gap")]
+    if fixed_pe:
+        out.append(ProverEstimatorDebate(depth=2, width=3, rho=2.0, word_limit=WORDS, name="prover_estimator_v2"))
+    return out
 
 
 def episode_rows(eps, *, judge: str, debater: str) -> list[dict]:
@@ -101,7 +107,7 @@ async def run_chunk(items, run: Path, *, repeats: int, concurrency: int, estimat
         return go(mech, j, d, judge_policy(judges[j]), debater_policy(DEBATERS[d]), st(d, j, mech.name))
 
     def protos():
-        return [m for m in protocols() if mechanisms is None or m.name in mechanisms]
+        return [m for m in protocols(fixed_pe=mechanisms is not None) if mechanisms is None or m.name in mechanisms]
 
     debaters = debaters or list(DEBATERS)
     first, *others = judges
@@ -137,6 +143,7 @@ def main(argv=None):
     ap.add_argument("--judges", nargs="*", default=None, help="judges by name (weak or STRONG_JUDGES; default: weak)")
     ap.add_argument("--protocols", nargs="*", default=None, help="a subset of the protocols by name")
     ap.add_argument("--stage", default="protocols", help="ledger key and rows file prefix")
+    ap.add_argument("--cache", default="protocols", help="response cache under <run>/cache")
     ap.add_argument("--store-root", default="protocols",
                     help="directory under the run for the episode stores (a new one keeps memory low: resuming "
                          "reads every episode of a store); rows always go to <run>/protocols/rows.csv")
@@ -146,7 +153,7 @@ def main(argv=None):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     map_keys()
     run = Path(a.run)
-    soa.configure(cache_dir=str(run / "cache" / "protocols"), simulate=a.estimate or None, concurrency=a.concurrency)
+    soa.configure(cache_dir=str(run / "cache" / a.cache), simulate=a.estimate or None, concurrency=a.concurrency)
     items = selected_items(run, a.limit)[a.offset:]
     ledger = Ledger(run)
     done_before = stage_cost(run, a.stage)
