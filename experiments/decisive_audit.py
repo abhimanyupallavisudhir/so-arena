@@ -35,7 +35,8 @@ from decisive_common import DEBATERS, JUDGES, Ledger, map_keys, selected_items  
 from decisive_optimize import liar_role, mechanisms as opt_mechanisms  # noqa: E402
 
 ROLES = {"consultancy": ["consultant"], "debate_seq": ["debater_a", "debater_b"],
-         "debate_sim": ["debater_a", "debater_b"], "recursive_debate": ["prover"], "prover_estimator": ["prover"]}
+         "debate_sim": ["debater_a", "debater_b"], "recursive_debate": ["prover"], "prover_estimator": ["prover"],
+         "prover_estimator_v2": ["prover"]}
 
 
 def key_of(mechanism: str, item: str, role: str, text: str) -> str:
@@ -45,7 +46,7 @@ def key_of(mechanism: str, item: str, role: str, text: str) -> str:
 def prompted_rows(run: Path) -> list[dict]:
     """One row per (judge, debater, protocol, episode, liar role), with the transcript's audit key."""
     rows = []
-    for root, d, j in ((r, d, j) for r in ("protocols", "protocols_ext") for d in DEBATERS for j in JUDGES):
+    for root, d, j in ((r, d, j) for r in ("protocols", "protocols_ext", "pe_v2") for d in DEBATERS for j in JUDGES):
         for mech, roles in ROLES.items():
             store = run / root / d / j / mech
             if not RunStore(str(store)).has_episodes():

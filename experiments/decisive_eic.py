@@ -41,11 +41,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from decisive_report import _found, committed_filter  # noqa: E402
 
 N_BOOT = 2000
-PROTOCOLS = ["consultancy", "debate_seq", "debate_sim", "recursive_debate", "prover_estimator"]
+PROTOCOLS = ["consultancy", "debate_seq", "debate_sim", "recursive_debate", "prover_estimator", "prover_estimator_v2"]
 NAMES = {"consultancy": "Consultancy", "debate_seq": "Debate, sequential", "debate_sim": "Debate, simultaneous",
          "recursive_debate": "Recursive debate", "prover_estimator": "Prover-estimator",
+         "prover_estimator_v2": "Prover-estimator, fixed",
          "consultancy_1r": "Consultancy, 1 round", "debate_1r": "Debate, 1 round"}
-UNITS = {"recursive_debate": "judge probability", "prover_estimator": "prover payoff"}  # else: log score
+UNITS = {"recursive_debate": "judge probability", "prover_estimator": "prover payoff",
+         "prover_estimator_v2": "prover payoff"}  # else: log score
 JUDGE_ORDER = ["llama-3.1-8b", "gemma-3-12b", "gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1"]
 
 
@@ -123,6 +125,9 @@ def eic_items(df: pd.DataFrame, by: list[str], col: str = "asd", n_boot: int = N
 def instructed(run: Path) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """Per-episode (u, v) of the protocol grid, all prompted liars and committed liars only (gpt-5 audit)."""
     rows = pd.read_csv(_found(run / "protocols" / "rows.csv"))
+    v2 = _found(run / "pe_v2" / "rows.csv")  # the fixed prover-estimator (decisive_protocols.py --stage pe_v2)
+    if v2.exists():
+        rows = pd.concat([rows, pd.read_csv(v2)], ignore_index=True)
     rows = rows[rows.mechanism.isin(PROTOCOLS) & rows.value.notna() & rows.reward.notna()].copy()
     rows["u"], rows["v"] = rows.reward, (rows.value > 0).astype(float)
     vf = _found(run / "audit" / "verdicts_gpt-5.jsonl")
@@ -151,6 +156,40 @@ def best_of_n_one_round(run: Path) -> pd.DataFrame:
 def best_of_n_multiround(run: Path) -> pd.DataFrame:
     f = run / "multiround_items.csv.gz"
     return pd.read_csv(f) if f.exists() else pd.DataFrame()
+
+
+def blind_judge(run: Path, items: dict[str, set] | None = None) -> pd.DataFrame:
+    """The blind-judge baseline: each weak judge alone, with no argument, scores the side an agent defends - the
+    judge-alone episodes of the protocol grid, fresh samples rather than the ones used to select the items. Its
+    ASD is what a protocol would score if it added nothing to the judge's prior, in two units: log score (the unit
+    of consultancy and debate) and probability (recursive debate's). ``items`` restricts it to named item sets,
+    e.g. the prompt search's held-out items; the full set is always included."""
+    rows = pd.read_csv(_found(run / "protocols" / "rows.csv"))
+    x = rows[(rows.mechanism == "direct") & rows.value.notna() & rows.p_true.notna()].copy()
+    x["v"] = (x.value > 0).astype(float)
+    p_side = np.clip(np.where(x.v == 1, x.p_true, 1 - x.p_true), 1e-6, 1.0)
+    sets = {"all": set(x.item), **(items or {})}
+    out = []
+    for name, ids in sets.items():
+        y = x[x.item.isin(ids)]
+        # the judge-alone reward is the log score of the agent's side, as in consultancy and debate
+        for unit, u in (("log score", y.reward.to_numpy()), ("probability", p_side[x.item.isin(ids)])):
+            z = y.assign(u=u)
+            out.append(pd.concat([eic_rows(z, []).assign(judge="all"), eic_rows(z, ["judge"])])
+                       .assign(unit=unit, items_set=name))
+    return pd.concat(out, ignore_index=True)
+
+
+def po_heldout_items(run: Path) -> set:
+    """Every held-out item of the prompt search: the searches' own and the rescored ones."""
+    ids: set = set()
+    for rec in po_records(run):
+        ids |= set(rec.get("test", []))
+    for f in list((run / "eic_po_rescore").glob("*/*.json")) + list((run / "eic_po_rescore").glob("*/*.json.gz")):
+        import gzip
+
+        ids |= set(json.loads(gzip.open(f, "rt").read() if f.suffix == ".gz" else f.read_text()).get("items", []))
+    return ids
 
 
 def po_records(run: Path) -> list[dict]:
@@ -453,6 +492,7 @@ def main(run: str, out: str = "docs/results") -> None:
     js = judge_strength(run)
     if len(js):
         tables["judge_strength"] = eic_rows(js, ["liars", "dataset", "judge", "mechanism"])
+    tables["blind"] = blind_judge(run, {"prompt-search held-out": po_heldout_items(run)})
     agreement = sampler_agreement(tables)
     if agreement is not None:
         tables["agreement_cells"], tables["agreement"] = agreement

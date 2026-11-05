@@ -12,12 +12,37 @@ from eic_style import AQUA, BLUE, CONTEXT, GRID, INK, INK2, MUTED, ORANGE, SURFA
 
 NAMES = {"consultancy": "Consultancy", "debate_seq": "Debate, sequential", "debate_sim": "Debate, simultaneous",
          "recursive_debate": "Recursive debate", "prover_estimator": "Prover-estimator",
-         "consultancy_1r": "Consultancy", "debate_1r": "Debate"}
-UNITS = {"recursive_debate": "judge probability", "prover_estimator": "prover payoff"}
-PROTOCOLS = ["consultancy", "debate_seq", "debate_sim", "recursive_debate", "prover_estimator"]
+         "prover_estimator_v2": "Prover-estimator, fixed", "consultancy_1r": "Consultancy", "debate_1r": "Debate"}
+UNITS = {"recursive_debate": "judge probability", "prover_estimator": "prover payoff",
+         "prover_estimator_v2": "prover payoff"}
+PROTOCOLS = ["consultancy", "debate_seq", "debate_sim", "recursive_debate", "prover_estimator", "prover_estimator_v2"]
+# the blind judge's baseline is in the protocol's own units only where the reward scores the agent's answer
+BLIND_UNIT = {"consultancy": "log score", "debate_seq": "log score", "debate_sim": "log score",
+              "consultancy_1r": "log score", "debate_1r": "log score", "recursive_debate": "probability"}
 JUDGE_ORDER = ["llama-3.1-8b", "gemma-3-12b", "gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1"]
 JUDGE_NAMES = {"llama-3.1-8b": "Llama 3.1 8B", "gemma-3-12b": "Gemma 3 12B", "gpt-4o-mini": "gpt-4o-mini",
                "gpt-4.1-mini": "gpt-4.1-mini", "gpt-4.1": "gpt-4.1"}
+
+
+def blind(tables, mechanism: str, judge: str = "all", items_set: str = "all") -> float:
+    """The blind judge's ASD (no argument seen) in ``mechanism``'s reward units, or NaN where there is none."""
+    unit = BLIND_UNIT.get(mechanism)
+    r = _pick(tables.get("blind"), unit=unit, judge=judge, items_set=items_set) if unit else pd.DataFrame()
+    return float(r.asd.iloc[0]) if len(r) else float("nan")
+
+
+def blind_line(ax, x: float, orient: str = "v", label: bool = True):
+    """The blind-judge baseline as a dashed reference line."""
+    if not np.isfinite(x):
+        return
+    (ax.axvline if orient == "v" else ax.axhline)(x, color=INK2, lw=1, ls=(0, (3, 2)), zorder=0.5)
+    if label:
+        if orient == "v":
+            ax.text(x, 1.0, " blind", transform=ax.get_xaxis_transform(), fontsize=6.5, color=INK2, va="bottom",
+                    ha="center")
+        else:
+            ax.text(1.0, x, " blind", transform=ax.get_yaxis_transform(), fontsize=6.5, color=INK2, va="center",
+                    ha="left")
 
 
 def _pick(t: pd.DataFrame | None, **kw) -> pd.DataFrame:
@@ -55,8 +80,10 @@ def fig_headline(tables, out: Path):
     if df.empty:
         return
     samplers = list(dict.fromkeys(df.sampler))
-    fig, axes = plt.subplots(1, len(PROTOCOLS), figsize=(13.5, 3.0), sharey=True)
-    for ax, m in zip(axes, PROTOCOLS):
+    mechs = [m for m in PROTOCOLS if m in set(df.mechanism)]
+    fig, axes = plt.subplots(1, len(mechs), figsize=(2.7 * len(mechs), 3.0), sharey=True, squeeze=False)
+    axes = axes[0]
+    for ax, m in zip(axes, mechs):
         st.axes(ax, grid="x")
         g = df[df.mechanism == m].set_index("sampler").reindex(samplers)
         y = np.arange(len(samplers))[::-1]
@@ -66,10 +93,12 @@ def fig_headline(tables, out: Path):
             else:
                 ax.text(0.03, yi, "n/a", transform=ax.get_yaxis_transform(), color=CONTEXT, fontsize=7, va="center")
         st.zero(ax)
-        ax.set_title(NAMES[m], fontsize=9)
+        b = blind(tables, m)
+        blind_line(ax, b)
+        ax.set_title(NAMES[m], fontsize=9, pad=10)
         ax.set_xlabel(f"ASD ({UNITS.get(m, 'log score')})", fontsize=7.5)
-        lo = np.nanmin([g.lo.min(), 0]) if g.lo.notna().any() else -1
-        hi = np.nanmax([g.hi.max(), 0]) if g.hi.notna().any() else 1
+        lo = np.nanmin([g.lo.min(), 0, b]) if g.lo.notna().any() else -1
+        hi = np.nanmax([g.hi.max(), 0, b]) if g.hi.notna().any() else 1
         pad = 0.12 * (hi - lo)
         ax.set_xlim(lo - pad, hi + pad)
     axes[0].set_yticks(np.arange(len(samplers))[::-1], samplers)
@@ -78,7 +107,7 @@ def fig_headline(tables, out: Path):
                  x=0.005, ha="left", fontsize=10, color=INK, fontweight="bold", y=1.04)
     fig.text(0.005, 0.965, "EIC as ASD: reward for arguing the true answer minus a false one. gpt-5-mini agents, "
              "3 weak judges pooled, 95% item-bootstrap intervals. Blue: CI above zero; orange: below; gray: "
-             "overlaps zero.", fontsize=7.5, color=INK2, ha="left")
+             "overlaps zero. Dashed: blind judge, who sees no argument.", fontsize=7.5, color=INK2, ha="left")
     fig.tight_layout()
     st.save(fig, out, "fig1_eic_by_sampler")
 
@@ -132,6 +161,7 @@ def fig_prompt_opt(tables, out: Path):
         g = _pick(t, mechanism=m, judge="all").sort_values("round")
         st.line_ci(ax, g["round"], g.asd, g.asd_lo, g.asd_hi, BLUE, label="3 judges pooled")
         st.zero(ax, "h")
+        blind_line(ax, blind(tables, m, items_set="prompt-search held-out"), "h", label=False)
         ax.set_title(NAMES[m])
         ax.set_xticks(sorted(set(g["round"])))
         ax.set_xlabel("search round")
@@ -142,7 +172,8 @@ def fig_prompt_opt(tables, out: Path):
                  "deficit; debate's shrinks but survives", x=0.005, ha="left", fontsize=10, fontweight="bold", y=1.04)
     fig.text(0.005, 0.955, "Blue: 3 judges pooled, with 95% item-bootstrap band; gray: each judge. Round 0 is the "
              "unprompted agent on each side (the instructed sampler); each round keeps the best strategy so far "
-             "on 36 training items; ASD on 80 held-out items.", fontsize=7.5, color=INK2)
+             "on 36 training items; ASD on 480 held-out items (80 for the original prover-estimator). Dashed: "
+             "blind judge.", fontsize=7.5, color=INK2)
     fig.tight_layout()
     st.save(fig, out, "fig3_eic_prompt_optimization")
 
