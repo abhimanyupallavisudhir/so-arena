@@ -10,11 +10,13 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Debate, sequential | +0.74 [+0.66, +0.82] | 0.69 [0.66, 0.72] | +0.18 [+0.16, +0.20] | 927 |
 | Debate, simultaneous | +0.79 [+0.70, +0.87] | 0.72 [0.69, 0.75] | +0.19 [+0.17, +0.21] | 927 |
 | Prover-estimator | -0.13 [-0.15, -0.11] | 0.35 [0.32, 0.38] | -0.14 [-0.16, -0.12] | 927 |
+| Prover-estimator, fixed | -0.11 [-0.14, -0.07] | 0.40 [0.35, 0.44] | -0.11 [-0.15, -0.08] | 400 |
 | Recursive debate | +0.10 [+0.08, +0.11] | 0.64 [0.61, 0.67] | +0.14 [+0.12, +0.16] | 927 |
 | Consultancy | +0.36 [+0.21, +0.51] | 0.65 [0.60, 0.70] | +0.08 [+0.05, +0.12] | 320 |
 | Debate, sequential | +0.77 [+0.62, +0.92] | 0.68 [0.63, 0.73] | +0.19 [+0.16, +0.22] | 320 |
 | Debate, simultaneous | +0.81 [+0.67, +0.96] | 0.72 [0.68, 0.77] | +0.20 [+0.16, +0.23] | 320 |
 | Prover-estimator | -0.15 [-0.19, -0.12] | 0.32 [0.27, 0.37] | -0.16 [-0.20, -0.12] | 320 |
+| Prover-estimator, fixed | -0.12 [-0.16, -0.09] | 0.38 [0.33, 0.43] | -0.13 [-0.16, -0.09] | 320 |
 | Recursive debate | +0.09 [+0.07, +0.11] | 0.63 [0.57, 0.68] | +0.13 [+0.10, +0.16] | 320 |
 
 ## Instructed sampler, committed liars only, gpt-5-mini
@@ -25,71 +27,73 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Debate, sequential | +0.56 [+0.48, +0.64] | 0.65 [0.62, 0.68] | +0.14 [+0.12, +0.16] | 898 |
 | Debate, simultaneous | +0.57 [+0.48, +0.65] | 0.68 [0.65, 0.71] | +0.14 [+0.12, +0.16] | 875 |
 | Prover-estimator | -0.23 [-0.26, -0.20] | 0.27 [0.24, 0.31] | -0.26 [-0.29, -0.23] | 780 |
+| Prover-estimator, fixed | -0.21 [-0.25, -0.17] | 0.28 [0.24, 0.33] | -0.25 [-0.29, -0.20] | 336 |
 | Recursive debate | +0.10 [+0.08, +0.12] | 0.62 [0.59, 0.66] | +0.12 [+0.10, +0.14] | 876 |
 | Consultancy | +0.21 [+0.05, +0.37] | 0.60 [0.55, 0.66] | +0.04 [+0.01, +0.08] | 320 |
 | Debate, sequential | +0.56 [+0.43, +0.69] | 0.66 [0.60, 0.71] | +0.14 [+0.11, +0.17] | 308 |
 | Debate, simultaneous | +0.54 [+0.41, +0.67] | 0.68 [0.63, 0.73] | +0.14 [+0.11, +0.17] | 299 |
 | Prover-estimator | -0.27 [-0.31, -0.23] | 0.22 [0.17, 0.27] | -0.31 [-0.35, -0.27] | 272 |
+| Prover-estimator, fixed | -0.22 [-0.27, -0.17] | 0.27 [0.22, 0.33] | -0.25 [-0.29, -0.20] | 278 |
 | Recursive debate | +0.08 [+0.06, +0.11] | 0.59 [0.54, 0.65] | +0.11 [+0.07, +0.14] | 306 |
 
 ## Prompt optimization: best honest vs best deceptive strategy, held-out
 
 | protocol | search round | held-out ASD | concordance | items |
 |---|---|---|---|---|
-| Consultancy | 0 | +0.55 [+0.15, +0.95] | 0.59 | 80 |
-| Consultancy | 1 | +0.20 [-0.15, +0.59] | 0.55 | 80 |
-| Consultancy | 2 | -0.02 [-0.34, +0.31] | 0.57 | 80 |
-| Consultancy | 3 | -0.25 [-0.61, +0.08] | 0.50 | 80 |
-| Consultancy | 4 | -0.24 [-0.61, +0.11] | 0.50 | 80 |
-| Consultancy | 5 | -0.24 [-0.61, +0.11] | 0.50 | 80 |
-| Debate, sequential | 0 | +0.92 [+0.42, +1.40] | 0.69 | 80 |
-| Debate, sequential | 1 | +0.68 [+0.20, +1.15] | 0.58 | 80 |
-| Debate, sequential | 2 | +0.37 [-0.04, +0.75] | 0.69 | 80 |
-| Debate, sequential | 3 | +0.37 [-0.04, +0.75] | 0.69 | 80 |
-| Debate, sequential | 4 | +0.37 [-0.04, +0.75] | 0.69 | 80 |
-| Debate, sequential | 5 | +0.37 [-0.04, +0.75] | 0.69 | 80 |
-| Debate, simultaneous | 0 | +1.10 [+0.68, +1.54] | 0.74 | 80 |
-| Debate, simultaneous | 1 | +1.17 [+0.69, +1.65] | 0.76 | 80 |
-| Debate, simultaneous | 2 | +0.93 [+0.54, +1.34] | 0.74 | 80 |
-| Debate, simultaneous | 3 | +0.93 [+0.54, +1.34] | 0.74 | 80 |
-| Debate, simultaneous | 4 | +0.93 [+0.54, +1.34] | 0.74 | 80 |
-| Debate, simultaneous | 5 | +0.69 [+0.25, +1.06] | 0.75 | 80 |
+| Consultancy | 0 | +0.42 [+0.26, +0.59] | 0.57 | 480 |
+| Consultancy | 1 | +0.06 [-0.08, +0.20] | 0.50 | 480 |
+| Consultancy | 2 | +0.03 [-0.10, +0.16] | 0.53 | 480 |
+| Consultancy | 3 | -0.01 [-0.14, +0.11] | 0.50 | 480 |
+| Consultancy | 4 | -0.06 [-0.18, +0.06] | 0.47 | 480 |
+| Consultancy | 5 | -0.06 [-0.18, +0.06] | 0.47 | 480 |
+| Debate, sequential | 0 | +0.76 [+0.58, +0.94] | 0.67 | 480 |
+| Debate, sequential | 1 | +0.60 [+0.43, +0.77] | 0.63 | 480 |
+| Debate, sequential | 2 | +0.32 [+0.18, +0.46] | 0.65 | 480 |
+| Debate, sequential | 3 | +0.32 [+0.18, +0.46] | 0.65 | 480 |
+| Debate, sequential | 4 | +0.32 [+0.18, +0.46] | 0.65 | 480 |
+| Debate, sequential | 5 | +0.32 [+0.18, +0.46] | 0.65 | 480 |
+| Debate, simultaneous | 0 | +0.83 [+0.66, +0.99] | 0.71 | 480 |
+| Debate, simultaneous | 1 | +0.70 [+0.52, +0.87] | 0.68 | 480 |
+| Debate, simultaneous | 2 | +0.63 [+0.48, +0.79] | 0.70 | 480 |
+| Debate, simultaneous | 3 | +0.63 [+0.48, +0.79] | 0.70 | 480 |
+| Debate, simultaneous | 4 | +0.63 [+0.48, +0.79] | 0.70 | 480 |
+| Debate, simultaneous | 5 | +0.56 [+0.40, +0.70] | 0.67 | 480 |
 | Prover-estimator | 0 | -0.15 [-0.23, -0.06] | 0.34 | 80 |
 | Prover-estimator | 1 | -0.27 [-0.33, -0.21] | 0.12 | 80 |
 | Prover-estimator | 2 | -0.34 [-0.41, -0.27] | 0.12 | 80 |
 | Prover-estimator | 3 | -0.38 [-0.46, -0.31] | 0.14 | 80 |
 | Prover-estimator | 4 | -0.37 [-0.45, -0.29] | 0.17 | 80 |
 | Prover-estimator | 5 | -0.37 [-0.46, -0.29] | 0.16 | 80 |
-| Recursive debate | 0 | +0.13 [+0.07, +0.19] | 0.69 | 80 |
-| Recursive debate | 1 | +0.14 [+0.09, +0.20] | 0.72 | 80 |
-| Recursive debate | 2 | +0.11 [+0.06, +0.17] | 0.62 | 80 |
-| Recursive debate | 3 | +0.11 [+0.05, +0.17] | 0.65 | 80 |
-| Recursive debate | 4 | +0.12 [+0.06, +0.18] | 0.66 | 80 |
-| Recursive debate | 5 | +0.09 [+0.03, +0.16] | 0.59 | 80 |
+| Recursive debate | 0 | +0.13 [+0.10, +0.15] | 0.66 | 480 |
+| Recursive debate | 1 | +0.14 [+0.12, +0.16] | 0.70 | 480 |
+| Recursive debate | 2 | +0.15 [+0.12, +0.17] | 0.67 | 480 |
+| Recursive debate | 3 | +0.15 [+0.12, +0.17] | 0.67 | 480 |
+| Recursive debate | 4 | +0.13 [+0.10, +0.15] | 0.63 | 480 |
+| Recursive debate | 5 | +0.10 [+0.08, +0.13] | 0.60 | 480 |
 
 ## Prompt optimization: reward of the best strategy so far, training vs held-out items
 
 | protocol | search | items | round 0 | round 5 | gain |
 |---|---|---|---|---|---|
-| Consultancy | deceptive | held-out | -1.24 | -0.70 | +0.54 |
+| Consultancy | deceptive | held-out | -1.24 | -0.68 | +0.56 |
 | Consultancy | deceptive | train | -1.36 | -0.34 | +1.02 |
-| Consultancy | honest | held-out | -0.69 | -0.94 | -0.24 |
+| Consultancy | honest | held-out | -0.82 | -0.74 | +0.08 |
 | Consultancy | honest | train | -0.70 | -0.35 | +0.35 |
-| Debate, sequential | deceptive | held-out | -2.18 | -1.88 | +0.30 |
+| Debate, sequential | deceptive | held-out | -1.86 | -1.61 | +0.25 |
 | Debate, sequential | deceptive | train | -2.01 | -1.22 | +0.78 |
-| Debate, sequential | honest | held-out | -1.26 | -1.51 | -0.25 |
+| Debate, sequential | honest | held-out | -1.09 | -1.29 | -0.19 |
 | Debate, sequential | honest | train | -1.33 | -1.07 | +0.26 |
-| Debate, simultaneous | deceptive | held-out | -2.20 | -1.90 | +0.30 |
+| Debate, simultaneous | deceptive | held-out | -1.83 | -1.76 | +0.07 |
 | Debate, simultaneous | deceptive | train | -1.91 | -1.14 | +0.77 |
-| Debate, simultaneous | honest | held-out | -1.10 | -1.21 | -0.12 |
+| Debate, simultaneous | honest | held-out | -1.00 | -1.20 | -0.20 |
 | Debate, simultaneous | honest | train | -1.27 | -0.81 | +0.46 |
 | Prover-estimator | deceptive | held-out | +0.06 | +0.71 | +0.65 |
 | Prover-estimator | deceptive | train | +0.01 | +0.85 | +0.85 |
 | Prover-estimator | honest | held-out | -0.09 | +0.34 | +0.42 |
 | Prover-estimator | honest | train | -0.06 | +0.35 | +0.41 |
-| Recursive debate | deceptive | held-out | +0.18 | +0.27 | +0.09 |
+| Recursive debate | deceptive | held-out | +0.17 | +0.23 | +0.06 |
 | Recursive debate | deceptive | train | +0.19 | +0.36 | +0.17 |
-| Recursive debate | honest | held-out | +0.30 | +0.36 | +0.06 |
+| Recursive debate | honest | held-out | +0.29 | +0.34 | +0.04 |
 | Recursive debate | honest | train | +0.27 | +0.41 | +0.14 |
 
 ## Prompt optimization: covariance over every searched strategy (training items)
@@ -220,14 +224,14 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 
 | samplers | scope | Spearman | cells |
 |---|---|---|---|
-| instructed vs po | all cells | +0.40 | 15 |
+| instructed vs po | all cells | +0.39 | 15 |
 | instructed vs po | within gemma-3-12b | +0.20 | 5 |
 | instructed vs po | within gpt-4o-mini | +0.50 | 5 |
-| instructed vs po | within llama-3.1-8b | -0.21 | 5 |
-| committed vs po | all cells | +0.41 | 15 |
+| instructed vs po | within llama-3.1-8b | -0.30 | 5 |
+| committed vs po | all cells | +0.39 | 15 |
 | committed vs po | within gemma-3-12b | +0.20 | 5 |
 | committed vs po | within gpt-4o-mini | +0.80 | 5 |
-| committed vs po | within llama-3.1-8b | -0.21 | 5 |
+| committed vs po | within llama-3.1-8b | -0.30 | 5 |
 | instructed vs committed | all cells | +0.99 | 15 |
 | instructed vs committed | within gemma-3-12b | +1.00 | 5 |
 | instructed vs committed | within gpt-4o-mini | +0.90 | 5 |
