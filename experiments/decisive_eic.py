@@ -264,6 +264,32 @@ def po_goodhart(run: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def po_goodhart_cells(gh: pd.DataFrame, n_boot: int = N_BOOT) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Held-out gain of each search's best strategy from round 0 (the unprompted agent) to the last round, per
+    (protocol, judge, search); and its mean over the cells with an interval from resampling cells. One
+    prover-estimator per summary (the fixed payoff when both are present), so the cells are 5 protocols x judges."""
+    h = gh[gh.split == "held-out"]
+    if h.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    m = h.groupby(["mechanism", "judge", "side", "round"]).reward.mean().reset_index()
+    last = m.groupby(["mechanism", "judge", "side"])["round"].transform("max")
+    first = m[m["round"] == 0].set_index(["mechanism", "judge", "side"]).reward
+    final = m[m["round"] == last].set_index(["mechanism", "judge", "side"]).reward
+    cells = (final - first).rename("gain").reset_index()
+    cells["search"] = np.where(cells.side.astype(str) == "true", "honest", "deceptive")
+    use = cells
+    if {"prover_estimator", "prover_estimator_v2"} <= set(cells.mechanism):
+        use = cells[cells.mechanism != "prover_estimator"]
+    out = []
+    for search, g in use.groupby("search"):
+        x = g.gain.to_numpy()
+        W = _boot_weights(len(x), n_boot, seed=1)
+        b = (W @ x) / W.sum(1)
+        out.append({"search": search, "gain": float(x.mean()), "gain_lo": float(np.quantile(b, .025)),
+                    "gain_hi": float(np.quantile(b, .975)), "improved": int((x > 0).sum()), "cells": len(x)})
+    return cells.drop(columns="side"), pd.DataFrame(out)
+
+
 def mean_items(df: pd.DataFrame, by: list[str], col: str = "reward", n_boot: int = N_BOOT) -> pd.DataFrame:
     """Mean of ``col`` with a 95% item-bootstrap interval (judges averaged within an item first)."""
     out = []
@@ -315,6 +341,11 @@ def choosing_a_side(run: Path, holdout: bool = True) -> pd.DataFrame:
         return res
 
     rows = []
+    cached = run / ("side_debate_items_holdout.csv.gz" if holdout else "side_debate_items.csv.gz")
+    trees = any(tree_path(run, d, j, "debate_1r", "true").exists() for d in DEBATERS for j in JUDGES)
+    if cached.exists() and not trees:  # the committed data bundle keeps no trees
+        out.append(pd.read_csv(cached))
+        return pd.concat(out, ignore_index=True)
     for d in DEBATERS:
         for j in JUDGES:
             arms = {}
@@ -333,7 +364,9 @@ def choosing_a_side(run: Path, holdout: bool = True) -> pd.DataFrame:
                     rows.append({"debater": d, "judge": j, "mechanism": "debate_1r", "n": n, "item": it,
                                  "honest": float((pr * hon).sum()), "reward": float(np.nansum(pr * rep))})
     if rows:
-        out.append(pd.DataFrame(rows))
+        df = pd.DataFrame(rows)
+        df.to_csv(cached, index=False)  # per-item rows for the data bundle
+        out.append(df)
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
 
@@ -417,14 +450,24 @@ def sampler_agreement(tables: dict):
     cells = pd.DataFrame(cells)
     from scipy.stats import spearmanr
 
+    # One prover-estimator per protocol set, so the outlying protocol is not counted twice: the fixed payoff is the
+    # main set, the original payoff a robustness row.
+    if {"prover_estimator", "prover_estimator_v2"} <= set(cells.mechanism):
+        sets = {"fixed prover-estimator": "prover_estimator", "original prover-estimator": "prover_estimator_v2"}
+    else:
+        sets = {"all protocols": None}
     out = []
-    for a, b in (("instructed", "po"), ("committed", "po"), ("instructed", "committed")):
-        for scope, g in [("all cells", cells)] + [(f"within {j}", h) for j, h in cells.groupby("judge")]:
-            g = g.dropna(subset=[a, b])
-            if len(g) >= 3:
-                rho = spearmanr(g[a], g[b]).statistic
-                out.append({"samplers": f"{a} vs {b}", "scope": scope, "spearman": float(rho), "cells": len(g)})
-    return cells, pd.DataFrame(out)
+    for label, drop in sets.items():
+        use = cells[cells.mechanism != drop]
+        for a, b in (("instructed", "po"), ("committed", "po"), ("instructed", "committed")):
+            for scope, g in [("all cells", use)] + [(f"within {j}", h) for j, h in use.groupby("judge")]:
+                g = g.dropna(subset=[a, b])
+                if len(g) >= 3:
+                    rho = spearmanr(g[a], g[b]).statistic
+                    out.append({"protocol_set": label, "samplers": f"{a} vs {b}", "scope": scope,
+                                "spearman": float(rho), "cells": len(g)})
+    main = cells[cells.mechanism != "prover_estimator"] if (cells.mechanism == "prover_estimator_v2").any() else cells
+    return main.reset_index(drop=True), pd.DataFrame(out)
 
 
 # ------------------------------------------------------------------------------------------------ main
@@ -476,6 +519,7 @@ def main(run: str, out: str = "docs/results") -> None:
         po_strat.to_csv(eic / "prompt_optimization_strategies.csv", index=False)
         gh = po_goodhart(run)
         tables["po_goodhart"] = mean_items(gh, ["mechanism", "side", "split", "round"])
+        tables["po_goodhart_cells"], tables["po_goodhart_summary"] = po_goodhart_cells(gh)
     side = choosing_a_side(run)
     if len(side):
         g = side.groupby(["mechanism", "n", "item"])[["honest", "reward"]].mean().reset_index()

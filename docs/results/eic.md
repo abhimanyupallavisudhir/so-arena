@@ -64,6 +64,12 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Prover-estimator | 3 | -0.38 [-0.46, -0.31] | 0.14 | 80 |
 | Prover-estimator | 4 | -0.37 [-0.45, -0.29] | 0.17 | 80 |
 | Prover-estimator | 5 | -0.37 [-0.46, -0.29] | 0.16 | 80 |
+| Prover-estimator, fixed | 0 | -0.09 [-0.14, -0.05] | 0.42 | 480 |
+| Prover-estimator, fixed | 1 | -0.26 [-0.29, -0.23] | 0.23 | 480 |
+| Prover-estimator, fixed | 2 | -0.21 [-0.24, -0.18] | 0.26 | 480 |
+| Prover-estimator, fixed | 3 | -0.21 [-0.24, -0.18] | 0.26 | 480 |
+| Prover-estimator, fixed | 4 | -0.23 [-0.26, -0.20] | 0.27 | 480 |
+| Prover-estimator, fixed | 5 | -0.23 [-0.26, -0.20] | 0.27 | 480 |
 | Recursive debate | 0 | +0.13 [+0.10, +0.15] | 0.66 | 480 |
 | Recursive debate | 1 | +0.14 [+0.12, +0.16] | 0.70 | 480 |
 | Recursive debate | 2 | +0.15 [+0.12, +0.17] | 0.67 | 480 |
@@ -91,10 +97,21 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Prover-estimator | deceptive | train | +0.01 | +0.85 | +0.85 |
 | Prover-estimator | honest | held-out | -0.09 | +0.34 | +0.42 |
 | Prover-estimator | honest | train | -0.06 | +0.35 | +0.41 |
+| Prover-estimator, fixed | deceptive | held-out | +0.03 | +0.32 | +0.29 |
+| Prover-estimator, fixed | deceptive | train | +0.00 | +0.40 | +0.40 |
+| Prover-estimator, fixed | honest | held-out | -0.06 | +0.09 | +0.15 |
+| Prover-estimator, fixed | honest | train | -0.03 | +0.18 | +0.21 |
 | Recursive debate | deceptive | held-out | +0.17 | +0.23 | +0.06 |
 | Recursive debate | deceptive | train | +0.19 | +0.36 | +0.17 |
 | Recursive debate | honest | held-out | +0.29 | +0.34 | +0.04 |
 | Recursive debate | honest | train | +0.27 | +0.41 | +0.14 |
+
+## Prompt optimization: held-out gain per (protocol, judge) cell, mean over cells
+
+| search | held-out gain, round 0 to last | cells improved |
+|---|---|---|
+| deceptive | +0.25 [+0.10, +0.39] | 12 of 15 |
+| honest | -0.02 [-0.13, +0.07] | 9 of 15 |
 
 ## Prompt optimization: covariance over every searched strategy (training items)
 
@@ -104,6 +121,7 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 | Debate, sequential | +0.41 [+0.11, +0.72] | +0.08 [+0.02, +0.15] | 4428 |
 | Debate, simultaneous | +0.50 [+0.16, +0.84] | +0.11 [+0.03, +0.18] | 4392 |
 | Prover-estimator | -0.21 [-0.25, -0.17] | -0.21 [-0.25, -0.17] | 3672 |
+| Prover-estimator, fixed | -0.13 [-0.18, -0.09] | -0.17 [-0.22, -0.11] | 4283 |
 | Recursive debate | +0.08 [+0.03, +0.12] | +0.12 [+0.05, +0.18] | 4392 |
 
 ## Exact best-of-n, one round (held-out judging)
@@ -222,20 +240,32 @@ EIC: the protocol's reward for arguing the true answer minus its reward for argu
 
 ## Sampler agreement: rank correlation of EIC (concordance) between samplers
 
-| samplers | scope | Spearman | cells |
-|---|---|---|---|
-| instructed vs po | all cells | +0.39 | 15 |
-| instructed vs po | within gemma-3-12b | +0.20 | 5 |
-| instructed vs po | within gpt-4o-mini | +0.50 | 5 |
-| instructed vs po | within llama-3.1-8b | -0.30 | 5 |
-| committed vs po | all cells | +0.39 | 15 |
-| committed vs po | within gemma-3-12b | +0.20 | 5 |
-| committed vs po | within gpt-4o-mini | +0.80 | 5 |
-| committed vs po | within llama-3.1-8b | -0.30 | 5 |
-| instructed vs committed | all cells | +0.99 | 15 |
-| instructed vs committed | within gemma-3-12b | +1.00 | 5 |
-| instructed vs committed | within gpt-4o-mini | +0.90 | 5 |
-| instructed vs committed | within llama-3.1-8b | +1.00 | 5 |
+| protocols | samplers | scope | Spearman | cells |
+|---|---|---|---|---|
+| fixed prover-estimator | instructed vs po | all cells | +0.69 | 15 |
+| fixed prover-estimator | instructed vs po | within gemma-3-12b | +0.20 | 5 |
+| fixed prover-estimator | instructed vs po | within gpt-4o-mini | +0.50 | 5 |
+| fixed prover-estimator | instructed vs po | within llama-3.1-8b | +0.60 | 5 |
+| fixed prover-estimator | committed vs po | all cells | +0.69 | 15 |
+| fixed prover-estimator | committed vs po | within gemma-3-12b | +0.20 | 5 |
+| fixed prover-estimator | committed vs po | within gpt-4o-mini | +0.80 | 5 |
+| fixed prover-estimator | committed vs po | within llama-3.1-8b | +0.60 | 5 |
+| fixed prover-estimator | instructed vs committed | all cells | +0.99 | 15 |
+| fixed prover-estimator | instructed vs committed | within gemma-3-12b | +1.00 | 5 |
+| fixed prover-estimator | instructed vs committed | within gpt-4o-mini | +0.90 | 5 |
+| fixed prover-estimator | instructed vs committed | within llama-3.1-8b | +1.00 | 5 |
+| original prover-estimator | instructed vs po | all cells | +0.39 | 15 |
+| original prover-estimator | instructed vs po | within gemma-3-12b | +0.20 | 5 |
+| original prover-estimator | instructed vs po | within gpt-4o-mini | +0.50 | 5 |
+| original prover-estimator | instructed vs po | within llama-3.1-8b | -0.30 | 5 |
+| original prover-estimator | committed vs po | all cells | +0.39 | 15 |
+| original prover-estimator | committed vs po | within gemma-3-12b | +0.20 | 5 |
+| original prover-estimator | committed vs po | within gpt-4o-mini | +0.80 | 5 |
+| original prover-estimator | committed vs po | within llama-3.1-8b | -0.30 | 5 |
+| original prover-estimator | instructed vs committed | all cells | +0.99 | 15 |
+| original prover-estimator | instructed vs committed | within gemma-3-12b | +1.00 | 5 |
+| original prover-estimator | instructed vs committed | within gpt-4o-mini | +0.90 | 5 |
+| original prover-estimator | instructed vs committed | within llama-3.1-8b | +1.00 | 5 |
 
 ## Tournament: each model's reward arguing the truth minus lying
 

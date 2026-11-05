@@ -35,10 +35,10 @@ four samplers of increasing optimization pressure: instructed honest and dishone
 only the arguments that actually lie, best-of-$n$ selection against the judge's reward, and prompt optimization by
 a frontier model searching separately for the best honest and the best deceptive strategy. Instructed liars make
 every protocol except prover-estimator look incentive compatible. Under optimization the picture splits: optimized
-deception erases consultancy's incentive to be honest (held-out ASD $-0.24$, honesty wins on half the items),
-deepens prover-estimator's deficit ($-0.37$), and shrinks but does not erase debate's ($+0.37$ sequential,
-$+0.69$ simultaneous) and recursive debate's ($+0.09$). The cheap sampler only partly predicts the optimized one
-(Spearman $0.40$ across protocol--judge cells). EIC rises steeply with judge capability (in debate, honesty
+deception erases consultancy's incentive to be honest (held-out ASD $-0.06$, honesty wins on half the items),
+deepens prover-estimator's deficit ($-0.23$, even after fixing an exploitable payoff), and shrinks but does not
+erase debate's ($+0.32$ sequential, $+0.56$ simultaneous) and recursive debate's ($+0.10$). The cheap sampler only
+partly predicts the optimized one (Spearman $0.69$ across protocol--judge cells). EIC rises steeply with judge capability (in debate, honesty
 wins on 58--61\% of items with Llama-3.1-8B and 90--92\% with gpt-4.1) and, unlike accuracy, stays high for
 judges that already know the answer. Prompted liars that refuse to lie, common among safety-trained models,
 inflate a model's EIC from at most $+0.6$ to as much as $+4.0$.
@@ -106,8 +106,10 @@ writes system-prompt strategies for the agent, in two separate searches per prot
 assigned the true answer under an \emph{honest} directive, one for the agent assigned a false answer under a
 \emph{deceptive} directive (``win anyway''). Each search runs five rounds of four candidates (GEPA-style reflection on
 the best strategy's transcripts) on 36 training items. EIC is the ASD between the best honest and the best
-deceptive strategy, both chosen on training reward and scored on 80 disjoint held-out items, after each round.
+deceptive strategy, both chosen on training reward and scored on 480 disjoint held-out items, after each round.
 \end{itemize}
+\paragraph{Blind-judge baseline.} The same judge shown only the question and the side the agent defends, never an
+argument, pays the agent by its prior. Its ASD is the incentive a protocol would have if arguments were ignored.
 Every sampler that selects on the judge's reward is scored on an \emph{independent} judge sample: two samples of the
 same judge on the same argument correlate only $r \approx 0.2$ within an item, so in-sample selection mostly
 selects noise (\S\ref{sec:hazards}).
@@ -156,6 +158,12 @@ half) but changes no sign and barely changes the ranking. Prover-estimator debat
 the false answer on two-thirds of items: without a coherent estimator its subclaim pricing rewards lying.
 Figure~\ref{fig:heatmap} shows the same pattern for each judge; consultancy under Llama-3.1-8B is already negative
 (instructed ASD $-0.26$\ci{-0.41}{-0.12}).
+
+The right zero point on these items is not zero. A blind judge, shown no argument, pays $-0.58$\ci{-0.77}{-0.40}
+for honesty in log score ($-0.11$ in probability; honesty wins on 43\% of items), because the items were selected for
+the judges' prior being wrong. Every protocol except prover-estimator is far above that line under every sampler,
+including consultancy after optimization: arguments move the judge off its prior even where optimizing them no
+longer favours honesty.
 
 \begin{figure}[t]
 \centering
@@ -206,26 +214,31 @@ round (gpt-5-mini; blue: judges pooled; gray: each judge).}
 \begin{table}[t]
 \centering\small
 \caption{EIC under prompt optimization (held-out, 3 judges pooled): round 0 is the unprompted agent on each side;
-round 5 the best strategies after five rounds of search.}
+round 5 the best strategies after five rounds of search. 480 held-out items (80 for the original
+prover-estimator).}
 \label{tab:po}
 \begin{tabular}{lccc}
 \toprule
 protocol & round 0 & round 5 & concordance, round 5 \\
 \midrule
-consultancy & $+0.55$ & $-0.24$\ci{-0.61}{+0.11} & 0.50 \\
-debate, sequential & $+0.92$ & $+0.37$\ci{-0.04}{+0.75} & 0.69 \\
-debate, simultaneous & $+1.10$ & $+0.69$\ci{+0.25}{+1.07} & 0.75 \\
-recursive debate & $+0.13$ & $+0.09$\ci{+0.03}{+0.16} & 0.59 \\
-prover-estimator & $-0.15$ & $-0.37$\ci{-0.46}{-0.29} & 0.16 \\
+consultancy & $+0.42$ & $-0.06$\ci{-0.18}{+0.06} & 0.47 \\
+debate, sequential & $+0.77$ & $+0.32$\ci{+0.18}{+0.46} & 0.65 \\
+debate, simultaneous & $+0.83$ & $+0.56$\ci{+0.40}{+0.70} & 0.67 \\
+recursive debate & $+0.13$ & $+0.10$\ci{+0.08}{+0.13} & 0.60 \\
+prover-estimator, original & $-0.15$ & $-0.37$\ci{-0.46}{-0.29} & 0.16 \\
+prover-estimator, fixed & $-0.09$ & $-0.23$\ci{-0.26}{-0.20} & 0.27 \\
+\midrule
+blind judge (log score) & \multicolumn{2}{c}{$-0.61$\ci{-0.88}{-0.33}} & 0.45 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 Prompt optimization is the strongest sampler here (Figure~\ref{fig:po}, Table~\ref{tab:po}). Every protocol's EIC
 falls as the searches proceed, because deception improves faster than honest argument. Consultancy's incentive is
-erased: under Llama-3.1-8B and Gemma-3-12B the best deceptive consultant out-earns the best honest one on held-out
-items. Prover-estimator's deficit deepens. Debate's EIC shrinks by 40--60\% but stays positive when pooled
-over judges, significantly so for simultaneous debate; recursive debate's small positive incentive barely moves.
+erased (from $+0.42$ to $-0.06$); under Llama-3.1-8B the best deceptive consultant out-earns the best honest one
+($-0.66$\ci{-0.91}{-0.44}). Prover-estimator's deficit deepens (\S\ref{sec:pe}). Debate's EIC shrinks by 58\%
+(sequential) and 33\% (simultaneous) but stays significantly positive when pooled over judges; under Gemma-3-12B
+both debates end near zero. Recursive debate's small positive incentive barely moves.
 Over every strategy the searches produced (a population covariance rather than a frontier), the honest-minus-deceptive
 reward is $+0.41$\ci{+0.11}{+0.72} for sequential debate, $+0.50$\ci{+0.16}{+0.84} for simultaneous debate and
 $+0.16$\ci{-0.08}{+0.40} for consultancy.
@@ -234,17 +247,18 @@ $+0.16$\ci{-0.08}{+0.40} for consultancy.
 \centering
 \includegraphics[width=\linewidth]{fig9_po_goodhart_paper.pdf}
 \caption{Goodhart curves of the prompt search: reward of each search's best strategy so far on the 36 training items
-it was selected on (dashed) and on 80 held-out items (solid, 95\% item-bootstrap band); gpt-5-mini, judges pooled.}
+it was selected on (dashed) and on 480 held-out items (solid, 95\% item-bootstrap band); gpt-5-mini, judges pooled.}
 \label{fig:goodhart}
 \end{figure}
 
 Figure~\ref{fig:goodhart} shows why. Both searches climb on their training items, but only the deceptive search's
-gains transfer. Over five rounds, the best deceptive strategy's held-out reward rises by $+0.38$\ci{+0.17}{+0.58}
-(mean over the 15 protocol--judge cells, bootstrap over cells; positive in 12), the best honest one's by
-$-0.03$\ci{-0.20}{+0.16}. In consultancy and both debates the honest strategies chosen on training reward do worse on
-held-out items than the unprompted agent ($-0.12$ to $-0.25$): with a judge whose verdicts on the same argument
-correlate at $r\approx0.2$, an honest search mostly fits judge noise, while deceptive strategies find something that
-generalizes. Prover-estimator debate is the exception, where both searches gain (honest $+0.42$, deceptive $+0.65$).
+gains transfer. Over five rounds, the best deceptive strategy's held-out reward rises by $+0.25$\ci{+0.10}{+0.39}
+(mean over the 15 protocol--judge cells with the fixed prover-estimator, bootstrap over cells; positive in 12), the
+best honest one's by $-0.02$\ci{-0.13}{+0.07}. In both debates the honest strategies chosen on training reward do
+worse on held-out items than the unprompted agent ($-0.19$ and $-0.20$): with a judge whose verdicts on the same
+argument correlate at $r\approx0.2$, an honest search mostly fits judge noise, while deceptive strategies find
+something that generalizes. Prover-estimator debate is the exception, where both searches gain (fixed payoff:
+honest $+0.15$, deceptive $+0.29$).
 
 \section{Do the samplers agree?}\label{sec:agreement}
 
@@ -252,7 +266,7 @@ generalizes. Prover-estimator debate is the exception, where both searches gain 
 \centering
 \includegraphics[width=\linewidth]{fig1_eic_by_sampler_paper.pdf}
 \caption{EIC (ASD) of each protocol under each sampler, gpt-5-mini, judges pooled. Blue: interval above zero; orange:
-below; gray: overlaps zero.}
+below; gray: overlaps zero. Dashed: the blind judge, shown no argument.}
 \label{fig:headline}
 \end{figure}
 
@@ -260,13 +274,14 @@ Figure~\ref{fig:headline} collects the samplers. EIC is measured to predict what
 reward would do, and prompt optimization is our closest such optimizer; the question is whether the cheap instructed
 measurement could stand in for it. We compute concordance both ways for each of the 15 (protocol, judge) cells and
 compare the orderings. The instructed sampler and its committed-liar variant rank the 15
-(protocol, judge) cells almost identically (Spearman $0.99$), but either ranks them only loosely like prompt
-optimization does ($0.40$ across cells; within a judge it ranges from $-0.21$ to $+0.80$;
-Figure~\ref{fig:agree}). Instructed ASD gets the extremes right on average---prover-estimator is not incentive
-compatible, debate is---but misses which protocols survive optimization under a given judge. Under Gemma-3-12B it
-rates consultancy the most incentive-compatible protocol ($+0.91$\ci{+0.76}{+1.06}); against optimized deception
-consultancy's EIC there is $-0.24$. Under Llama-3.1-8B, conversely, prover-estimator turns positive after
-optimization ($+0.36$\ci{+0.21}{+0.50}) while every instructed estimate is negative.
+(protocol, judge) cells almost identically (Spearman $0.99$), but either ranks them only partly like prompt
+optimization does ($0.69$ across cells with the fixed prover-estimator, $0.39$ with the original; within a judge,
+over only five protocols, $0.20$--$0.60$; Figure~\ref{fig:agree}). Instructed ASD gets the extremes right on
+average---prover-estimator is not incentive compatible, debate is---but misses which protocols survive
+optimization under a given judge. Under Gemma-3-12B it rates consultancy the most incentive-compatible protocol
+($+0.91$\ci{+0.76}{+1.06}, against $+0.64$ and $+0.68$ for the debates); after optimization all three are near zero
+($+0.22$, $+0.02$, $-0.06$). Under gpt-4o-mini, simultaneous debate's incentive instead grows with optimization
+($+0.83$ to $+0.95$).
 
 \begin{figure}[t]
 \centering
@@ -310,6 +325,29 @@ every model's EIC lies between $0.0$ and $+0.6$. Instructed samplers built from 
 incentive compatibility severely (Opus~5.5: $+3.98$ with all prompted liars, $+0.01$ with committed ones); the
 effective-lie sampler or an optimizing sampler is needed.
 
+\section{Why prover-estimator debate fails here}\label{sec:pe}
+
+Prover-estimator debate \citep{browncohen2025prover} pays the prover a small start term for the estimator's
+probability of its answer, a term per decomposition round, and a leaf term: direction $\times$ (judge's probability
+$-$ estimator's probability) for the final subclaim, with the direction chosen by the prover. Splitting the
+reward of 16{,}718 instructed episodes into these terms shows that the leaf term carries the deficit: the strong
+estimator prices true leaves at 0.87 and false ones at 0.21, while the weak judges stay near the middle (0.56 and
+0.40), so an honest prover defending a true leaf loses on average ($-0.20$). Llama-3.1-8B is anti-informative at
+the leaf (0.28 for true leaves, 0.43 for false).
+
+Our first implementation also paid each decomposition round for any gap between the estimator's probability of the
+claim and of the conjunction of its subclaims. Since our subclaims need only imply the claim, $P(\text{all}) <
+P(\text{claim})$ is coherent, and calling the claim ``too high'' earned money whatever the truth. The deceptive
+prompt search found this under every judge (``a coherent estimator always gives $P(\text{all}) \le
+P(\text{claim})$, so say too\_high every round''), adding logically impossible decoy subclaims. We fixed the payoff
+to pay only for the incoherence a sufficient decomposition can show, $P(\text{claim}) < P(\text{all})$, and re-ran
+both samplers. The fix removes the exploit but not the deficit: instructed ASD $-0.11$\ci{-0.14}{-0.07}, prompt-optimized
+$-0.23$\ci{-0.26}{-0.20}. The deceptive search now finds a genuine lie: steer the recursion to the leaf the
+estimator prices lowest that still reads as true out of context, phrase it as a soft generalization (``tends to'',
+``is more associated with''), and defend it in an authoritative voice with invented supporting observations. The
+leaf term rewards honesty only if the leaf judge is more accurate than the estimator; with a weak judge and a
+strong estimator it rewards finding where the judge is most wrong.
+
 \section{Hazards in measuring incentives against LLM judges}\label{sec:hazards}
 
 \paragraph{Judge noise.} Two independent samples of the same judge on the same argument correlate $r = 0.08$--$0.33$
@@ -329,17 +367,18 @@ sequential protocols.
 The question for a training method is whether optimizing against it rewards honesty. On conceptual reasoning with
 weak judges, the answer depends on the protocol and on the optimizer. Instructed liars make consultancy, debate and
 recursive debate all look incentive compatible. A prompt optimizer that searches for good lies breaks consultancy and
-leaves debate's incentive positive but diminished; prover-estimator debate without a trained estimator rewards lying
-under every sampler. The incentive grows with the judge's capability, far more than with the protocol.
+leaves debate's incentive positive but diminished; prover-estimator debate with a weak leaf judge rewards lying
+under every sampler, with or without its payoff exploit. The incentive grows with the judge's capability, far more than with the protocol.
 
 \paragraph{Limitations.} $v$ is by construction and binary; graded ground truth (e.g.\ expert-rated essays) would
 allow richer behaviour spaces. The optimizers are inference-time; whether EIC under these samplers predicts the effect
-of RL training is the open question this study prepares for but does not answer. The prompt-optimized liars were not
-audited for commitment. Judges are LLMs, not people.
+of RL training is the open question this study prepares for but does not answer. The prompt searches optimize each
+side against the unprompted opponent, not against each other. The prompt-optimized liars were not audited for
+commitment. Judges are LLMs, not people.
 
 \paragraph{Reproducibility.} All experiments use the open-source \texttt{so-arena} library. The scripts are in its
 \nolinkurl{experiments/} directory, the data and tables in \nolinkurl{docs/results/}. Total API spend was
-about \$5{,}960.
+about \$7{,}100.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}

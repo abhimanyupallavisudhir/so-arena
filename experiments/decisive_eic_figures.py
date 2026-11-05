@@ -316,7 +316,7 @@ def fig_agreement(tables, out: Path):
     fig, axes = plt.subplots(1, 2, figsize=(9.2, 3.8), sharey=True)
     colors = dict(zip([j for j in JUDGE_ORDER if j in set(cells.judge)], (BLUE, ORANGE, AQUA)))
     short = {"consultancy": "cons.", "debate_seq": "seq.", "debate_sim": "sim.", "recursive_debate": "rec.",
-             "prover_estimator": "PE"}
+             "prover_estimator": "PE", "prover_estimator_v2": "PE fixed"}
     for ax, x, title in zip(axes, ("instructed", "committed"), ("Instructed liars", "Committed liars only")):
         st.axes(ax)
         for j, g in cells.groupby("judge"):
@@ -324,7 +324,9 @@ def fig_agreement(tables, out: Path):
             for _, r in g.iterrows():
                 ax.annotate(short[r.mechanism], (r[x], r.po), xytext=(5, 3), textcoords="offset points",
                             fontsize=6.8, color=INK2)
-        lims = [0.0, 1.0]
+        vals = np.concatenate([cells[["instructed", "committed", "po"]].to_numpy().ravel(), [0.5]])
+        vals = vals[np.isfinite(vals)]
+        lims = [max(0.0, np.floor(vals.min() * 10) / 10 - 0.05), min(1.0, np.ceil(vals.max() * 10) / 10 + 0.05)]
         ax.plot(lims, lims, color=CONTEXT, lw=1, zorder=1)
         ax.axhline(0.5, color=INK2, lw=0.8)
         ax.axvline(0.5, color=INK2, lw=0.8)
@@ -334,7 +336,12 @@ def fig_agreement(tables, out: Path):
         ax.set_title(title)
     axes[0].set_ylabel("concordance, prompt-optimized strategies")
     axes[0].legend(loc="upper left")
-    fig.suptitle("Does EIC measured with instructed liars predict EIC under optimization? Only loosely",
+    agr = tables.get("agreement")
+    rho = ""
+    if agr is not None and not agr.empty:
+        a = agr[(agr.samplers == "instructed vs po") & (agr.scope == "all cells")].iloc[0]
+        rho = f" (Spearman {a.spearman:.2f} over {a.cells} cells)"
+    fig.suptitle("Does EIC measured with instructed liars predict EIC under optimization? Partly" + rho,
                  x=0.005, ha="left", fontsize=10, fontweight="bold", y=1.03)
     fig.text(0.005, 0.95, "Each point: one protocol under one judge. x: share of items where honesty out-earns lying "
              "when the agent is just told which side to argue; y: the same after prompt optimization.", fontsize=7.5, color=INK2)
@@ -446,6 +453,12 @@ def report_markdown(tables: dict) -> str:
                ("items", lambda r: r.split), (f"round {k0}", lambda r: f"{r[k0]:+.2f}"),
                (f"round {k1}", lambda r: f"{r[k1]:+.2f}"), ("gain", lambda r: f"{r.gain:+.2f}")],
               "Prompt optimization: reward of the best strategy so far, training vs held-out items")
+    t = tables.get("po_goodhart_summary")
+    if t is not None and not t.empty:
+        table(t, [("search", lambda r: r.search),
+                  ("held-out gain, round 0 to last", lambda r: f"{r.gain:+.2f} [{r.gain_lo:+.2f}, {r.gain_hi:+.2f}]"),
+                  ("cells improved", lambda r: f"{r.improved} of {r.cells}")],
+              "Prompt optimization: held-out gain per (protocol, judge) cell, mean over cells")
     t = tables.get("po_population")
     if t is not None:
         table(t[t.judge == "all"], [("protocol", proto), ("ASD", _fmt), ("r", lambda r: f"{r.r:+.2f} [{r.r_lo:+.2f}, {r.r_hi:+.2f}]"),
@@ -473,7 +486,8 @@ def report_markdown(tables: dict) -> str:
               "EIC by judge capability (the same debates re-judged)")
     t = tables.get("agreement")
     if t is not None:
-        table(t, [("samplers", lambda r: r.samplers), ("scope", lambda r: r.scope),
+        table(t, [("protocols", lambda r: r.get("protocol_set", "all")), ("samplers", lambda r: r.samplers),
+                  ("scope", lambda r: r.scope),
                   ("Spearman", lambda r: f"{r.spearman:+.2f}"), ("cells", lambda r: str(r.cells))],
               "Sampler agreement: rank correlation of EIC (concordance) between samplers")
     t = tables.get("tournament")

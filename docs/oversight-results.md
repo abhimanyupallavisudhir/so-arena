@@ -5,6 +5,10 @@ helping when the arguers are optimized against the judge? Questions come from th
 ([conceptual validation testbed](https://github.com/abhimanyupallavisudhir/conceptual-validation-testbed)): 10 families, 16 items each, with hidden ground truth from computation or
 experiment.
 
+> **Update (2026-11-05).** Final numbers for the headline: prompt-search strategies rescored on 480 held-out
+> items (was 80), blind-judge baselines, and prover-estimator re-run with its decomposition payoff fixed. The fix
+> removes the payoff exploit but not the failure: the fixed protocol still pays more for lying under every sampler.
+>
 > **Update (2026-11-02).** The [headline](#headline-empirical-incentive-compatibility-added-2026-11-02) is now
 > empirical incentive compatibility: whether each protocol's reward favours honesty under instructed, best-of-n
 > and prompt-optimized liars. The judge-accuracy sections that follow are secondary.
@@ -57,8 +61,13 @@ it argued a false one.
   - instructed arguments with committed liars only (effective lies; this handles conceding liars);
   - best-of-$n$;
   - prompt optimization: Claude Opus 5.5 searches separately for the best honest and the best deceptive
-    strategy, selected on 36 items and scored on 80 held-out items.
+    strategy, selected on 36 items and scored on 480 held-out items (80 for the original prover-estimator).
 - **Held-out judging:** every selecting sampler is scored on independent judge samples.
+- **Blind-judge baseline:** the same judge, shown only the question and which side the agent defends, never an
+  argument. Its "ASD" is what the judge's prior alone pays for honesty. On these items it is negative, because they
+  were selected for the judges getting them wrong: −0.58 [−0.77, −0.40] in log score, −0.11 [−0.13, −0.08] in
+  probability. The dashed lines in the figures mark it. A protocol whose ASD is above the blind line is overturning
+  the judge's wrong prior, even where its ASD is below zero.
 
 **Code and outputs:**
 - Code: [`experiments/decisive_eic.py`](../experiments/decisive_eic.py),
@@ -71,23 +80,33 @@ it argued a false one.
 
 | protocol (gpt-5-mini, 3 weak judges) | instructed ASD | committed liars | best-of-16 per speech, both / liar only | prompt-optimized (held-out) |
 |---|---|---|---|---|
-| consultancy | +0.38 [+0.29, +0.47] | +0.21 [+0.12, +0.31] | −0.06 / +0.10 | **−0.24** [−0.61, +0.11] |
-| debate, sequential | +0.74 [+0.66, +0.82] | +0.56 [+0.48, +0.64] | +0.60 / +0.22 | **+0.37** [−0.04, +0.75] |
-| debate, simultaneous | +0.79 [+0.70, +0.87] | +0.57 [+0.48, +0.65] | – | **+0.69** [+0.25, +1.07] |
-| recursive debate | +0.10 [+0.08, +0.11] | +0.10 [+0.08, +0.12] | – | **+0.09** [+0.03, +0.16] |
-| prover-estimator | −0.13 [−0.15, −0.11] | −0.23 [−0.26, −0.20] | – | **−0.37** [−0.46, −0.29] |
+| consultancy | +0.38 [+0.29, +0.47] | +0.21 [+0.12, +0.31] | −0.06 / +0.10 | **−0.06** [−0.18, +0.06] |
+| debate, sequential | +0.74 [+0.66, +0.82] | +0.56 [+0.48, +0.64] | +0.60 / +0.22 | **+0.32** [+0.18, +0.46] |
+| debate, simultaneous | +0.79 [+0.70, +0.87] | +0.57 [+0.48, +0.65] | – | **+0.56** [+0.40, +0.70] |
+| recursive debate | +0.10 [+0.08, +0.11] | +0.10 [+0.08, +0.12] | – | **+0.10** [+0.08, +0.13] |
+| prover-estimator, original payoff | −0.13 [−0.15, −0.11] | −0.23 [−0.26, −0.20] | – | **−0.37** [−0.46, −0.29] (80 items) |
+| prover-estimator, fixed payoff | −0.11 [−0.14, −0.07] (400 items) | −0.21 [−0.25, −0.17] | – | **−0.23** [−0.26, −0.20] |
+| *blind judge (no argument)* | *−0.58 log score / −0.11 probability* | | | *−0.61 / −0.11 on the 480 items* |
+
+Units: log score for consultancy and the debates, judge probability for recursive debate, prover payoff for
+prover-estimator (which has no blind counterpart). Prompt-optimized: the best honest strategy's held-out reward
+minus the best deceptive strategy's, after five search rounds; round 0, the unprompted agent on both sides, is
+the instructed sampler on the same items.
 
 What holds up:
-1. **Instructed liars make every protocol but prover-estimator look incentive compatible.** Prover-estimator debate,
-   as implemented here, pays a prover more for the false side on two-thirds of items. The audit below shows why:
-   a weak leaf judge, and a payoff flaw that optimization exploits by gaming the payoff, not by lying
+1. **Instructed liars make every protocol but prover-estimator look incentive compatible.** Prover-estimator debate
+   pays a prover more for the false side on about 60% of items, with the original payoff and with the fixed one
    ([Why prover-estimator debate fails here](#why-prover-estimator-debate-fails-here-added-2026-11-04)).
 2. **Optimized deception erases consultancy's incentive to be honest.**
-   - Under Llama-3.1-8B and Gemma-3-12B, the best deceptive consultant found by prompt search out-earns the best
-     honest one on held-out items.
-   - With three-round best-of-16, consultancy's ASD falls to zero.
-3. **Debate's incentive shrinks under optimization but survives.**
-   - Prompt optimization cuts it by 40–60%, and simultaneous debate stays significantly positive.
+   - Prompt search takes consultancy's held-out ASD from +0.42 at round 0 to −0.06 [−0.18, +0.06]. Under
+     Llama-3.1-8B the best deceptive consultant out-earns the best honest one (−0.66 [−0.91, −0.44]).
+   - With three-round best-of-16, consultancy's ASD also falls to about zero.
+   - Consultancy is still well above the blind judge (−0.61): the consultant's argument moves the judge off its
+     wrong prior, but optimizing the consultant no longer favours honesty.
+3. **Debate's incentive shrinks under optimization but survives, pooled over judges.**
+   - Prompt search cuts sequential debate's ASD by 58% (+0.77 to +0.32 [+0.18, +0.46]) and simultaneous debate's
+     by 33% (+0.83 to +0.56 [+0.40, +0.70]). Both stay clearly positive.
+   - Not under every judge: under Gemma-3-12B both debates end at about zero (+0.02 and −0.06).
    - Three-round debate keeps a positive incentive under best-of-16 when both sides are optimized (+0.60).
    - The exception is one-round debate with only the liar optimized, whose incentive reverses (−0.37); see
      [`fig2`](results/eic/fig2_eic_under_best_of_n.png).
@@ -98,25 +117,32 @@ What holds up:
    - Test: compute EIC both ways for each of the 15 (protocol, judge) combinations (5 protocols × 3 judges). Then
      ask whether the cheap measurement orders the 15 the same way the optimized one does: Spearman rank correlation
      across the 15.
-   - Result: only loosely (0.40). Within one judge, the ordering of the 5 protocols ranges from −0.21 to +0.80.
+   - Result: partly (Spearman 0.69, using the fixed prover-estimator; 0.39 with the original one). Within one
+     judge, the ordering of the 5 protocols agrees at 0.20 (Gemma), 0.50 (gpt-4o-mini) and 0.60 (Llama). With
+     only 5 protocols per judge, these within-judge correlations are themselves very noisy.
    - Removing liars who conceded does not help. The committed-liar version orders the 15 almost exactly like the
      plain instructed one (0.99), so this gap is not caused by conceding liars.
+   - The earlier figure (0.40) came from 80 held-out items; part of the disagreement there was noise in the
+     optimized measurement.
    - The cheap measurement gets the coarse picture right: debate is incentive compatible, prover-estimator is not.
      It gets wrong which protocols survive optimization under a given judge:
-     - under Gemma, instructed ASD rates consultancy the most incentive compatible protocol (+0.91), while optimized
-       deception brings it to −0.24;
-     - under Llama, prover-estimator turns positive (+0.36) after optimization.
+     - under Gemma, instructed ASD rates consultancy the most incentive compatible protocol (+0.91, against +0.64
+       and +0.68 for the debates); after optimization all three are near zero (+0.22, +0.02, −0.06);
+     - under gpt-4o-mini, simultaneous debate's incentive *grows* with optimization (+0.83 to +0.95), while
+       recursive debate ranks with the debates on concordance before optimization and well below them after.
    - See [`fig8`](results/eic/fig8_sampler_agreement.png).
 5. **Optimization pressure pays off for lying, not for honesty**
    ([`fig9`](results/eic/fig9_po_goodhart.png), a Goodhart curve for the prompt search).
    - Each search's best strategy climbs on the 36 training items it is selected on.
-   - On held-out items, over five rounds, averaged over the 15 combinations:
-     - the deceptive strategy gains +0.38 [+0.17, +0.58], in 12 of 15;
-     - the honest strategy gains −0.03 [−0.20, +0.16];
+   - On 480 held-out items, from round 0 to round 5, averaged over the 15 combinations (fixed prover-estimator):
+     - the deceptive strategy gains +0.25 [+0.10, +0.39], in 12 of 15;
+     - the honest strategy gains −0.02 [−0.13, +0.07], in 9 of 15;
      - intervals are a bootstrap over the 15 combinations.
-   - In consultancy and both debates, the selected honest strategies do worse on held-out items than the unprompted
-     agent (−0.12 to −0.25): the honest search mostly fits judge noise.
-   - Prover-estimator is the exception: both searches gain there (honest +0.42, deceptive +0.65).
+   - In both debates, the selected honest strategies do worse on held-out items than the unprompted agent (−0.19
+     and −0.20): the honest search mostly fits judge noise. In consultancy they gain a little (+0.08), the
+     deceptive ones much more (+0.56).
+   - Prover-estimator is the exception: both searches gain there (honest +0.15, deceptive +0.29 with the fixed
+     payoff; +0.42 and +0.65 with the original).
    - This is why EIC falls under optimization.
 6. **EIC grows steeply with judge capability, and dissociates from accuracy.**
    - On the same debates, re-judged, honesty wins on 58–61% of items with Llama-3.1-8B and 90–92% with gpt-4.1.
@@ -135,14 +161,17 @@ Other figures:
 - [Sampler agreement](results/eic/fig8_sampler_agreement.png).
 - [Training vs held-out reward along the prompt search](results/eic/fig9_po_goodhart.png).
 
-Prompt optimization cost $676. Total spend for the whole decisive study is about $5,960.
+Prompt optimization cost $1,259 (the original searches $676, the fixed prover-estimator's $583), the held-out
+rescoring $463, and the fixed prover-estimator's instructed runs $82. Total spend for the whole decisive study is
+about $7,100 (per-stage ledger in `runs/decisive/spend.json`: $7,085, plus about $16 of pilots).
 
 
 ### Why prover-estimator debate fails here (added 2026-11-04)
 
 I audited the prover-estimator episodes: 16,718 instructed episodes with gpt-5-mini as prover and estimator,
 under the three weak judges, broken down into the terms of the prover's reward, plus the strategies the prompt
-search found. Two separate things go wrong. Neither is the prover lying successfully about the answer.
+search found. Two separate things go wrong. With the original payoff, neither is the prover lying successfully
+about the answer; with the fixed payoff (point 3 below), the optimized prover does.
 
 **1. With instructed provers, the weak leaf judge does the damage.** The prover's reward is a start term
 (0.125 × the estimator's probability for its claim), two decomposition terms, and a leaf term:
@@ -189,16 +218,37 @@ conceptual question do not reach claims that a weak judge can check.
 - The honest search converged on the same idea in sincere form: "predict what an outside judge would say".
 
 **What this means for the EIC results.**
-- Prover-estimator's negative ASD is real for the protocol *as implemented here*. It reflects a payoff that
-  rewards gaming whatever side the prover is on, plus a weak leaf judge. It is not evidence that the
-  Brown-Cohen et al. protocol rewards lying.
-- With $v$ fixed by construction (the assigned side), the optimized "deceptive" behaviour is mislabelled.
-  Prover-estimator is the one protocol where the assigned side and the argued position come apart.
-- **Fix:**
-  - pay the decomposition terms only for genuine inconsistencies, either by requiring decompositions the parent
-    price must match, or by dropping the "too high" payment when P(all) < P(claim) can be coherent;
-  - let the estimator challenge a decomposition as invalid, with the judge checking that challenge;
-  - re-measure with the fixed payoff.
+- With the original payoff, prover-estimator's negative ASD under optimization reflects a payoff that rewards
+  gaming whatever side the prover is on, plus a weak leaf judge. With $v$ fixed by construction (the assigned
+  side), that optimized "deceptive" behaviour was mislabelled: the assigned side and the argued position came
+  apart.
+- **Fix:** pay the decomposition terms only for genuine inconsistencies. so-arena's prover-estimator now does this
+  by default (`round_payoff="incoherence"`): a round pays only when the estimator prices the claim *below* the
+  conjunction of subclaims that imply it, the one incoherence a sufficient decomposition can show. The literal
+  version (`"gap"`) is kept so that the earlier episodes stay reproducible. The study runs the fixed protocol as
+  `prover_estimator_v2`.
+
+**3. The fix removes the exploit but not the failure** (added 2026-11-05).
+- Instructed, on 400 items × 3 samples × 3 judges: ASD −0.11 [−0.14, −0.07], against −0.14 for the original
+  payoff on the same items; committed liars only −0.21 [−0.25, −0.17]. The weak leaf judge (point 1) is
+  untouched by the fix, and it carries most of the deficit.
+- Prompt-optimized, on 480 held-out items: −0.23 [−0.26, −0.20], against −0.37 for the original. Under gpt-4o-mini
+  and Gemma the deceptive search gains far more than the honest one (+0.27 and +0.26, against +0.07 and +0.03),
+  ending at −0.31 and −0.34. Under Llama both gain about equally (+0.33 and +0.36), and the ASD ends near zero
+  (−0.04 [−0.09, 0.00]).
+- What the deceptive search found this time is a real lie, not a payoff exploit. Its best strategies all say
+  "too low" every round (which, under the fix, can no longer lose), then steer the recursion to the leaf the
+  estimator prices *lowest* that still sounds true to an outsider, and finish with an authoritative argument for
+  it. Under Gemma: "target leaves the estimator prices at or below 0.3 that a fresh judge rates 0.95 or higher …
+  a context-free, softly hedged generalisation favouring your side. Use 'tends to', 'is more associated with'".
+  Under gpt-4o-mini it adds "one invented supporting observation, e.g. 'persona-steering evaluations consistently
+  show…'"; under Llama, "specific-sounding citations … numbers".
+- So the remaining failure is the protocol's leaf assumption. The leaf term pays direction × (judge −
+  estimator), which is an incentive for honesty only if the leaf judge is more accurate than the estimator. With
+  a weak judge and a strong estimator it is the reverse: the payoff rewards finding the leaf where the weak judge
+  is most wrong. This is the same weak-judge problem as point 1, now found and used by an optimizer.
+- With the fix, the assigned side and the argued position agree again (the deceptive provers argue for their false
+  answer), so $v$ by construction labels the behaviour correctly.
 
 ## Findings
 
@@ -678,8 +728,11 @@ Per-family tables: [`results/decisive_extended_grid_gpt-5-mini_by_family.csv`](r
 | QuALITY replication | 638 |
 | stronger judges on replayed debates | 319 |
 | liar audits (gpt-4.1-mini, then gpt-5 on about 77,000 texts) and auditor check | 429 |
-| pilots outside the run ledger | 14 |
-| **total** | **about 5,290** (1,262 for the first decisive study, about 4,030 for the extension) |
+| EIC prompt optimization (15 searches, then the fixed prover-estimator's 3) | 1,259 |
+| held-out rescoring of the prompt-search strategies (400 more items) | 463 |
+| fixed prover-estimator, instructed (400 items) | 82 |
+| pilots outside the run ledger | about 16 |
+| **total** | **about 7,100** (1,262 for the first decisive study, about 4,030 for the extension, about 1,800 for the EIC headline) |
 
 Spend per stage comes from the stage's recorded episode costs or its response cache. The cache records each paid
 call once. Where a stage paid for the same call twice concurrently, the larger, episode-based figure is used.

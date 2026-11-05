@@ -332,6 +332,35 @@ def test_sampler_agreement_ranks_cells_across_samplers():
     assert row.spearman == pytest.approx(0.8)
 
 
+def test_sampler_agreement_counts_one_prover_estimator_per_protocol_set():
+    cells = [("consultancy", 0.6, 0.3), ("debate_seq", 0.7, 0.9), ("debate_sim", 0.75, 0.8),
+             ("prover_estimator", 0.3, 0.2), ("prover_estimator_v2", 0.4, 0.25)]
+    ins = pd.DataFrame([{"mechanism": m, "judge": "j1", "debater": "gpt-5-mini", "concordance": a, "asd": a}
+                        for m, a, _ in cells])
+    po = pd.DataFrame([{"mechanism": m, "judge": "j1", "round": 5, "concordance": b, "asd": b} for m, _, b in cells])
+    cell_table, agreement = de.sampler_agreement({"instructed": ins, "committed": ins, "po_path": po})
+    assert set(cell_table.mechanism) == {"consultancy", "debate_seq", "debate_sim", "prover_estimator_v2"}
+    assert set(agreement.protocol_set) == {"fixed prover-estimator", "original prover-estimator"}
+    assert (agreement.cells == 4).all()
+
+
+def test_po_goodhart_cells_takes_last_round_minus_round_zero_on_held_out_items():
+    rows = []
+    for m in ("consultancy", "prover_estimator", "prover_estimator_v2"):
+        for side, (r0, r1) in (("true", (0.0, -0.1)), ("false", (-1.0, -0.5))):
+            for k, r in ((0, r0), (1, (r0 + r1) / 2), (2, r1)):
+                for item in ("a", "b"):
+                    rows.append({"mechanism": m, "judge": "j", "side": side, "round": k, "split": "held-out",
+                                 "item": item, "reward": r})
+                    rows.append({"mechanism": m, "judge": "j", "side": side, "round": k, "split": "train",
+                                 "item": item, "reward": 9.0})
+    cells, summary = de.po_goodhart_cells(pd.DataFrame(rows), n_boot=50)
+    assert len(cells) == 6
+    s = summary.set_index("search")
+    assert s.loc["honest", "gain"] == pytest.approx(-0.1) and s.loc["deceptive", "gain"] == pytest.approx(0.5)
+    assert (s.cells == 2).all() and s.loc["deceptive", "improved"] == 2
+
+
 def test_prompt_optimization_seats_are_balanced_exactly():
     import decisive_eic_po as po
 
