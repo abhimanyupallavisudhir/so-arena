@@ -102,7 +102,7 @@ def judge_policy(spec: dict) -> soa.LLMPolicy:
     """A judge reasoning in private before its verbalized probabilities (as the study's weak judges)."""
     from decisive_common import _model
 
-    return soa.LLMPolicy(_model(spec["model"], "judge"), cot=True, temperature=0.7, max_tokens=2000,
+    return soa.LLMPolicy(_model(spec["model"], "judge"), cot=True, temperature=0.7, max_tokens=4000,
                          reasoning_effort=spec.get("reasoning_effort"))
 
 
