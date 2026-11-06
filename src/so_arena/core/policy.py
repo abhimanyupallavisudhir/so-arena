@@ -209,6 +209,9 @@ def format_instructions(request: ActionRequest, elicitation: str = "ask") -> str
         if elicitation == "logprobs":
             return f"Reply with only the label of the correct answer ({', '.join(opts)}) and nothing else."
         example = "{" + ", ".join(f'"{o}": <probability>' for o in opts) + "}"
+        if elicitation == "ask_now":
+            return (f"Reply at once with only your probability for each answer as a JSON object, {example}, and "
+                    "nothing else: no explanation or working. The probabilities must sum to 1.")
         return (
             "Think it through, then end your reply with your probability for each answer as a JSON "
             f"object on the last line: {example}. The probabilities must sum to 1."
@@ -288,7 +291,8 @@ class LLMPolicy(Policy):
         model: model name or :class:`Model`.
         strategy: behavioural instructions (e.g. from prompt optimization) added to the system prompt.
         system_prompt: extra system text (persona, etc.).
-        elicitation: how probabilities are obtained - ``"ask"`` (verbalized JSON), ``"logprobs"``
+        elicitation: how probabilities are obtained - ``"ask"`` (verbalized JSON after thinking it through),
+            ``"ask_now"`` (verbalized JSON at once, no reasoning: an instant judge), ``"logprobs"``
             (next-token probabilities over labels, "tip of the tongue"), ``"vote"`` (frequency over
             ``n_votes`` sampled choices).
         cot: ask the model to reason privately in ``<thinking>`` tags; the reasoning is recorded but
