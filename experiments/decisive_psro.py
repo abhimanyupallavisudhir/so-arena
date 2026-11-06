@@ -240,8 +240,8 @@ class Cell:
 
     async def ensure_pair(self, split: str, h: str, l: str) -> None:
         path = self.pair_path(split, h, l)
-        if path.exists():
-            return
+        if path.exists() and not any(r["error"] for r in self.load_pair(split, h, l)):
+            return  # complete; a pair with errored episodes is replayed (finished episodes come from the cache)
         items = self.train if split == "train" else self.test
         recs, _ = await play(self.mech, items, self.policy("honest", h), self.policy("liar", l), self.judge,
                              truth=self.truth, concurrency=self.concurrency, keep_text=split == "test")
@@ -356,7 +356,8 @@ def main(argv=None):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     map_keys()
     run = Path(a.run)
-    soa.configure(cache_dir=str(run / "cache" / STAGE))
+    # gpt-5-mini's hidden reasoning is most of each cached completion and nothing reads it
+    soa.configure(cache_dir=str(run / "cache" / STAGE), cache_reasoning=False)
     items = selected_items(run)[OFFSET:OFFSET + a.train + a.test]
     train, test = items[:a.train], items[a.train:]
     log = logging.getLogger("decisive")

@@ -78,7 +78,9 @@ class CachedModel(Model):
             usage = hit.usage.model_copy(update={"cost_usd": 0.0, "cached_calls": 1, "calls": 0})
             return hit.model_copy(update={"cached": True, "usage": usage})
         out = await self.inner.generate(list(messages), options, sample_index=sample_index)
-        self.cache.put(key, out)
+        from so_arena.config import settings
+
+        self.cache.put(key, out if settings.cache_reasoning or not out.reasoning else out.model_copy(update={"reasoning": None}))
         return out
 
 

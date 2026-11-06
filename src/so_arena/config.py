@@ -17,6 +17,9 @@ class Settings(BaseModel):
     attempt_timeout: int | None = None
     # concurrent requests per model (Inspect's default is 10, which throttles large concurrent runs)
     max_connections: int | None = None
+    # keep native reasoning text (e.g. a reasoning model's summaries) in the response cache; dropping it saves
+    # most of the space for reasoning models whose reasoning nothing downstream reads
+    cache_reasoning: bool = True
 
 
 settings = Settings()
@@ -30,6 +33,7 @@ def configure(
     max_retries: int | None = None,
     attempt_timeout: int | None = None,
     max_connections: int | None = None,
+    cache_reasoning: bool | None = None,
 ) -> Settings:
     """Set global options.
 
@@ -41,6 +45,8 @@ def configure(
         max_retries: retries of a failed provider call (default: unlimited, Inspect's default).
         attempt_timeout: seconds after which a provider call attempt is abandoned and retried.
         max_connections: concurrent requests per model (Inspect's default is 10).
+        cache_reasoning: keep native reasoning text in the response cache (default True). Without it, a
+            replayed call returns the same text and usage but no reasoning.
     """
     from so_arena.models import base
 
@@ -56,5 +62,7 @@ def configure(
         settings.attempt_timeout = attempt_timeout
     if max_connections is not None:
         settings.max_connections = max_connections
+    if cache_reasoning is not None:
+        settings.cache_reasoning = cache_reasoning
     base._MODEL_CACHE.clear()
     return settings

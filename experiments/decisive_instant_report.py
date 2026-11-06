@@ -98,11 +98,13 @@ def tree_tables(run: Path) -> pd.DataFrame:
     from decisive_ic import cell_rows
     from decisive_instant import INSTANT
 
-    rows = []
-    for j in INSTANT:
-        for m in ("consultancy_1r", "debate_1r"):
-            rows += [dict(r, judging="instant") for r in cell_rows(run / "instant", DEBATER, j, m)]
-    df = pd.DataFrame(rows)
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+
+    cells = [(run / "instant", DEBATER, j, m) for j in INSTANT for m in ("consultancy_1r", "debate_1r")]
+    with ProcessPoolExecutor(max_workers=min(len(cells), os.cpu_count() or 1)) as pool:
+        got = list(pool.map(cell_rows, *zip(*cells)))
+    df = pd.DataFrame([dict(r, judging="instant") for rows in got for r in rows])
     hold = run / "ic_items_holdout.csv.gz"
     if hold.exists():
         h = pd.read_csv(hold)
@@ -114,8 +116,9 @@ def tree_tables(run: Path) -> pd.DataFrame:
 def reliability(run: Path) -> pd.DataFrame:
     out = []
     for f in sorted((run / "instant" / "reliability").glob("*.csv")):
-        d = pd.read_csv(f).drop_duplicates(["episode", "draw"])
-        w = d.pivot_table(index="episode", columns="draw", values="p_true")
+        # the two draws' episode ids differ (the judge is part of them): pair them by item, arm and sample
+        d = pd.read_csv(f).drop_duplicates(["item", "arm", "repeat", "draw"])
+        w = d.pivot_table(index=["item", "arm", "repeat"], columns="draw", values="p_true")
         if w.shape[1] < 2:
             continue
         w = w.dropna()

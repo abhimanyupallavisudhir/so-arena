@@ -187,3 +187,31 @@ def test_report_evaluates_each_equilibrium_on_held_out_items(tmp_path):
     assert rows[1]["asd"] == pytest.approx(0.25 * 1.8 + 0.75 * -0.4) and rows[1]["support_l"] == 2
     single = np.mean([math.log(0.6), math.log(0.8)]) - np.mean([math.log(0.4), math.log(0.2)])
     assert rows[0]["asd_1"] == pytest.approx(single)
+
+
+def test_cache_can_drop_native_reasoning(tmp_path):
+    from so_arena.config import settings
+    from so_arena.core.types import Completion, GenerateOptions, Message
+    from so_arena.models.base import Model
+    from so_arena.models.cache import CachedModel, ResponseCache
+
+    class Reasoner(Model):
+        name = "reasoner"
+        supports_logprobs = False
+        calls = 0
+
+        async def generate(self, messages, options=None, *, sample_index=0):
+            Reasoner.calls += 1
+            return Completion(text="answer", reasoning="long hidden reasoning", model=self.name)
+
+    old = settings.cache_reasoning
+    try:
+        settings.cache_reasoning = False
+        m = CachedModel(Reasoner(), ResponseCache(tmp_path / "c.sqlite"))
+        msgs = [Message(role="user", content="q")]
+        first = run_sync(m.generate(msgs, GenerateOptions()))
+        again = run_sync(m.generate(msgs, GenerateOptions()))
+        assert first.reasoning == "long hidden reasoning"  # the live call keeps it
+        assert again.cached and again.text == "answer" and again.reasoning is None and Reasoner.calls == 1
+    finally:
+        settings.cache_reasoning = old
