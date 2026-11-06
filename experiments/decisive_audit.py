@@ -134,6 +134,11 @@ def stage_rows(run: Path) -> list[dict]:
             ds, d, j = store.parent.parent.parent.name, store.parent.parent.name, store.parent.name
             if d in DEBATERS:
                 add("judges", store, debater=d, judge=j, dataset=ds)
+    pn = run / "panel" / "stores"  # the model panel: the first judge's episodes (others replay the transcripts)
+    if pn.exists():
+        for store in sorted(pn.glob("*/*")):
+            if store.is_dir():
+                add("panel", store, debater=store.parent.name, judge="first")
     q = run / "quality"
     if q.exists():
         for store in sorted(q.glob("*/*/*")):
@@ -236,7 +241,7 @@ def main(argv=None):
     ap.add_argument("--estimate", action="store_true")
     ap.add_argument("--auditor", default="gpt-4.1-mini", choices=list(AUDITORS))
     ap.add_argument("--kinds", nargs="*", default=["prompted", "optimized", "tournament", "multiround", "quality",
-                                                   "judges"])
+                                                   "judges", "panel"])
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.WARNING)
     map_keys()
@@ -254,6 +259,12 @@ def main(argv=None):
         from decisive_quality import quality_items
 
         items.update({it.id: it for it in quality_items(10_000)[1]})
+    if any(r["kind"] == "panel" for r in later):
+        from so_arena.core.items import TaskItem
+
+        f = run / "panel" / "items.jsonl"
+        items.update({it.id: it for it in (TaskItem.model_validate_json(x) for x in f.read_text().splitlines()
+                                            if x.strip())})
     rows += later
     vf = verdict_file(out, a.auditor)
     done = {json.loads(line)["key"] for line in vf.read_text().splitlines()} if vf.exists() else set()

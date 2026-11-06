@@ -1,0 +1,239 @@
+{
+ "source": "Artificial Analysis Intelligence Index v4.3 snapshot (legibench3 project resource data/aa_snapshot.json, fetched 2026-09; mapping conventions from legibench3 configs/aa_mapping.json)",
+ "agents": [
+  {
+   "name": "llama-3.1-8b",
+   "model": "openrouter/meta-llama/llama-3.1-8b-instruct",
+   "reasoning_effort": null,
+   "aa_slug": "llama-3-1-instruct-8b",
+   "aa_name": "Llama 3.1 Instruct 8B",
+   "aa_index": 6.9
+  },
+  {
+   "name": "gpt-4o-mini",
+   "model": "openai/gpt-4o-mini",
+   "reasoning_effort": null,
+   "aa_slug": "gpt-4o-mini",
+   "aa_name": "GPT-4o mini",
+   "aa_index": 6.7
+  },
+  {
+   "name": "qwen3-14b",
+   "model": "openrouter/qwen/qwen3-14b",
+   "reasoning_effort": "none",
+   "aa_slug": "qwen3-14b-instruct",
+   "aa_name": "Qwen3 14B (Non-reasoning)",
+   "aa_index": 6.7
+  },
+  {
+   "name": "llama-3.1-70b",
+   "model": "openrouter/meta-llama/llama-3.1-70b-instruct",
+   "reasoning_effort": null,
+   "aa_slug": "llama-3-1-instruct-70b",
+   "aa_name": "Llama 3.1 Instruct 70B",
+   "aa_index": 6.6
+  },
+  {
+   "name": "mistral-small-4",
+   "model": "openrouter/mistralai/mistral-small-2603",
+   "reasoning_effort": "none",
+   "aa_slug": "mistral-small-4-non-reasoning",
+   "aa_name": "Mistral Small 4 (Non-reasoning)",
+   "aa_index": 9
+  },
+  {
+   "name": "gpt-4.1",
+   "model": "openai/gpt-4.1",
+   "reasoning_effort": null,
+   "aa_slug": "gpt-4-1",
+   "aa_name": "GPT-4.1",
+   "aa_index": 12.7
+  },
+  {
+   "name": "claude-haiku-4.5",
+   "model": "anthropic/claude-haiku-4-5",
+   "reasoning_effort": null,
+   "aa_slug": "claude-4-5-haiku",
+   "aa_name": "Claude 4.5 Haiku (Non-reasoning)",
+   "aa_index": 15.4
+  },
+  {
+   "name": "deepseek-v3.2",
+   "model": "openrouter/deepseek/deepseek-v3.2",
+   "reasoning_effort": "none",
+   "aa_slug": "deepseek-v3-2",
+   "aa_name": "DeepSeek V3.2 (Non-reasoning)",
+   "aa_index": 16
+  },
+  {
+   "name": "claude-sonnet-4.5",
+   "model": "anthropic/claude-sonnet-4-5",
+   "reasoning_effort": null,
+   "aa_slug": "claude-4-5-sonnet",
+   "aa_name": "Claude 4.5 Sonnet (Non-reasoning)",
+   "aa_index": 19.3
+  },
+  {
+   "name": "gpt-5-mini@medium",
+   "model": "openai/gpt-5-mini",
+   "reasoning_effort": "medium",
+   "aa_slug": "gpt-5-mini-medium",
+   "aa_name": "GPT-5 mini (medium)",
+   "aa_index": 20.6
+  },
+  {
+   "name": "claude-sonnet-5@low",
+   "model": "anthropic/claude-sonnet-5",
+   "reasoning_effort": "low",
+   "aa_slug": "claude-sonnet-5-low",
+   "aa_name": "Claude Sonnet 5 (Adaptive Reasoning, Low Effort)",
+   "aa_index": 24.7
+  },
+  {
+   "name": "gpt-5.6-sol@none",
+   "model": "openai/gpt-5.6-sol",
+   "reasoning_effort": "none",
+   "aa_slug": "gpt-5-6-sol-non-reasoning",
+   "aa_name": "GPT-5.6 Sol (Non-reasoning)",
+   "aa_index": 28.3
+  },
+  {
+   "name": "gpt-5.6-sol@low",
+   "model": "openai/gpt-5.6-sol",
+   "reasoning_effort": "low",
+   "aa_slug": "gpt-5-6-sol-low",
+   "aa_name": "GPT-5.6 Sol (low)",
+   "aa_index": 33.8
+  },
+  {
+   "name": "gpt-5.6-sol@medium",
+   "model": "openai/gpt-5.6-sol",
+   "reasoning_effort": "medium",
+   "aa_slug": "gpt-5-6-sol-medium",
+   "aa_name": "GPT-5.6 Sol (medium)",
+   "aa_index": 39.5
+  },
+  {
+   "name": "gpt-5.6-sol@high",
+   "model": "openai/gpt-5.6-sol",
+   "reasoning_effort": "high",
+   "aa_slug": "gpt-5-6-sol-high",
+   "aa_name": "GPT-5.6 Sol (high)",
+   "aa_index": 42.5
+  },
+  {
+   "name": "gemini-3.8-flash@low",
+   "model": "openrouter/google/gemini-3.8-flash",
+   "reasoning_effort": "low",
+   "aa_slug": "gemini-3-8-flash-low",
+   "aa_name": "Gemini 3.8 Flash (low)",
+   "aa_index": 33.8
+  },
+  {
+   "name": "kimi-k3@low",
+   "model": "openrouter/moonshotai/kimi-k3",
+   "reasoning_effort": "low",
+   "aa_slug": "kimi-k3-low",
+   "aa_name": "Kimi K3 (low)",
+   "aa_index": 34.5
+  },
+  {
+   "name": "grok-4.6@low",
+   "model": "openrouter/x-ai/grok-4.6",
+   "reasoning_effort": "low",
+   "aa_slug": "grok-4-6-low",
+   "aa_name": "Grok 4.6 (low)",
+   "aa_index": 35.4
+  },
+  {
+   "name": "claude-opus-5@low",
+   "model": "anthropic/claude-opus-5",
+   "reasoning_effort": "low",
+   "aa_slug": "claude-opus-5-low",
+   "aa_name": "Claude Opus 5 (Adaptive Reasoning, Low Effort)",
+   "aa_index": 39.8
+  },
+  {
+   "name": "gpt-6-astra@low",
+   "model": "openai/gpt-6-astra",
+   "reasoning_effort": "low",
+   "aa_slug": "gpt-6-astra-low",
+   "aa_name": "GPT-6 Astra (low)",
+   "aa_index": 46
+  }
+ ],
+ "judges": [
+  {
+   "name": "gemma-3-12b",
+   "model": "openrouter/google/gemma-3-12b-it",
+   "reasoning_effort": null,
+   "aa_slug": "gemma-3-12b",
+   "aa_name": "Gemma 3 12B Instruct",
+   "aa_index": 3.8
+  },
+  {
+   "name": "llama-3.2-3b",
+   "model": "openrouter/meta-llama/llama-3.2-3b-instruct",
+   "reasoning_effort": null,
+   "aa_slug": "llama-3-2-instruct-3b",
+   "aa_name": "Llama 3.2 Instruct 3B",
+   "aa_index": 5.7
+  },
+  {
+   "name": "gpt-4o-mini",
+   "model": "openai/gpt-4o-mini",
+   "reasoning_effort": null,
+   "aa_slug": "gpt-4o-mini",
+   "aa_name": "GPT-4o mini",
+   "aa_index": 6.7
+  },
+  {
+   "name": "qwen3-14b",
+   "model": "openrouter/qwen/qwen3-14b",
+   "reasoning_effort": "none",
+   "aa_slug": "qwen3-14b-instruct",
+   "aa_name": "Qwen3 14B (Non-reasoning)",
+   "aa_index": 6.7
+  },
+  {
+   "name": "llama-3.1-8b",
+   "model": "openrouter/meta-llama/llama-3.1-8b-instruct",
+   "reasoning_effort": null,
+   "aa_slug": "llama-3-1-instruct-8b",
+   "aa_name": "Llama 3.1 Instruct 8B",
+   "aa_index": 6.9
+  },
+  {
+   "name": "mistral-small-4",
+   "model": "openrouter/mistralai/mistral-small-2603",
+   "reasoning_effort": "none",
+   "aa_slug": "mistral-small-4-non-reasoning",
+   "aa_name": "Mistral Small 4 (Non-reasoning)",
+   "aa_index": 9
+  },
+  {
+   "name": "gpt-4.1-mini",
+   "model": "openai/gpt-4.1-mini",
+   "reasoning_effort": null,
+   "aa_slug": "gpt-4-1-mini",
+   "aa_name": "GPT-4.1 mini",
+   "aa_index": 10.2
+  },
+  {
+   "name": "gpt-4.1",
+   "model": "openai/gpt-4.1",
+   "reasoning_effort": null,
+   "aa_slug": "gpt-4-1",
+   "aa_name": "GPT-4.1",
+   "aa_index": 12.7
+  },
+  {
+   "name": "deepseek-v3.2",
+   "model": "openrouter/deepseek/deepseek-v3.2",
+   "reasoning_effort": "none",
+   "aa_slug": "deepseek-v3-2",
+   "aa_name": "DeepSeek V3.2 (Non-reasoning)",
+   "aa_index": 16
+  }
+ ]
+}
