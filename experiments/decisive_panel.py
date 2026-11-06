@@ -99,10 +99,12 @@ def agent_policy(spec: dict, *, solo: bool = False) -> soa.LLMPolicy:
 
 
 def judge_policy(spec: dict) -> soa.LLMPolicy:
-    """A judge reasoning in private before its verbalized probabilities (as the study's weak judges)."""
+    """A judge reasoning in private before its verbalized probabilities (as the study's weak judges). Judges that
+    work long problems out in the open (DeepSeek-V3.2) get a larger ``max_tokens`` in the config."""
     from decisive_common import _model
 
-    return soa.LLMPolicy(_model(spec["model"], "judge"), cot=True, temperature=0.7, max_tokens=4000,
+    return soa.LLMPolicy(_model(spec["model"], "judge"), cot=True, temperature=0.7,
+                         max_tokens=spec.get("max_tokens", 4000),
                          reasoning_effort=spec.get("reasoning_effort"))
 
 

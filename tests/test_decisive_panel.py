@@ -35,6 +35,13 @@ def test_agent_policies_give_reasoning_room_only_when_reasoning():
     assert off.reasoning_effort == "none" and off.max_tokens <= 3000
 
 
+def test_judge_token_budget_defaults_and_overrides():
+    cfg = {m["name"]: m for m in dpn.panel_config()["judges"]}
+    # DeepSeek-V3.2 works problems out in the open and was cut off at 4000 tokens in the pilot
+    assert dpn.judge_policy(cfg["deepseek-v3.2"]).max_tokens >= 12000
+    assert dpn.judge_policy(cfg["gpt-4o-mini"]).max_tokens == 4000
+
+
 def test_protocols_are_judge_independent():
     for m in dpn.mechanisms():
         assert not getattr(m, "judge_questions", False)

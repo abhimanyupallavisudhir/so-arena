@@ -78,7 +78,7 @@ def map_keys() -> None:
         if not os.environ.get(std) and os.environ.get(alias):
             os.environ[std] = os.environ[alias]
     # Inspect allows 10 concurrent requests per model by default, which throttles these runs
-    soa.configure(max_retries=6, attempt_timeout=300,
+    soa.configure(max_retries=6, attempt_timeout=int(os.environ.get("DECISIVE_ATTEMPT_TIMEOUT", 300)),
                   max_connections=int(os.environ.get("DECISIVE_MAX_CONNECTIONS", 256)))
 
 
