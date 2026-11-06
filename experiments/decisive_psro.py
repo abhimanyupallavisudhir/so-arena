@@ -298,7 +298,8 @@ class Cell:
         s = SideSearch(self.mech, self.train, side=side, opponent=self.mixture(opp, sigma[opp]), judge=self.judge,
                        truth=self.truth, algorithm="reflective", iterations=rounds, candidates_per_iter=cands,
                        seed_strategies=seeds, opponent_note=self.opponent_note(opp, sigma[opp]),
-                       concurrency=self.concurrency, seed=it, max_strategy_words=200)
+                       concurrency=self.concurrency, seed=it, max_strategy_words=200,
+                       keep_episodes=4)  # only the episodes the reflection reads: the rest is memory
         res = await s.arun()
         train_c = [c for c in res.candidates if c.split == "train"]
         best = max(train_c, key=lambda c: c.mean_reward)
