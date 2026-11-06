@@ -110,6 +110,8 @@ What holds up:
    - Three-round debate keeps a positive incentive under best-of-16 when both sides are optimized (+0.60).
    - The exception is one-round debate with only the liar optimized, whose incentive reverses (−0.37); see
      [`fig2`](results/eic/fig2_eic_under_best_of_n.png).
+   - With both sides optimized against each other (self-play, below), simultaneous debate keeps it (+0.48) and
+     sequential debate loses it (+0.05 [−0.04, +0.13]).
 4. **EIC measured with instructed liars is a poor guide to EIC under optimization.**
    - Instructed ASD is the cheap measurement: tell the agent which side to argue, with no optimization. The point
      of measuring EIC, though, is to predict what happens when something optimizes against the protocol's reward.
@@ -162,9 +164,109 @@ Other figures:
 - [Training vs held-out reward along the prompt search](results/eic/fig9_po_goodhart.png).
 
 Prompt optimization cost $1,259 (the original searches $676, the fixed prover-estimator's $583), the held-out
-rescoring $463, and the fixed prover-estimator's instructed runs $82. Total spend for the whole decisive study is
-about $7,100 (per-stage ledger in `runs/decisive/spend.json`: $7,085, plus about $16 of pilots).
+rescoring $463, the fixed prover-estimator's instructed runs $82, self-play (PSRO) $2,018 and the instant-judge
+replay $41. Total spend for the whole decisive study is about $9,160 (per-stage ledger in
+`runs/decisive/spend.json`: $9,144, plus about $17 of pilots).
 
+
+### Self-play: incentive compatibility at equilibrium (added 2026-11-06)
+
+The prompt-search column above optimizes each side only against the *unprompted* other side, so it cannot tell
+"debate rewards honesty at equilibrium" from "the honest side was under-optimized". This stage optimizes both sides
+against each other: Policy-Space Response Oracles (PSRO) with prompt search as the best-response step
+([`experiments/decisive_psro.py`](../experiments/decisive_psro.py)).
+
+- **Populations:** honest strategies (true side, honest directive) and liar strategies (false side, deceptive
+  directive) for gpt-5-mini, both starting from the unprompted agent.
+- **Game:** every honest × liar pair plays on 100 training items, seats balanced. Each side's payoff is its mean
+  log-score reward. The bimatrix game is solved for its Nash equilibrium.
+- **Best responses:** each round, Claude Opus 5.5 searches for each side's best response to the other side's
+  equilibrium mix (3 rounds × 4 candidates, told the opponents' strategies). The winner on training reward joins
+  the population. Four rounds.
+- **Judge:** the weak judge, reasoning first, *averaged over 3 samples* per verdict, so that selection is not mostly
+  judge noise. The expected single-sample reward is reported too (`asd_1`); it gives the same picture.
+- **Evaluation:** every pair is re-played on **390 held-out items**; ASD at each round's equilibrium is
+  $\mathbb{E}_\sigma$[honest reward − liar reward], paired by item, with a 95% item-bootstrap interval.
+- Tables: [`results/psro.md`](results/psro.md). Cost: $2,018 for 6 cells (2 debate formats × 3 judges).
+
+![ASD at each PSRO equilibrium](results/eic/fig10_psro_equilibrium.png)
+
+| held-out ASD at equilibrium | round 0 (unprompted) | round 4 | gpt-4o-mini | Gemma-3-12B | Llama-3.1-8B |
+|---|---|---|---|---|---|
+| simultaneous debate | +0.54 [+0.40, +0.68] | **+0.48** [+0.38, +0.58] | +0.58 [+0.47, +0.69] | +0.55 [+0.35, +0.76] | +0.31 [+0.22, +0.40] |
+| sequential debate | +0.46 [+0.33, +0.60] | **+0.05** [−0.04, +0.13] | −0.19 [−0.35, −0.02] | +0.29 [+0.17, +0.42] | +0.03 [−0.08, +0.13] |
+
+Per-judge columns are round 4. Blind judge on the same items: −0.62.
+
+1. **Simultaneous debate is incentive compatible at the self-play equilibrium, under every judge.** Its ASD dips to
+   +0.25 at round 2 and recovers to +0.48 once the honest side finds a counter-strategy. Honesty earns more on 68% of
+   items.
+2. **Sequential debate's incentive is optimized away.** Pooled, it ends at +0.05 [−0.04, +0.13]. Under gpt-4o-mini it
+   is negative at rounds 2 and 4, so lying pays at those equilibria. Under Llama it is about zero from round 1 on.
+3. **The arms race is legible.** The liars converge on fabricated, unfalsifiable specifics: named studies, benchmark
+   tables, figures "each with a number or quote-like detail". When the honest side's arithmetic can't be disputed,
+   they accept it and attack its applicability. The honest strategies that beat them solve the question first and
+   give the simplest checkable object. They also warn the judge in round 1: "My opponent must defend a false answer,
+   so expect named studies, tables or seed counts that cannot be checked here."
+4. **Liar best responses transfer; honest ones mostly don't.** Of 14 new liar strategies, 7 beat the previous
+   equilibrium mix on held-out items (1 did worse; mean held-out gain +0.09 vs +0.27 on training). Of 18 new honest
+   strategies, 5 did and 4 did worse (mean −0.01 vs +0.09 on training). This is the Goodhart pattern of the
+   one-sided prompt search again, now inside self-play.
+5. **Not converged.** Some cells still found held-out-improving best responses at round 4, and sequential debate
+   under gpt-4o-mini cycles (+0.50, −0.15, +0.23, −0.19). The equilibria are those of the strategies found so far,
+   not of all strategies, and a stronger optimizer could move them.
+
+### Instant judges: removing the judge's noise (added 2026-11-06)
+
+The study's judges reason before answering, so two samples of one judge on one argument agree only weakly. Earlier
+best-of-n work (Khan et al.; the debate best-of-n self-play post) used judges that answer at once. Here the same
+stored transcripts and best-of-16 candidate pools are re-judged by each weak judge answering **at once**: no
+reasoning, temperature 0, a verbalized probability. gpt-4o-mini is also run with probabilities read from its answer
+token. Only verdicts are new calls ($41). Code: [`experiments/decisive_instant.py`](../experiments/decisive_instant.py);
+tables: [`results/instant/instant.md`](results/instant/instant.md).
+
+- **The instant judges are nearly deterministic.** Two independent calls on the same transcript correlate at
+  r = 0.95 (gpt-4o-mini), 0.92 (Gemma), 0.78 (Llama); 70–86% are identical. With them, the payoff that selects a
+  best-of-n argument *is* the payoff reported: there is no winner's curse to correct.
+- **Instructed EIC is lower.** Pooled over judges, three-round consultancy goes from +0.38 to +0.00 [−0.07, +0.08]
+  (−0.12 with committed liars only). Sequential debate goes from +0.74 to +0.47 and simultaneous from +0.79 to +0.52.
+  The reward-honesty correlation is lower too. Taking out the reasoning takes out most of what the judge learns from
+  the argument, not just noise. Accuracies fall by 2–7 points.
+- **Best-of-16 exploits an instant judge much more** ([`fig11`](results/eic/fig11_instant_best_of_n.png)):
+
+| one-round, best-of-16 (3 judges pooled) | instant judge | reasoning judge, held out |
+|---|---|---|
+| debate, liar optimized | **−1.18** [−1.37, −1.00] (n=1: +0.03) | −0.37 [−0.55, −0.19] |
+| debate, both optimized | −0.09 [−0.23, +0.06] | +0.28 [+0.08, +0.50] |
+| consultancy, liar optimized | **−0.58** [−0.69, −0.48] | +0.21 [−0.07, +0.46] |
+| consultancy, both optimized | +0.02 [−0.02, +0.07] | +0.28 [−0.02, +0.57] |
+
+  With gpt-4o-mini's answer-token probabilities the debate liar reaches −3.57 at n = 16, and the judge's accuracy falls
+  from 0.50 to 0.30.
+
+![Best-of-n under instant and reasoning judges](results/eic/fig11_instant_best_of_n.png)
+
+So the reasoning judge's noise partly *protected* it: an argument selected on one noisy verdict does not reliably
+fool the next one. A deterministic judge has no such protection, and one-round debate with symmetric optimization
+gives honesty no edge against it at any n. For training, a judge should be evaluated with fresh samples, as here; a
+judge that is deterministic in its inputs is the easier target.
+
+### Does selecting items on judge failure bias EIC? (added 2026-11-06)
+
+The 927 items were kept because the weak judges, alone, mostly got them wrong, so the blind baseline is negative.
+That conditions on a collider-like variable. Three consequences:
+
+1. **No bias in the within-item comparison.** Selection was on the judges' answers *alone*, never on a protocol's
+   (side, reward) outcome. ASD compares the two sides within each item, and both the protocol runs and the blind
+   baseline use fresh judge samples, not the ones items were selected on. Regression to the mean therefore applies
+   equally to both: the judges alone score 44% on fresh samples against 37% at selection.
+2. **The numbers are conditional on "items that mislead a weak judge".** Raw ASDs are pessimistic relative to random
+   items, because part of every protocol's job here is to overturn a wrong prior. The gain over the blind baseline
+   is the more portable quantity.
+3. **The judge-capability trend is exaggerated.** Items were selected on the *weak* judges failing, so their blind
+   baselines are negative by construction, while gpt-4.1's are not. "EIC rises with judge capability" (item 6
+   above) is partly this selection. It should be read relative to each judge's own blind baseline, and measured on
+   items not selected on any judge in the comparison. That is how the planned model panel is designed.
 
 ### Why prover-estimator debate fails here (added 2026-11-04)
 

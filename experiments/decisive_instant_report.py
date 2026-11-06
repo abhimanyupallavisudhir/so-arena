@@ -29,7 +29,8 @@ DEBATER = "gpt-5-mini"
 
 
 def instant_rows(run: Path) -> pd.DataFrame:
-    frames = [pd.read_csv(f).assign(judge=f.parent.name) for f in sorted((run / "instant" / "grid").glob("*/*.csv"))]
+    files = sorted((run / "instant" / "grid").glob("*/*.csv")) + sorted((run / "instant" / "grid").glob("*/*.csv.gz"))
+    frames = [pd.read_csv(f).assign(judge=f.parent.name) for f in files]  # .csv.gz: the committed data bundle
     if not frames:
         return pd.DataFrame()
     x = pd.concat(frames, ignore_index=True)
@@ -64,9 +65,9 @@ def grid_tables(run: Path) -> dict[str, pd.DataFrame]:
     out["eic"] = pd.concat([pooled(li, ["mechanism"]).assign(judging="instant"),
                             pooled(lr, ["mechanism"]).assign(judging="reasoning")])
     if committed is not None:
-        from decisive_eic import _found  # noqa: F401  (same verdict file as the EIC report)
-        import json  # noqa: F401
-        vf = run / "audit" / "verdicts_gpt-5.jsonl"
+        from decisive_report import _found
+
+        vf = _found(run / "audit" / "verdicts_gpt-5.jsonl")
         ar = pd.read_csv(run / "audit" / "rows.csv.gz", low_memory=False)
         v = ar.merge(pd.read_json(vf, lines=True).drop_duplicates("key", keep="last"), on="key", how="left")
         ci = committed_instant(li, v)
@@ -75,7 +76,9 @@ def grid_tables(run: Path) -> dict[str, pd.DataFrame]:
                                           pooled(cr, ["mechanism"]).assign(judging="reasoning")])
     # blind baselines and accuracies
     blind_i = uv(inst[(inst.mechanism == "direct") & inst.item.isin(items)])
-    blind_r = uv(pd.read_csv(run / "protocols" / "rows.csv").query("mechanism == 'direct'"))
+    from decisive_report import _found
+
+    blind_r = uv(pd.read_csv(_found(run / "protocols" / "rows.csv")).query("mechanism == 'direct'"))
     blind_r = blind_r[blind_r.item.isin(items)]
     out["blind"] = pd.concat([pooled(blind_i, []).assign(judging="instant"),
                               pooled(blind_r, []).assign(judging="reasoning")])
@@ -98,6 +101,10 @@ def tree_tables(run: Path) -> pd.DataFrame:
     from decisive_ic import cell_rows
     from decisive_instant import INSTANT
 
+    if not (run / "instant" / "optimize").exists():  # the committed data bundle keeps the per-item rows only
+        f = run / "instant" / "bon_items.csv.gz"
+        return pd.read_csv(f) if f.exists() else pd.DataFrame()
+
     import os
     from concurrent.futures import ProcessPoolExecutor
 
@@ -115,14 +122,14 @@ def tree_tables(run: Path) -> pd.DataFrame:
 
 def reliability(run: Path) -> pd.DataFrame:
     out = []
-    for f in sorted((run / "instant" / "reliability").glob("*.csv")):
+    for f in sorted((run / "instant" / "reliability").glob("*.csv*")):
         # the two draws' episode ids differ (the judge is part of them): pair them by item, arm and sample
         d = pd.read_csv(f).drop_duplicates(["item", "arm", "repeat", "draw"])
         w = d.pivot_table(index=["item", "arm", "repeat"], columns="draw", values="p_true")
         if w.shape[1] < 2:
             continue
         w = w.dropna()
-        out.append({"judge": f.stem, "transcripts": len(w), "identical": float((w[0] - w[1]).abs().lt(1e-9).mean()),
+        out.append({"judge": f.name.split(".csv")[0], "transcripts": len(w), "identical": float((w[0] - w[1]).abs().lt(1e-9).mean()),
                     "r": float(np.corrcoef(w[0], w[1])[0, 1])})
     return pd.DataFrame(out)
 
