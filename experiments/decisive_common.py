@@ -66,6 +66,14 @@ def map_keys() -> None:
     Also caps provider retries: a request a provider keeps failing (OpenRouter's Gemma returns server errors
     for some prompts indefinitely) raises after 6 retries of at most 5 minutes each instead of stalling a
     stage; its episode errors, is left out, and re-runs on resumption."""
+    import resource
+
+    # jobs start with a soft limit of 1024 open files; hundreds of concurrent requests (sockets) exhaust it, and
+    # then SQLite cannot open the response cache's journal ("unable to open database file")
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    want = 65536 if hard == resource.RLIM_INFINITY else min(65536, hard)
+    if soft < want:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (want, hard))
     for std, alias in KEY_ALIASES.items():
         if not os.environ.get(std) and os.environ.get(alias):
             os.environ[std] = os.environ[alias]
