@@ -42,6 +42,17 @@ def test_judge_token_budget_defaults_and_overrides():
     assert dpn.judge_policy(cfg["gpt-4o-mini"]).max_tokens == 4000
 
 
+def test_deepseek_is_pinned_to_hosts_that_respect_reasoning_off():
+    cfg = dpn.panel_config()
+    judge = {m["name"]: m for m in cfg["judges"]}["deepseek-v3.2"]
+    agent = {m["name"]: m for m in cfg["agents"]}["deepseek-v3.2"]
+    for pol in (dpn.judge_policy(judge), dpn.agent_policy(agent)):
+        route = pol.model._args["provider"]
+        assert route["allow_fallbacks"] is False and "gmicloud/fp8" not in route["order"]
+    # unrouted models are left as they are
+    assert "provider" not in getattr(dpn.judge_policy(judge | {"openrouter_provider": None}).model, "_args", {})
+
+
 def test_protocols_are_judge_independent():
     for m in dpn.mechanisms():
         assert not getattr(m, "judge_questions", False)

@@ -84,6 +84,18 @@ def register_prices() -> None:
                                  price_output_per_mtok=float(p["completion"]) * 1e6))
 
 
+def _routed(spec: dict, model):
+    """Pin OpenRouter hosts when the config names them (``openrouter_provider``): some DeepSeek-V3.2 hosts ignore
+    "reasoning off" and think for 15-25k hidden tokens, which makes the model a different judge from call to call.
+    The response cache key does not include the route, so cached calls still replay."""
+    route = spec.get("openrouter_provider")
+    if not route or not isinstance(model, str) or not model.startswith("openrouter/"):
+        return model
+    from so_arena.models.base import get_model
+
+    return get_model(model, provider=route)
+
+
 def agent_policy(spec: dict, *, solo: bool = False) -> soa.LLMPolicy:
     """An agent at its configured reasoning effort. Reasoning configurations get room for hidden reasoning (it
     shares max_tokens); the others write directly (solo answers reason in the open)."""
@@ -91,7 +103,7 @@ def agent_policy(spec: dict, *, solo: bool = False) -> soa.LLMPolicy:
 
     effort = spec.get("reasoning_effort")
     thinks = effort not in (None, "none")
-    model = _model(spec["model"], "speech_reasoning" if thinks else ("solo" if solo else "speech"))
+    model = _routed(spec, _model(spec["model"], "speech_reasoning" if thinks else ("solo" if solo else "speech")))
     if thinks:
         return soa.LLMPolicy(model, temperature=None, max_tokens=16000, reasoning_effort=effort)
     return soa.LLMPolicy(model, temperature=None, max_tokens=3000 if solo else 1500, reasoning_effort=effort,
@@ -103,7 +115,7 @@ def judge_policy(spec: dict) -> soa.LLMPolicy:
     work long problems out in the open (DeepSeek-V3.2) get a larger ``max_tokens`` in the config."""
     from decisive_common import _model
 
-    return soa.LLMPolicy(_model(spec["model"], "judge"), cot=True, temperature=0.7,
+    return soa.LLMPolicy(_routed(spec, _model(spec["model"], "judge")), cot=True, temperature=0.7,
                          max_tokens=spec.get("max_tokens", 4000),
                          reasoning_effort=spec.get("reasoning_effort"))
 

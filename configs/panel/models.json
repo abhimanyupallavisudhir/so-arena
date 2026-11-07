@@ -63,7 +63,8 @@
    "reasoning_effort": "none",
    "aa_slug": "deepseek-v3-2",
    "aa_name": "DeepSeek V3.2 (Non-reasoning)",
-   "aa_index": 16
+   "aa_index": 16,
+   "openrouter_provider": {"order": ["baidu/fp8", "phala", "digitalocean", "deepinfra/fp4", "atlas-cloud/fp8"], "allow_fallbacks": false}
   },
   {
    "name": "claude-sonnet-4.5",
@@ -234,7 +235,8 @@
    "aa_slug": "deepseek-v3-2",
    "aa_name": "DeepSeek V3.2 (Non-reasoning)",
    "aa_index": 16,
-   "max_tokens": 12000
+   "max_tokens": 12000,
+   "openrouter_provider": {"order": ["baidu/fp8", "phala", "digitalocean", "deepinfra/fp4", "atlas-cloud/fp8"], "allow_fallbacks": false}
   }
  ]
 }
