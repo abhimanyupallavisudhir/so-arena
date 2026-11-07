@@ -53,6 +53,13 @@ def test_deepseek_is_pinned_to_hosts_that_respect_reasoning_off():
     assert "provider" not in getattr(dpn.judge_policy(judge | {"openrouter_provider": None}).model, "_args", {})
 
 
+def test_every_panel_protocol_has_lead_roles():
+    # rows without a lead role carry no (u, v): consultancy_1r was silently dropped from the pilot report
+    from decisive_protocols import LEAD_ROLES
+
+    assert all(m.name in LEAD_ROLES for m in dpn.mechanisms())
+
+
 def test_protocols_are_judge_independent():
     for m in dpn.mechanisms():
         assert not getattr(m, "judge_questions", False)

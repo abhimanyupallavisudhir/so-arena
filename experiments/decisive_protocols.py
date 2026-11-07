@@ -43,7 +43,7 @@ from decisive_common import (DEBATERS, JUDGES, Ledger, judge_set, chunks, debate
 
 GT = [StanceValue(), JudgeCorrectness()]
 WORDS = 200
-LEAD_ROLES = {"direct": ["agent"], "direct_strong": ["agent"], "consultancy": ["consultant"],
+LEAD_ROLES = {"direct": ["agent"], "direct_strong": ["agent"], "consultancy": ["consultant"], "consultancy_1r": ["consultant"],
               "debate_seq": ["debater_a", "debater_b"], "debate_sim": ["debater_a", "debater_b"],
               "recursive_debate": ["prover"], "prover_estimator": ["prover"], "prover_estimator_v2": ["prover"]}
 
