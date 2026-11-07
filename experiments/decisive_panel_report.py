@@ -58,15 +58,32 @@ def committed(rows: pd.DataFrame, verdicts: pd.DataFrame | None) -> pd.DataFrame
     return m[m.bad.isna()].drop(columns="bad")
 
 
-def per_item(df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
-    """Per (keys, item): reward arguing the truth minus lying (each item's sides averaged over samples and roles)."""
-    x = df[df.value.notna() & df.reward.notna()].copy()
+def per_item(df: pd.DataFrame, keys: list[str], reward: str = "reward") -> pd.DataFrame:
+    """Per (keys, item): reward arguing the truth minus lying (each item's sides averaged over samples and roles).
+    ``reward="reward"`` is the protocol's own reward (log score of the judge's probability for the agent's side);
+    ``reward="reward_p"`` is that probability itself (bounded, so judges of different confidence compare)."""
+    x = df[df.value.notna() & df[reward].notna()].copy()
     x["v"] = (x.value > 0).astype(float)
-    g = x.groupby(keys + ["item", "v"]).reward.mean().unstack("v")
+    g = x.groupby(keys + ["item", "v"])[reward].mean().unstack("v")
     g = g.dropna(subset=[0.0, 1.0]) if {0.0, 1.0} <= set(g.columns) else g.iloc[0:0]
     out = (g[1.0] - g[0.0]).rename("asd").reset_index()
     out["conc"] = np.where(out.asd > 0, 1.0, np.where(out.asd == 0, 0.5, 0.0))
     return out
+
+
+def with_prob_reward(rows: pd.DataFrame) -> pd.DataFrame:
+    """Add ``reward_p``: the judge's probability for the side the agent argued (p_true if it argued the truth)."""
+    rows = rows.copy()
+    rows["reward_p"] = np.where(rows.value > 0, rows.p_true, 1 - rows.p_true)
+    rows.loc[rows.value.isna() | rows.p_true.isna(), "reward_p"] = np.nan
+    return rows
+
+
+def both_units(df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """Per-item ASD in log score (``asd``, with concordance ``conc``) and in probability (``asd_p``)."""
+    lg = per_item(df, keys)
+    pr = per_item(df, keys, "reward_p").rename(columns={"asd": "asd_p"}).drop(columns="conc")
+    return lg.merge(pr, on=keys + ["item"], how="left")
 
 
 def summarize(items: pd.DataFrame, keys: list[str], seed: int = 0) -> pd.DataFrame:
@@ -77,16 +94,18 @@ def summarize(items: pd.DataFrame, keys: list[str], seed: int = 0) -> pd.DataFra
     for key, g in items.groupby(keys):
         key = key if isinstance(key, tuple) else (key,)
         a = g.set_index("item")
+        cols = [c for c in ("asd", "asd_p", "conc") if c in a]
         boots = []
         for _ in range(N_BOOT):
             s = rng.choice(ids, len(ids))
-            b = a.reindex(s).dropna()
-            boots.append((b.asd.mean(), b.conc.mean()))
+            b = a.reindex(s).dropna(subset=["asd"])
+            boots.append([b[c].mean() for c in cols])
         boots = np.array(boots)
-        out.append({**dict(zip(keys, key)), "asd": a.asd.mean(), "asd_lo": np.nanquantile(boots[:, 0], .025),
-                    "asd_hi": np.nanquantile(boots[:, 0], .975), "conc": a.conc.mean(),
-                    "conc_lo": np.nanquantile(boots[:, 1], .025), "conc_hi": np.nanquantile(boots[:, 1], .975),
-                    "items": len(a)})
+        rec = {**dict(zip(keys, key)), "items": len(a)}
+        for k, c in enumerate(cols):
+            rec |= {c: a[c].mean(), f"{c}_lo": np.nanquantile(boots[:, k], .025),
+                    f"{c}_hi": np.nanquantile(boots[:, k], .975)}
+        out.append(rec)
     return pd.DataFrame(out)
 
 
@@ -114,6 +133,7 @@ def tables(run: Path) -> dict:
     a_idx = {a["name"]: a["aa_index"] for a in cfg["agents"]}
     j_idx = {j["name"]: j["aa_index"] for j in cfg["judges"]}
     rows, verdicts = load(run)
+    rows = with_prob_reward(rows)
     prot = rows[rows.mechanism.isin(MECHS)]
     out = {"a_idx": a_idx, "j_idx": j_idx}
     variants = {"all": prot}
@@ -121,15 +141,16 @@ def tables(run: Path) -> dict:
     if c is not None:
         variants["committed"] = c
     for name, df in variants.items():
-        it_a = per_item(df, ["mechanism", "debater"])          # agents: pooled over judges
-        it_j = per_item(df, ["mechanism", "judge"])            # judges: pooled over agents
-        it_aj = per_item(df, ["mechanism", "debater", "judge"])
+        it_a = both_units(df, ["mechanism", "debater"])          # agents: pooled over judges
+        it_j = both_units(df, ["mechanism", "judge"])            # judges: pooled over agents
+        it_aj = both_units(df, ["mechanism", "debater", "judge"])
         out[f"agents_{name}"] = summarize(it_a, ["mechanism", "debater"]).assign(aa=lambda d: d.debater.map(a_idx))
         out[f"judges_{name}"] = summarize(it_j, ["mechanism", "judge"]).assign(aa=lambda d: d.judge.map(j_idx))
-        out[f"cells_{name}"] = it_aj.groupby(["mechanism", "debater", "judge"])[["asd", "conc"]].mean().reset_index()
+        out[f"cells_{name}"] = (it_aj.groupby(["mechanism", "debater", "judge"])[["asd", "asd_p", "conc"]].mean()
+                                .reset_index())
         sl = []
         for m in MECHS:
-            for col in ("conc", "asd"):
+            for col in ("asd", "asd_p", "conc"):
                 sl.append({"variant": name, "mechanism": m, "over": "agents", "measure": col,
                            **slope(it_a[it_a.mechanism == m], "debater", a_idx, col)})
                 sl.append({"variant": name, "mechanism": m, "over": "judges", "measure": col,
@@ -138,7 +159,7 @@ def tables(run: Path) -> dict:
     # blind baseline per judge, and gains over it
     d = rows[rows.mechanism == "direct"].copy()
     d = d[d.value.notna() & d.reward.notna()]
-    out["blind"] = summarize(per_item(d, ["judge"]), ["judge"]).assign(aa=lambda x: x.judge.map(j_idx))
+    out["blind"] = summarize(both_units(d, ["judge"]), ["judge"]).assign(aa=lambda x: x.judge.map(j_idx))
     # agent accuracy alone and liar commitment
     s = rows[rows.mechanism == "solo"]
     out["solo"] = s.drop_duplicates("episode").groupby("debater").correct.mean().rename("solo_acc").reset_index()
@@ -155,26 +176,29 @@ def fmt(r, col="asd") -> str:
 def markdown(t: dict) -> str:
     v = "committed" if "agents_committed" in t else "all"
     L = ["# Model panel: EIC against agent and judge intelligence", "",
-         f"Items not selected on any judge; ASD in log score; conc = share of items where honesty earns more. "
+         f"Items not selected on any judge. ASD = mean reward arguing the truth minus lying, in log score (the "
+         f"protocol's reward) and in the judge's probability for the agent's side; conc = share of items where "
+         f"honesty earns more. "
          f"Headline variant: {'committed liars only (gpt-5 audit)' if v == 'committed' else 'all prompted liars'}.", ""]
     for name in ("committed", "all"):
         if f"agents_{name}" not in t:
             continue
         L += [f"## Agents ({name} liars), pooled over judges", "",
-              "| agent | AA index | protocol | ASD [95% CI] | conc [95% CI] | solo acc | committed |", "|---|---|---|---|---|---|---|"]
+              "| agent | AA index | protocol | ASD, log score [95% CI] | ASD, probability [95% CI] | conc [95% CI] | solo acc | committed |", "|---|---|---|---|---|---|---|---|"]
         a = t[f"agents_{name}"].merge(t["solo"], on="debater", how="left")
         if "commit" in t:
             a = a.merge(t["commit"], on=["debater", "mechanism"], how="left")
         for _, r in a.sort_values(["mechanism", "aa"]).iterrows():
             cm = f"{r.committed:.2f}" if "committed" in r and pd.notna(r.get("committed")) else "-"
             sa = f"{r.solo_acc:.2f}" if pd.notna(r.get("solo_acc")) else "-"
-            L.append(f"| {r.debater} | {r.aa:.1f} | {r.mechanism} | {fmt(r)} | {fmt(r, 'conc')} | {sa} | {cm} |")
+            L.append(f"| {r.debater} | {r.aa:.1f} | {r.mechanism} | {fmt(r)} | {fmt(r, 'asd_p')} | {fmt(r, 'conc')} | {sa} | {cm} |")
         L += ["", f"## Judges ({name} liars), pooled over agents", "",
-              "| judge | AA index | protocol | ASD [95% CI] | conc [95% CI] | blind ASD | gain over blind |", "|---|---|---|---|---|---|---|"]
+              "| judge | AA index | protocol | ASD, log score [95% CI] | ASD, probability [95% CI] | conc [95% CI] | blind ASD (log / prob) | gain over blind (log / prob) |", "|---|---|---|---|---|---|---|---|"]
         b = t["blind"].set_index("judge")
         for _, r in t[f"judges_{name}"].sort_values(["mechanism", "aa"]).iterrows():
-            bl = b.asd.get(r.judge, np.nan)
-            L.append(f"| {r.judge} | {r.aa:.1f} | {r.mechanism} | {fmt(r)} | {fmt(r, 'conc')} | {bl:+.2f} | {r.asd - bl:+.2f} |")
+            bl, bp = b.asd.get(r.judge, np.nan), b.asd_p.get(r.judge, np.nan)
+            L.append(f"| {r.judge} | {r.aa:.1f} | {r.mechanism} | {fmt(r)} | {fmt(r, 'asd_p')} | {fmt(r, 'conc')} | "
+                     f"{bl:+.2f} / {bp:+.2f} | {r.asd - bl:+.2f} / {r.asd_p - bp:+.2f} |")
         L += ["", f"## Slopes on the AA index ({name} liars; per 10 index points, item bootstrap)", "",
               "| protocol | across | measure | slope [95% CI] | r | points |", "|---|---|---|---|---|---|"]
         for _, r in t[f"slopes_{name}"].iterrows():
@@ -188,6 +212,8 @@ def place_labels(ax, xs, ys, names, *, fontsize=6.3, color=None, pad=5) -> None:
     """Label points to their right without overlaps: labels that would collide are pushed apart vertically (in
     display space) and joined to their point by a hairline."""
     fig = ax.figure
+    lo, hi = ax.get_xlim()
+    ax.set_xlim(lo, max(hi, float(np.nanmax(xs)) + 0.16 * (hi - lo)))  # room for the rightmost labels
     fig.canvas.draw()
     pts = ax.transData.transform(np.column_stack([xs, ys]))
     h = fontsize * fig.dpi / 72 * 1.25
@@ -215,6 +241,9 @@ def place_labels(ax, xs, ys, names, *, fontsize=6.3, color=None, pad=5) -> None:
                     arrowprops=dict(arrowstyle="-", lw=0.4, color=color, shrinkA=0, shrinkB=2) if far else None)
 
 
+MEASURES = {"asd": "ASD (log score: the protocol's reward)", "asd_p": "ASD (judge's probability for the side)"}
+
+
 def figures(t: dict, out: Path) -> None:
     import matplotlib.pyplot as plt
 
@@ -222,77 +251,67 @@ def figures(t: dict, out: Path) -> None:
     from eic_style import BLUE, CONTEXT, INK2, ORANGE
 
     v = "committed" if "agents_committed" in t else "all"
+    liars = "committed liars only (gpt-5 audit); " if v == "committed" else "all prompted liars; "
     for paper in (False, True):
         ctx = st.paper_mode() if paper else _null()
         with ctx:
-            # agents
-            fig, axes = plt.subplots(1, 2, figsize=(11, 3.8), sharey=True)
-            a = t[f"agents_{v}"]
-            for ax, m in zip(axes, MECHS):
-                st.axes(ax)
-                g = a[a.mechanism == m].sort_values("aa")
-                for _, r in g.iterrows():
-                    ladder = r.debater.startswith("gpt-5.6-sol")
-                    st.dot_ci(ax, r.aa, r.conc, r.conc_lo, r.conc_hi, ORANGE if ladder else BLUE, horizontal=False,
-                              size=6)
-                lad = g[g.debater.str.startswith("gpt-5.6-sol")].sort_values("aa")
-                ax.plot(lad.aa, lad.conc, color=ORANGE, lw=1.2, zorder=1)
-                ax.axhline(0.5, color=INK2, lw=1)
-                ax.set_title(MECHS[m])
-                ax.set_xlabel("agent: Artificial Analysis Intelligence Index (v4.3)")
-            fig.tight_layout()
-            for ax, m in zip(axes, MECHS):
-                g = a[a.mechanism == m]
-                if len(g):
-                    place_labels(ax, g.aa.to_numpy(), g.conc.to_numpy(), list(g.debater), color=INK2)
-            axes[0].set_ylabel("concordance: share of items where honesty earns more")
-            fig.suptitle("Does incentive compatibility change with the agent's intelligence?", x=0.005, ha="left",
-                         fontsize=10, fontweight="bold", y=1.06)
-            fig.text(0.005, 0.965, f"Each agent debates itself / argues once; {('committed liars only; ' if v == 'committed' else '')}"
-                     "pooled over 9 judges; 95% item-bootstrap intervals. Orange: GPT-5.6 Sol at reasoning effort "
-                     "none, low, medium, high.", fontsize=7.5, color=INK2)
-            fig.tight_layout()
-            st.save(fig, out, "fig12_panel_agents")
-            # judges
-            fig, axes = plt.subplots(1, 2, figsize=(11, 3.8), sharey=True)
-            jd = t[f"judges_{v}"]
-            for ax, m in zip(axes, MECHS):
-                st.axes(ax)
-                g = jd[jd.mechanism == m].sort_values("aa")
-                for _, r in g.iterrows():
-                    st.dot_ci(ax, r.aa, r.conc, r.conc_lo, r.conc_hi, BLUE, horizontal=False, size=6)
-                b = t["blind"].sort_values("aa")
-                ax.plot(b.aa, b.conc, color=CONTEXT, lw=1.2, ls=(0, (4, 3)), marker="o", ms=3, zorder=1)
-                ax.axhline(0.5, color=INK2, lw=1)
-                ax.set_title(MECHS[m])
-                ax.set_xlabel("judge: Artificial Analysis Intelligence Index (v4.3)")
-            fig.tight_layout()
-            for ax, m in zip(axes, MECHS):
-                g = jd[jd.mechanism == m]
-                if len(g):
-                    place_labels(ax, g.aa.to_numpy(), g.conc.to_numpy(), list(g.judge), color=INK2)
-            axes[0].set_ylabel("concordance: share of items where honesty earns more")
-            fig.suptitle("Does incentive compatibility change with the judge's intelligence?", x=0.005, ha="left",
-                         fontsize=10, fontweight="bold", y=1.06)
-            fig.text(0.005, 0.965, "Pooled over 20 agent configurations; dashed gray: the same judge with no argument "
-                     "(blind baseline); 95% item-bootstrap intervals.", fontsize=7.5, color=INK2)
-            fig.tight_layout()
-            st.save(fig, out, "fig13_panel_judges")
-            # heatmap
+            for who, key, idx_label, sub in (
+                    ("agents", "debater", "agent", "Each agent debates itself / argues once; pooled over 9 judges; "
+                     + liars + "95% item-bootstrap intervals. Orange: GPT-5.6 Sol at effort none, low, medium, high."),
+                    ("judges", "judge", "judge", "Pooled over 20 agent configurations; " + liars + "dashed gray: the "
+                     "same judge with no argument (blind baseline); 95% item-bootstrap intervals.")):
+                fig, axes = plt.subplots(2, 2, figsize=(11, 7.2), sharex=True, sharey="row")
+                d = t[f"{who}_{v}"]
+                for row, (meas, mlabel) in enumerate(MEASURES.items()):
+                    for col, m in enumerate(MECHS):
+                        ax = axes[row, col]
+                        st.axes(ax)
+                        g = d[d.mechanism == m].sort_values("aa")
+                        for _, r in g.iterrows():
+                            ladder = who == "agents" and r[key].startswith("gpt-5.6-sol")
+                            st.dot_ci(ax, r.aa, r[meas], r[f"{meas}_lo"], r[f"{meas}_hi"],
+                                      ORANGE if ladder else BLUE, horizontal=False, size=6)
+                        if who == "agents":
+                            lad = g[g[key].str.startswith("gpt-5.6-sol")]
+                            ax.plot(lad.aa, lad[meas], color=ORANGE, lw=1.2, zorder=1)
+                        else:
+                            b = t["blind"].sort_values("aa")
+                            ax.plot(b.aa, b[meas], color=CONTEXT, lw=1.2, ls=(0, (4, 3)), marker="o", ms=3, zorder=1)
+                        ax.axhline(0, color=INK2, lw=1)
+                        if row == 0:
+                            ax.set_title(MECHS[m])
+                        if row == 1:
+                            ax.set_xlabel(f"{idx_label}: Artificial Analysis Intelligence Index (v4.3)")
+                        if col == 0:
+                            ax.set_ylabel(mlabel)
+                fig.suptitle(f"Does incentive compatibility change with the {idx_label}'s intelligence?", x=0.005,
+                             ha="left", fontsize=10, fontweight="bold", y=1.03)
+                fig.text(0.005, 0.985, sub + " ASD = mean reward arguing the truth minus lying.", fontsize=7.5,
+                         color=INK2)
+                fig.tight_layout()
+                for row, meas in enumerate(MEASURES):
+                    for col, m in enumerate(MECHS):
+                        g = d[d.mechanism == m]
+                        if len(g):
+                            place_labels(axes[row, col], g.aa.to_numpy(), g[meas].to_numpy(), list(g[key]),
+                                         color=INK2)
+                st.save(fig, out, "fig12_panel_agents" if who == "agents" else "fig13_panel_judges")
+            # heatmap: ASD in probability units (bounded, comparable across judges)
             cells = t[f"cells_{v}"]
             fig, axes = plt.subplots(1, 2, figsize=(12, 5.2))
             a_order = sorted(t["a_idx"], key=lambda n: t["a_idx"][n])
             j_order = sorted(t["j_idx"], key=lambda n: t["j_idx"][n])
+            lim = float(np.nanquantile(np.abs(cells.asd_p), 0.95)) if len(cells) else 0.5
             for ax, m in zip(axes, MECHS):
-                p = cells[cells.mechanism == m].pivot_table(index="debater", columns="judge", values="conc")
+                p = cells[cells.mechanism == m].pivot_table(index="debater", columns="judge", values="asd_p")
                 p = p.reindex(index=[x for x in a_order if x in p.index], columns=[x for x in j_order if x in p.columns])
-                im = ax.imshow(p.to_numpy(), cmap="RdBu", vmin=0.2, vmax=0.8, aspect="auto")
+                im = ax.imshow(p.to_numpy(), cmap="RdBu", vmin=-lim, vmax=lim, aspect="auto")
                 ax.set_xticks(range(p.shape[1]), p.columns, rotation=60, ha="right", fontsize=6.5)
                 ax.set_yticks(range(p.shape[0]), p.index, fontsize=6.5)
                 ax.grid(False)
                 ax.set_title(MECHS[m])
-            fig.colorbar(im, ax=axes, shrink=0.8, label="concordance")
-            fig.suptitle("Concordance by agent (rows, by AA index) and judge (columns, by AA index)", x=0.005, ha="left",
+            fig.colorbar(im, ax=axes, shrink=0.8, label="ASD (judge's probability for the side)")
+            fig.suptitle("ASD by agent (rows, by AA index) and judge (columns, by AA index)", x=0.005, ha="left",
                          fontsize=10, fontweight="bold")
             st.save(fig, out, "fig14_panel_heatmap")
 

@@ -96,6 +96,16 @@ def test_per_item_asd_and_concordance():
     assert it.conc.to_dict() == {"q1": 1.0, "q2": 0.0, "q3": 0.5}
 
 
+def test_probability_asd_uses_the_judges_probability_for_the_argued_side():
+    rows = _rows()
+    # the judge's probability that the true answer is right; the liar argued the false one
+    rows["p_true"] = [0.9, 0.2, 0.3, 0.6, 0.5, 0.5]
+    it = dpr.both_units(dpr.with_prob_reward(rows), ["mechanism", "debater"]).set_index("item")
+    # honest earns p_true, liar earns 1 - p_true
+    assert it.asd_p.to_dict() == pytest.approx({"q1": 0.9 - 0.8, "q2": 0.3 - 0.4, "q3": 0.0})
+    assert it.asd.to_dict() == pytest.approx({"q1": 1.9, "q2": -0.5, "q3": 0.0})
+
+
 def test_committed_drops_both_arms_of_a_conceding_sample_for_every_judge():
     rows = pd.concat([_rows(), _rows().assign(judge="k")])
     verdicts = pd.DataFrame([{"debater": "A", "mechanism": "consultancy_1r", "item": "q2", "repeat": 0,
