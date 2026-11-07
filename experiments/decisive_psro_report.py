@@ -75,7 +75,12 @@ def at_sigma(state: dict, pairs: dict, rec: dict, split: str = "test") -> pd.Dat
             part = pd.DataFrame({"asd": df.r_h - df.r_l, "r_h": df.r_h, "r_l": df.r_l, "acc": df.correct,
                                  "asd_1": (df.r_h1 - df.r_l1) if "r_h1" in df else np.nan}) * w
             acc = part if acc is None else acc.add(part, fill_value=np.nan)
-    return acc.dropna(subset=["asd"]) if acc is not None else None
+    if acc is None:
+        return None
+    acc = acc.dropna(subset=["asd"])
+    seats = pd.concat([df.seat_h for (sp, _, _), df in pairs.items() if sp == split and "seat_h" in df])
+    acc["seat_h"] = seats[~seats.index.duplicated()].reindex(acc.index)  # the honest seat is fixed per item
+    return acc
 
 
 def ci(x) -> tuple[float, float, float]:
@@ -85,6 +90,29 @@ def ci(x) -> tuple[float, float, float]:
         return (np.nan,) * 3
     lo, hi = bootstrap_mean_ci(x)
     return float(x.mean()), float(lo), float(hi)
+
+
+SEAT_NAMES = {"debater_a": "honest first / listed first", "debater_b": "honest last / listed last"}
+
+
+def seat_rows(per: pd.DataFrame, **key) -> list[dict]:
+    """ASD and judge accuracy split by the honest debater's seat (in sequential debate, debater_a speaks first and
+    debater_b has the last word; in simultaneous debate only the transcript order differs), with item-bootstrap CIs,
+    plus the honest-last minus honest-first difference (unpaired: each item has one seat)."""
+    out = []
+    by = {s: g for s, g in per.groupby("seat_h")}
+    for seat, g in by.items():
+        m, lo, hi = ci(g.asd)
+        out.append({**key, "seat_h": seat, "n_items": len(g), "asd": m, "asd_lo": lo, "asd_hi": hi,
+                    "acc": float(g.acc.mean())})
+    if {"debater_a", "debater_b"} <= set(by):
+        a, b = by["debater_a"].asd.to_numpy(), by["debater_b"].asd.to_numpy()
+        rng = np.random.default_rng(0)
+        diffs = [rng.choice(b, len(b)).mean() - rng.choice(a, len(a)).mean() for _ in range(2000)]
+        out.append({**key, "seat_h": "last - first", "n_items": len(a) + len(b), "asd": b.mean() - a.mean(),
+                    "asd_lo": float(np.quantile(diffs, .025)), "asd_hi": float(np.quantile(diffs, .975)),
+                    "acc": float(by["debater_b"].acc.mean() - by["debater_a"].acc.mean())})
+    return out
 
 
 def cell_rows(state: dict, pairs: dict) -> tuple[list[dict], list[dict], dict]:
@@ -168,7 +196,10 @@ def main(argv=None):
         frames = [items[(p, j, k)] for j in grp.judge if (p, j, k) in items]
         if len(frames) < 2:
             continue
-        per = pd.concat(frames).groupby(level=0).mean()
+        cat = pd.concat(frames)
+        per = cat.drop(columns="seat_h").groupby(level=0).mean()
+        per["seat_h"] = cat.seat_h.groupby(level=0).first()
+        items[(p, "pooled", k)] = per
         m, lo, hi = ci(per.asd)
         pooled.append({"protocol": p, "judge": "pooled", "iteration": k, "n_items": len(per), "asd": m, "asd_lo": lo,
                        "asd_hi": hi, "conc": float((per.asd > 0).mean()), "asd_1": ci(per.asd_1)[0],
@@ -195,6 +226,27 @@ def main(argv=None):
                 f"{r.test_gain:+.2f}"
             lines.append(f"| {r.protocol} | {r.judge} | {int(r.iteration)} | {r.side} | {'yes' if r.new else 'no'} | "
                          f"{r.train_gain:+.2f} | {held} |")
+    # seat breakdown: unprompted (iteration 0) and the final equilibrium of every cell and the pooled cells
+    seats = []
+    for (p, j), grp in df.groupby(["protocol", "judge"]):
+        its = sorted(grp.iteration.astype(int))
+        for k in sorted({its[0], its[-1]}):
+            if (p, j, k) in items:
+                seats += seat_rows(items[(p, j, k)], protocol=p, judge=j, iteration=k,
+                                   stage="unprompted" if k == its[0] else "equilibrium")
+    if seats:
+        st = pd.DataFrame(seats)
+        st.to_csv(out / "psro_seats.csv", index=False)
+        lines += ["", "## By the honest debater's seat", "",
+                  "Sequential debate: debater_a speaks first, debater_b has the last word. Simultaneous: both write each "
+                  "round blind to the other's speech; only the transcript order differs. 'last - first': difference of the "
+                  "two seats' ASD (unpaired item bootstrap; each item has one honest seat); acc column there is the "
+                  "accuracy difference.", "",
+                  "| protocol | judge | stage | honest seat | items | ASD [95% CI] | judge acc |", "|---|---|---|---|---|---|---|"]
+        for _, r in st.iterrows():
+            lines.append(f"| {r.protocol} | {r.judge} | {r.stage} (it {int(r.iteration)}) | "
+                         f"{SEAT_NAMES.get(r.seat_h, r.seat_h)} | {int(r.n_items)} | "
+                         f"{r.asd:+.2f} [{r.asd_lo:+.2f}, {r.asd_hi:+.2f}] | {r.acc:+.2f} |")
     (out / "psro.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
 

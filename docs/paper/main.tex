@@ -294,6 +294,8 @@ items (7 of 14 significantly, mean held-out gain $+0.09$) more than honest ones 
 iterations have not converged: sequential debate under gpt-4o-mini cycles, and some best responses still improved
 at iteration 4.
 
+Appendix~\ref{app:seats} traces sequential debate's collapse to the last word.\par
+
 \section{Do the samplers agree?}\label{sec:agreement}
 
 \begin{figure}[t]
@@ -447,5 +449,35 @@ For completeness: with committed liars, consultancy, debate and recursive debate
 11--14 points over the judge alone (about a fifth of the 54-point gap), prover-estimator by 5. Under information
 asymmetry (QuALITY) the weak judges gain 0--16 points from debate and the gpt-4.1 judges 25--27. Full tables are in
 \nolinkurl{docs/results/decisive.md} and \nolinkurl{decisive_extended.md}.
+
+\section{Sequential debate and the last word}\label{app:seats}
+The self-play equilibria of Section~\ref{sec:psro} pool two seats. Splitting them by the honest debater's seat
+(held-out items, judges pooled, 95\% item-bootstrap intervals; each item has one fixed honest seat) shows that
+sequential debate's pooled incentive is an average of two very different games:
+
+\begin{center}\small
+\begin{tabular}{llrr}
+\toprule
+ & honest debater's seat & unprompted & equilibrium (round 4)\\
+\midrule
+sequential & first (liar has the last word) & $-0.15$ [$-0.31$, $+0.01$] & $-0.23$ [$-0.34$, $-0.11$]\\
+ & last & $+1.08$ [$+0.90$, $+1.26$] & $+0.32$ [$+0.20$, $+0.44$]\\
+ & last $-$ first & $+1.23$ [$+1.00$, $+1.49$] & $+0.55$ [$+0.39$, $+0.72$]\\
+\midrule
+simultaneous & listed first & $+0.25$ [$+0.09$, $+0.44$] & $+0.33$ [$+0.19$, $+0.47$]\\
+ & listed last & $+0.82$ [$+0.62$, $+1.03$] & $+0.63$ [$+0.50$, $+0.77$]\\
+ & last $-$ first & $+0.57$ [$+0.30$, $+0.85$] & $+0.30$ [$+0.11$, $+0.50$]\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+With the last word, a lying debater already wins against the unprompted honest one, and still does at
+equilibrium (judge accuracy 0.41). What optimization removes is the honest debater's last-word advantage
+($+1.08\to+0.32$): the liars learn to survive speaking first, mostly by front-loading unfalsifiable specifics,
+while no honest strategy found survives a lying last word. Simultaneous debate, where each side writes its
+speech without seeing the other's speech that round, has a smaller order effect and rewards honesty from either
+seat. The weak judges overweight the last unrebutted speech, which debate's theory, with a judge who weighs the
+whole transcript, assumes away. The gpt-4o-mini sequential cell had not converged, and stronger judges may be
+less order-sensitive. Per-judge rows are in \nolinkurl{docs/results/psro.md}.
 
 \end{document}

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments"))
@@ -187,6 +188,16 @@ def test_report_evaluates_each_equilibrium_on_held_out_items(tmp_path):
     assert rows[1]["asd"] == pytest.approx(0.25 * 1.8 + 0.75 * -0.4) and rows[1]["support_l"] == 2
     single = np.mean([math.log(0.6), math.log(0.8)]) - np.mean([math.log(0.4), math.log(0.2)])
     assert rows[0]["asd_1"] == pytest.approx(single)
+
+
+def test_seat_rows_split_by_the_honest_seat_and_difference(tmp_path):
+    per = pd.DataFrame({"asd": [1.0, 1.2, -0.2, 0.0], "acc": [1, 1, 0, 1],
+                        "seat_h": ["debater_b", "debater_b", "debater_a", "debater_a"]},
+                       index=["q1", "q2", "q3", "q4"])
+    rows = {r["seat_h"]: r for r in pr.seat_rows(per, protocol="debate_seq")}
+    assert rows["debater_b"]["asd"] == pytest.approx(1.1) and rows["debater_a"]["asd"] == pytest.approx(-0.1)
+    assert rows["last - first"]["asd"] == pytest.approx(1.2) and rows["last - first"]["acc"] == pytest.approx(0.5)
+    assert rows["last - first"]["asd_lo"] <= 1.2 <= rows["last - first"]["asd_hi"]
 
 
 def test_cache_can_drop_native_reasoning(tmp_path):

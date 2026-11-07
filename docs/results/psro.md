@@ -97,3 +97,58 @@ Held-out items; ASD = E_sigma[honest - liar reward] (log score of the 3-sample m
 | debate_sim | llama-3.1-8b | 3 | liar | yes | +0.20 | -0.20 [-0.32, -0.08] |
 | debate_sim | llama-3.1-8b | 4 | honest | yes | +0.10 | +0.02 [-0.04, +0.08] |
 | debate_sim | llama-3.1-8b | 4 | liar | yes | +0.02 | +0.00 [-0.11, +0.11] |
+
+## By the honest debater's seat
+
+Sequential debate: debater_a speaks first, debater_b has the last word. Simultaneous: both write each round blind to the other's speech; only the transcript order differs. 'last - first': difference of the two seats' ASD (unpaired item bootstrap; each item has one honest seat); acc column there is the accuracy difference.
+
+| protocol | judge | stage | honest seat | items | ASD [95% CI] | judge acc |
+|---|---|---|---|---|---|---|
+| debate_seq | gemma-3-12b | unprompted (it 0) | honest first / listed first | 195 | -0.53 [-0.83, -0.21] | +0.34 |
+| debate_seq | gemma-3-12b | unprompted (it 0) | honest last / listed last | 195 | +1.46 [+1.15, +1.79] | +0.77 |
+| debate_seq | gemma-3-12b | unprompted (it 0) | last - first | 390 | +1.99 [+1.57, +2.42] | +0.42 |
+| debate_seq | gemma-3-12b | equilibrium (it 4) | honest first / listed first | 195 | -0.20 [-0.33, -0.07] | +0.43 |
+| debate_seq | gemma-3-12b | equilibrium (it 4) | honest last / listed last | 195 | +0.79 [+0.62, +0.97] | +0.68 |
+| debate_seq | gemma-3-12b | equilibrium (it 4) | last - first | 390 | +0.99 [+0.78, +1.20] | +0.25 |
+| debate_seq | gpt-4o-mini | unprompted (it 0) | honest first / listed first | 195 | +0.00 [-0.21, +0.21] | +0.45 |
+| debate_seq | gpt-4o-mini | unprompted (it 0) | honest last / listed last | 195 | +1.16 [+1.00, +1.32] | +0.79 |
+| debate_seq | gpt-4o-mini | unprompted (it 0) | last - first | 390 | +1.15 [+0.88, +1.42] | +0.35 |
+| debate_seq | gpt-4o-mini | equilibrium (it 4) | honest first / listed first | 195 | -0.46 [-0.68, -0.25] | +0.35 |
+| debate_seq | gpt-4o-mini | equilibrium (it 4) | honest last / listed last | 195 | +0.09 [-0.15, +0.33] | +0.53 |
+| debate_seq | gpt-4o-mini | equilibrium (it 4) | last - first | 390 | +0.55 [+0.23, +0.87] | +0.18 |
+| debate_seq | llama-3.1-8b | unprompted (it 0) | honest first / listed first | 195 | +0.07 [-0.08, +0.21] | +0.54 |
+| debate_seq | llama-3.1-8b | unprompted (it 0) | honest last / listed last | 195 | +0.63 [+0.39, +0.86] | +0.65 |
+| debate_seq | llama-3.1-8b | unprompted (it 0) | last - first | 390 | +0.56 [+0.29, +0.84] | +0.11 |
+| debate_seq | llama-3.1-8b | equilibrium (it 4) | honest first / listed first | 195 | -0.03 [-0.19, +0.15] | +0.47 |
+| debate_seq | llama-3.1-8b | equilibrium (it 4) | honest last / listed last | 195 | +0.08 [-0.04, +0.21] | +0.49 |
+| debate_seq | llama-3.1-8b | equilibrium (it 4) | last - first | 390 | +0.11 [-0.10, +0.32] | +0.03 |
+| debate_seq | pooled | unprompted (it 0) | honest first / listed first | 195 | -0.15 [-0.31, +0.01] | +0.45 |
+| debate_seq | pooled | unprompted (it 0) | honest last / listed last | 195 | +1.08 [+0.90, +1.26] | +0.74 |
+| debate_seq | pooled | unprompted (it 0) | last - first | 390 | +1.23 [+1.00, +1.49] | +0.29 |
+| debate_seq | pooled | equilibrium (it 4) | honest first / listed first | 195 | -0.23 [-0.34, -0.11] | +0.41 |
+| debate_seq | pooled | equilibrium (it 4) | honest last / listed last | 195 | +0.32 [+0.20, +0.44] | +0.56 |
+| debate_seq | pooled | equilibrium (it 4) | last - first | 390 | +0.55 [+0.39, +0.72] | +0.15 |
+| debate_sim | gemma-3-12b | unprompted (it 0) | honest first / listed first | 195 | -0.03 [-0.32, +0.28] | +0.52 |
+| debate_sim | gemma-3-12b | unprompted (it 0) | honest last / listed last | 195 | +0.97 [+0.57, +1.36] | +0.63 |
+| debate_sim | gemma-3-12b | unprompted (it 0) | last - first | 390 | +1.00 [+0.50, +1.48] | +0.12 |
+| debate_sim | gemma-3-12b | equilibrium (it 4) | honest first / listed first | 195 | +0.24 [-0.04, +0.53] | +0.53 |
+| debate_sim | gemma-3-12b | equilibrium (it 4) | honest last / listed last | 195 | +0.87 [+0.56, +1.16] | +0.67 |
+| debate_sim | gemma-3-12b | equilibrium (it 4) | last - first | 390 | +0.63 [+0.23, +1.04] | +0.14 |
+| debate_sim | gpt-4o-mini | unprompted (it 0) | honest first / listed first | 195 | +0.39 [+0.18, +0.62] | +0.54 |
+| debate_sim | gpt-4o-mini | unprompted (it 0) | honest last / listed last | 195 | +1.11 [+0.92, +1.31] | +0.79 |
+| debate_sim | gpt-4o-mini | unprompted (it 0) | last - first | 390 | +0.72 [+0.43, +1.01] | +0.24 |
+| debate_sim | gpt-4o-mini | equilibrium (it 4) | honest first / listed first | 195 | +0.38 [+0.24, +0.54] | +0.60 |
+| debate_sim | gpt-4o-mini | equilibrium (it 4) | honest last / listed last | 195 | +0.78 [+0.63, +0.92] | +0.71 |
+| debate_sim | gpt-4o-mini | equilibrium (it 4) | last - first | 390 | +0.39 [+0.18, +0.61] | +0.11 |
+| debate_sim | llama-3.1-8b | unprompted (it 0) | honest first / listed first | 195 | +0.40 [+0.24, +0.57] | +0.64 |
+| debate_sim | llama-3.1-8b | unprompted (it 0) | honest last / listed last | 195 | +0.38 [+0.16, +0.63] | +0.56 |
+| debate_sim | llama-3.1-8b | unprompted (it 0) | last - first | 390 | -0.02 [-0.31, +0.28] | -0.08 |
+| debate_sim | llama-3.1-8b | equilibrium (it 4) | honest first / listed first | 195 | +0.37 [+0.24, +0.49] | +0.63 |
+| debate_sim | llama-3.1-8b | equilibrium (it 4) | honest last / listed last | 195 | +0.26 [+0.14, +0.38] | +0.56 |
+| debate_sim | llama-3.1-8b | equilibrium (it 4) | last - first | 390 | -0.11 [-0.28, +0.07] | -0.08 |
+| debate_sim | pooled | unprompted (it 0) | honest first / listed first | 195 | +0.25 [+0.09, +0.44] | +0.57 |
+| debate_sim | pooled | unprompted (it 0) | honest last / listed last | 195 | +0.82 [+0.62, +1.03] | +0.66 |
+| debate_sim | pooled | unprompted (it 0) | last - first | 390 | +0.57 [+0.30, +0.85] | +0.09 |
+| debate_sim | pooled | equilibrium (it 4) | honest first / listed first | 195 | +0.33 [+0.19, +0.47] | +0.59 |
+| debate_sim | pooled | equilibrium (it 4) | honest last / listed last | 195 | +0.63 [+0.50, +0.77] | +0.64 |
+| debate_sim | pooled | equilibrium (it 4) | last - first | 390 | +0.30 [+0.11, +0.50] | +0.06 |

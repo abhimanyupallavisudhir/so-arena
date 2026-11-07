@@ -216,6 +216,28 @@ Per-judge columns are round 4. Blind judge on the same items: −0.62.
    under gpt-4o-mini cycles (+0.50, −0.15, +0.23, −0.19). The equilibria are those of the strategies found so far,
    not of all strategies, and a stronger optimizer could move them.
 
+#### Sequential debate fails through the last word (added 2026-11-07)
+
+Splitting the held-out equilibria by the honest debater's seat (judges pooled; each item has one fixed honest seat;
+[`results/psro.md`](results/psro.md), "By the honest debater's seat"):
+
+| ASD by honest seat | unprompted | equilibrium (round 4) |
+|---|---|---|
+| sequential, honest speaks first (liar has the last word) | −0.15 [−0.31, +0.01] | **−0.23** [−0.34, −0.11] |
+| sequential, honest speaks last | +1.08 [+0.90, +1.26] | +0.32 [+0.20, +0.44] |
+| sequential, last − first | +1.23 [+1.00, +1.49] | +0.55 [+0.39, +0.72] |
+| simultaneous, honest listed first | +0.25 [+0.09, +0.44] | +0.33 [+0.19, +0.47] |
+| simultaneous, honest listed last | +0.82 [+0.62, +1.03] | +0.63 [+0.50, +0.77] |
+| simultaneous, last − first | +0.57 [+0.30, +0.85] | +0.30 [+0.11, +0.50] |
+
+- With the last word, the liar beats the honest debater even unprompted, and still does at equilibrium (judge
+  accuracy 0.41).
+- What optimization erodes is the honest last-word advantage (+1.08 → +0.32): the liars learn to survive speaking
+  first; no honest strategy survives a lying last word. Sequential debate's pooled incentive goes to about zero.
+- Simultaneous debate has a smaller order effect and rewards honesty from either seat.
+- Reading: weak judges overweight the last unrebutted speech. Caveats: three weak judges, one debater model, and the
+  gpt-4o-mini sequential cell had not converged. Paper: Appendix "Sequential debate and the last word".
+
 ### Instant judges: removing the judge's noise (added 2026-11-06)
 
 The study's judges reason before answering, so two samples of one judge on one argument agree only weakly. Earlier
