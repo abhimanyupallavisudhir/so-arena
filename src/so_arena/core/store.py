@@ -66,25 +66,35 @@ class RunStore:
         """All stored episodes (a later line with the same id overrides an earlier one). Lines that do
         not parse - e.g. one half-written when a run was killed - are skipped with a warning, so the
         run can still be resumed (the lost episodes simply run again)."""
-        if not self.episodes_path.exists():
+        import gzip
+
+        # an archived store keeps its episodes gzipped (episodes.jsonl.gz); episodes appended after archiving
+        # go to a new plain file, read after it
+        files = [p for p in (self.episodes_path.with_name("episodes.jsonl.gz"), self.episodes_path) if p.exists()]
+        if not files:
             return []
         eps: dict[str, Episode] = {}
         bad = []
-        with open(self.episodes_path, encoding="utf-8", errors="replace") as f:
-            for n, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ep = Episode.model_validate_json(line)
-                except ValueError:  # pydantic's ValidationError (also for malformed JSON) is a ValueError
-                    bad.append(n)
-                    continue
-                eps[ep.id] = ep  # later lines (e.g. re-scored) override earlier ones
+        for path in files:
+            opener = gzip.open if path.suffix == ".gz" else open
+            with opener(path, "rt", encoding="utf-8", errors="replace") as f:
+                for n, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ep = Episode.model_validate_json(line)
+                    except ValueError:  # pydantic's ValidationError (also for malformed JSON) is a ValueError
+                        bad.append(n)
+                        continue
+                    eps[ep.id] = ep  # later lines (e.g. re-scored) override earlier ones
         if bad:
             log.warning("%s: skipped %d unreadable line(s) (e.g. line %d), probably cut off by a crash",
                         self.episodes_path, len(bad), bad[0])
         return list(eps.values())
+
+    def has_episodes(self) -> bool:
+        return self.episodes_path.exists() or self.episodes_path.with_name("episodes.jsonl.gz").exists()
 
     def ids(self) -> set[str]:
         return {e.id for e in self.episodes() if e.error is None}

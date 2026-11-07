@@ -363,3 +363,30 @@ def test_decision_inside_unclosed_thinking_tag_is_parsed():
     req = ActionRequest(kind="text", prompt=[Message.user("speak")])
     a = asyncio.run(pol.act(req, ActContext(role="judge")))
     assert a.text == ""
+
+
+def test_openrouter_effort_none_disables_reasoning(monkeypatch):
+    """OpenRouter ignores reasoning.effort="none" on hybrid models (Qwen3 and DeepSeek-V3.2 kept thinking until
+    max_tokens and returned nothing): effort "none" must become reasoning.enabled=false."""
+    from inspect_ai.model import GenerateConfig
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")  # builds the client; no request is made
+    model = InspectModel("openrouter/qwen/qwen3-14b")
+    plain = model._get_no_reasoning()
+    params = plain.api.completion_params(GenerateConfig(reasoning_effort=None), tools=False)
+    assert params["extra_body"]["reasoning"] == {"enabled": False}
+    seen = {}
+
+    class Fake:
+        async def generate(self, messages, config, cache):
+            import inspect_ai.model as im
+
+            seen["effort"] = config.reasoning_effort
+            seen["last"] = messages[-1].text
+            return im.ModelOutput(model="x", choices=[
+                im.ChatCompletionChoice(message=im.ChatMessageAssistant(content="ok"), stop_reason="stop")])
+
+    model._no_reasoning_model = Fake()
+    model._model = None
+    out = run_sync(model.generate([Message.user("hi")], soa.core.types.GenerateOptions(reasoning_effort="none")))
+    assert out.text == "ok" and seen["effort"] is None and seen["last"].endswith("hi /no_think")

@@ -18,7 +18,8 @@ models:
   - {name: google/gemini-2.5-flash, family: gemini-2.5, organization: Google, price_input_per_mtok: 0.30, price_output_per_mtok: 2.50}
   - {name: google/gemini-2.5-pro, family: gemini-2.5, organization: Google, price_input_per_mtok: 1.25, price_output_per_mtok: 10.0}
   - {name: together/deepseek-ai/DeepSeek-V3, family: deepseek-v3, organization: DeepSeek, params_b: 671, active_params_b: 37, price_input_per_mtok: 1.25, price_output_per_mtok: 1.25}
+  - {name: openrouter/google/gemma-3-12b-it, family: gemma-3, organization: Google, params_b: 12, price_input_per_mtok: 0.05, price_output_per_mtok: 0.15}
   - {name: openrouter/qwen/qwen3-8b, family: qwen3, organization: Alibaba, params_b: 8, price_input_per_mtok: 0.035, price_output_per_mtok: 0.138}
   - {name: openrouter/qwen/qwen3-32b, family: qwen3, organization: Alibaba, params_b: 32, price_input_per_mtok: 0.10, price_output_per_mtok: 0.30}
-  - {name: openrouter/meta-llama/llama-3.1-8b-instruct, family: llama-3.1, organization: Meta, params_b: 8, price_input_per_mtok: 0.02, price_output_per_mtok: 0.05, supports_logprobs: true}
+  - {name: openrouter/meta-llama/llama-3.1-8b-instruct, family: llama-3.1, organization: Meta, params_b: 8, price_input_per_mtok: 0.05, price_output_per_mtok: 0.08, supports_logprobs: true}
   - {name: openrouter/meta-llama/llama-3.3-70b-instruct, family: llama-3.3, organization: Meta, params_b: 70, price_input_per_mtok: 0.12, price_output_per_mtok: 0.30, supports_logprobs: true}

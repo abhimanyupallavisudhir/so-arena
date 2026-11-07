@@ -1,0 +1,5 @@
+judge,mechanism,rung,accuracy,accuracy_true_arm,accuracy_false_arm,honest_reward,liar_reward
+gpt-4o-mini,debate_seq,base,0.4,0.4,0.4,-1.0146458159955412,-0.9168620812781768
+gpt-4o-mini,debate_seq,liar optimized,0.38,0.38,0.38,-1.1347186532289757,-0.8163839691057316
+gpt-4o-mini,debate_seq,both optimized,0.46,0.46,0.46,-1.084694019694683,-1.0971809547585538
+gpt-4o-mini,debate_seq,liar replies,0.54,0.54,0.54,-0.9203575693444073,-1.1698515017020368

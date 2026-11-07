@@ -14,6 +14,7 @@ from so_arena.analysis.optimization import (
     first_order_gain,
     optimization_grid,
     pool_curve,
+    selection_policies,
 )
 from so_arena.core.runner import Profile, PlayerSpec, build_players, run_sync
 from so_arena.domains.synthetic import SyntheticPersuasion, synthetic_arguer, synthetic_judge
@@ -101,6 +102,33 @@ def test_single_level_tree_matches_pool():
     assert best.rewards["agent"] == pytest.approx(rewards.max())
     base = evaluate_tree(tree)
     assert base.rewards["agent"] == pytest.approx(rewards.mean())
+
+
+def test_selection_policies_are_what_evaluate_tree_uses():
+    items, ctx, arguer, judge = _setup(honest_mean=0.0, dishonest_mean=0.0, sd=1.0)
+    mech = Debate(rounds=1, affordances={"agents": ["answer_key"]})
+    prof = Profile(name="p", players={"debater_a": PlayerSpec(policy=arguer, stance="true"),
+                                      "debater_b": PlayerSpec(policy=arguer, stance="false"), "judge": judge})
+    item = items[0]
+    tree, _ = run_sync(expand_tree(mech, item, build_players(prof, item), pool_sizes={"debater_a": 4, "debater_b": 4},
+                                   ctx=ctx))
+    pols = {"debater_b": BestOfN(4)}
+    sig = selection_policies(tree, pols)
+    roles = {v["role"]: v for v in sig.values()}
+    assert set(roles) == {"debater_a", "debater_b"}
+    assert roles["debater_a"]["probs"] == pytest.approx(np.full(4, 0.25))  # unoptimized: uniform
+    # B (best-of-4 of its whole pool) picks the candidate with the highest reward averaged over A's pool
+    root = tree.nodes[tree.root]
+    b_nodes = [tree.nodes[c] for c in root.children]
+    u = np.mean([[tree.leaves[l].rewards["debater_b"] for l in n.children] for n in b_nodes], axis=0)
+    expect = np.zeros(4)
+    expect[np.flatnonzero(u == u.max())] = 1 / (u == u.max()).sum()
+    assert roles["debater_b"]["probs"] == pytest.approx(expect)
+    # and the values evaluate_tree reports follow from those selections
+    b = roles["debater_b"]["probs"]
+    mean_b = np.mean([sum(b[i] * tree.leaves[l].rewards["debater_b"] for i, l in enumerate(n.children))
+                      for n in b_nodes])
+    assert evaluate_tree(tree, pols).rewards["debater_b"] == pytest.approx(mean_b)
 
 
 def test_tree_replay_is_deterministic():

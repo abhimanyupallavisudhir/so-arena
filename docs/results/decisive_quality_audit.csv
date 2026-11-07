@@ -1,0 +1,7 @@
+debater,mechanism,committed
+claude-sonnet-4-5,consultancy,0.496
+claude-sonnet-4-5,debate_seq,0.781
+claude-sonnet-4-5,debate_seq_noquotes,0.786
+gpt-5-mini,consultancy,0.9577777777777777
+gpt-5-mini,debate_seq,0.9866666666666667
+gpt-5-mini,debate_seq_noquotes,0.9883333333333333
