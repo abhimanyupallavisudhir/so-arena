@@ -184,6 +184,37 @@ def markdown(t: dict) -> str:
     return "\n".join(L) + "\n"
 
 
+def place_labels(ax, xs, ys, names, *, fontsize=6.3, color=None, pad=5) -> None:
+    """Label points to their right without overlaps: labels that would collide are pushed apart vertically (in
+    display space) and joined to their point by a hairline."""
+    fig = ax.figure
+    fig.canvas.draw()
+    pts = ax.transData.transform(np.column_stack([xs, ys]))
+    h = fontsize * fig.dpi / 72 * 1.25
+    w = [len(n) * fontsize * fig.dpi / 72 * 0.56 for n in names]
+    lab = [[px + pad * fig.dpi / 72, py] for px, py in pts]
+    order = np.argsort(pts[:, 1])
+    for _ in range(200):
+        moved = False
+        for a_i, i in enumerate(order):
+            for j in order[a_i + 1:]:
+                (xi, yi), (xj, yj) = lab[i], lab[j]
+                if xi < xj + w[j] and xj < xi + w[i] and abs(yi - yj) < h:
+                    push = (h - abs(yi - yj)) / 2 + 0.5
+                    lo, hi = (i, j) if yi <= yj else (j, i)
+                    lab[lo][1] -= push
+                    lab[hi][1] += push
+                    moved = True
+        if not moved:
+            break
+    for x, y, (px, py), (lx, ly), n in zip(xs, ys, pts, lab, names):
+        dx, dy = (lx - px) * 72 / fig.dpi, (ly - py) * 72 / fig.dpi
+        far = abs(dy) > 0.6 * fontsize
+        ax.annotate(n, (x, y), xytext=(dx, dy),
+                    textcoords="offset points", fontsize=fontsize, color=color, va="center",
+                    arrowprops=dict(arrowstyle="-", lw=0.4, color=color, shrinkA=0, shrinkB=2) if far else None)
+
+
 def figures(t: dict, out: Path) -> None:
     import matplotlib.pyplot as plt
 
@@ -204,13 +235,16 @@ def figures(t: dict, out: Path) -> None:
                     ladder = r.debater.startswith("gpt-5.6-sol")
                     st.dot_ci(ax, r.aa, r.conc, r.conc_lo, r.conc_hi, ORANGE if ladder else BLUE, horizontal=False,
                               size=6)
-                    ax.annotate(r.debater, (r.aa, r.conc), xytext=(4, 0), textcoords="offset points", fontsize=6.3,
-                                color=INK2, va="center")
                 lad = g[g.debater.str.startswith("gpt-5.6-sol")].sort_values("aa")
                 ax.plot(lad.aa, lad.conc, color=ORANGE, lw=1.2, zorder=1)
                 ax.axhline(0.5, color=INK2, lw=1)
                 ax.set_title(MECHS[m])
                 ax.set_xlabel("agent: Artificial Analysis Intelligence Index (v4.3)")
+            fig.tight_layout()
+            for ax, m in zip(axes, MECHS):
+                g = a[a.mechanism == m]
+                if len(g):
+                    place_labels(ax, g.aa.to_numpy(), g.conc.to_numpy(), list(g.debater), color=INK2)
             axes[0].set_ylabel("concordance: share of items where honesty earns more")
             fig.suptitle("Does incentive compatibility change with the agent's intelligence?", x=0.005, ha="left",
                          fontsize=10, fontweight="bold", y=1.06)
@@ -227,13 +261,16 @@ def figures(t: dict, out: Path) -> None:
                 g = jd[jd.mechanism == m].sort_values("aa")
                 for _, r in g.iterrows():
                     st.dot_ci(ax, r.aa, r.conc, r.conc_lo, r.conc_hi, BLUE, horizontal=False, size=6)
-                    ax.annotate(r.judge, (r.aa, r.conc), xytext=(4, 0), textcoords="offset points", fontsize=6.3,
-                                color=INK2, va="center")
                 b = t["blind"].sort_values("aa")
                 ax.plot(b.aa, b.conc, color=CONTEXT, lw=1.2, ls=(0, (4, 3)), marker="o", ms=3, zorder=1)
                 ax.axhline(0.5, color=INK2, lw=1)
                 ax.set_title(MECHS[m])
                 ax.set_xlabel("judge: Artificial Analysis Intelligence Index (v4.3)")
+            fig.tight_layout()
+            for ax, m in zip(axes, MECHS):
+                g = jd[jd.mechanism == m]
+                if len(g):
+                    place_labels(ax, g.aa.to_numpy(), g.conc.to_numpy(), list(g.judge), color=INK2)
             axes[0].set_ylabel("concordance: share of items where honesty earns more")
             fig.suptitle("Does incentive compatibility change with the judge's intelligence?", x=0.005, ha="left",
                          fontsize=10, fontweight="bold", y=1.06)
