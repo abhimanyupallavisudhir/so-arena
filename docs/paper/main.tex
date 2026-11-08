@@ -43,8 +43,7 @@ best-respond to each other (PSRO self-play, 390 held-out items), simultaneous de
 partly predicts the optimized one (Spearman $0.69$ across protocol--judge cells). EIC rises steeply with judge capability (in debate, honesty
 wins on 58--61\% of items with Llama-3.1-8B and 90--92\% with gpt-4.1) and, unlike accuracy, stays high for
 judges that already know the answer; but a panel of 20 agents and 9 judges on 300 unselected items shows this rise is
-the judge's own prior: over a judge that sees no argument, debate adds at most $+0.08$ (Brier) and consultancy
-subtracts, and neither changes much with the agent's intelligence. Prompted liars that refuse to lie, common among safety-trained models,
+the judge's own prior: over a judge that sees no argument, debate adds at most $+0.17$ (Brier) for weak judges and nothing for strong ones, consultancy adds at most $+0.07$, and with liars who actually lie these fall to at most $+0.08$ and $0$. Prompted liars that refuse to lie, common among safety-trained models,
 inflate a model's EIC from at most $+0.6$ to as much as $+4.0$.
 \end{abstract}
 
@@ -358,40 +357,18 @@ and so comparable across judges, and its gain over the same judge with no argume
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig13_panel_judges_paper.pdf}
-\caption{Model panel, judges (committed liars, pooled over 20 agents). Top: ASD (Brier) with the protocol (blue)
+\caption{Model panel, judges (all prompted liars, pooled over 20 agents). Top: ASD (Brier) with the protocol (blue)
 and for the same judge with no argument (gray). Bottom: gain over the blind judge. Points: 95\% item-bootstrap
 intervals. Lines and shaded bands: least-squares fit and its 95\% bootstrap band, resampling items and judges.}
 \label{fig:panel-judges}
 \end{figure}
 
-Raw EIC rises steeply with the judge's capability ($+0.57$ Brier per 10 index points in debate [$+0.44$, $+0.94$], $r=0.91$; slope intervals resample both items and models), but the
-blind baseline rises just as fast, from about $0$ for the Llama judges to $+0.70$ for DeepSeek-V3.2
-(Figure~\ref{fig:panel-judges}). With committed liars, debate's gain over the blind judge is at most $+0.08$
-[$+0.01$, $+0.14$] (gpt-4o-mini) and slightly negative for the strongest judges (slope $-0.05$ [$-0.20$, $+0.14$], no detectable trend);
-consultancy's is never positive and is $-0.10$ to $-0.14$ for the four strongest. With all prompted liars debate gains
-$+0.12$ to $+0.17$ for the weakest judges, mostly from liars conceding. Across agents, committed-liar EIC barely moves
-with intelligence ($+0.025$ [$-0.002$, $+0.060$] per 10 points in debate, $-0.013$ [$-0.034$, $+0.012$] in consultancy, Figure~\ref{fig:panel-agents}); the
-apparent rise with all prompted liars comes from the strongest models refusing (GPT-6 Astra commits to 29--35\% of
-its lies, and its debate ASD falls from $+0.60$ to $+0.15$ once refusals are removed). Along GPT-5.6 Sol's effort
-ladder, more effort means more willingness to lie (commitment 58\%$\to$77\%), so all-liar EIC falls while committed
-EIC is flat. On items no judge was selected to fail, then, debate between equally capable agents adds little to what
-the judge already knows, and consultancy subtracts from it: the room for a protocol to help came from the capability
-gap. Committed-liar points are compared with the blind judge on the same items, because liars concede more on items
-the judge already knows. Item by item, every agent's consultancy is significantly below the blind judge (mean
-gain $-0.07$). In debate 15 of 20 agents are below it, 6 significantly, and one above (mean $-0.04$; $-0.01$\ci{-0.04}{+0.02}
-pooling items across agents); the gain rises with the agent's intelligence ($+0.026$\ci{+0.011}{+0.045} per 10
-index points), from about $-0.08$ for the weakest agents to about $0$ for the strongest. Only the four agents whose liars commit at least 90\% of the time, where the filter removes
-almost nothing, tie it (gain $+0.01$\ci{-0.02}{+0.04}). The low-commitment agents sit lowest, but not because the
-items they lie on are harder: on those items the always-committing agents still tie the blind judge. Either they are
-better liars than honest debaters, or they lie only where they have a good false argument; one sample per item cannot
-separate the two. Neither protocol, then, beats the judge with no argument on these items.
+Raw ASD rises steeply with the judge's capability, but so does the same judge with no argument, from about $0$ for the Llama judges to $+0.70$ for DeepSeek-V3.2 (Figure~\ref{fig:panel-judges}). The gain over the judge alone falls with capability: $-0.15$ per 10 index points in debate [$-0.32$, $+0.00$] and $-0.13$ in consultancy [$-0.27$, $-0.06$] (slope intervals resample both items and models). Debate adds up to $+0.17$ for the weak judges and nothing for the three strongest. Across agents, debate is above the judges with no argument by $+0.06$\ci{+0.03}{+0.09}, rising with the agent's intelligence ($+0.033$\ci{+0.009}{+0.058} per 10 points; Figure~\ref{fig:panel-agents}); consultancy is not ($-0.015$\ci{-0.04}{+0.01}). These use every prompted liar, including those who conceded or refused; Appendix~\ref{app:committed} removes them (debate $-0.01$\ci{-0.04}{+0.02}, consultancy $-0.07$\ci{-0.09}{-0.04}). Splitting the panel by the gap selection explains the contrast with the rest of the paper: for the three weak judges, debate gains $+0.33$\ci{+0.24}{+0.41} on the 95 panel items in the gap-selected set and $+0.01$\ci{-0.04}{+0.07} on the other 205. Debate's room to help comes from items the judge gets wrong alone. A calibration map does not change this (Appendix~\ref{app:calibration}).
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig12_panel_agents_paper.pdf}
-\caption{Model panel, agents (committed liars, pooled over 9 judges). Blue line and band: least-squares fit and
-its 95\% bootstrap band, resampling items and agents; dotted gray: the same fit with all prompted liars. Orange:
-GPT-5.6 Sol at effort none, low, medium, high. Gray ticks: the judges with no argument, on the same items as that agent's committed-liar point. Bottom row: the difference, item by item; navy diamonds are the agents whose liars commit at least 90\% of the time.}
+\caption{Model panel, agents (all prompted liars, pooled over 9 judges). Blue line and band: least-squares fit and its 95\% bootstrap band, resampling items and agents. Orange: GPT-5.6 Sol at effort none, low, medium, high. Dashed gray: the judges with no argument, with its 95\% interval. Bottom row: the difference, item by item.}
 \label{fig:panel-agents}
 \end{figure}
 
@@ -530,5 +507,32 @@ speech without seeing the other's speech that round, has a smaller order effect 
 seat. The weak judges overweight the last unrebutted speech, which debate's theory, with a judge who weighs the
 whole transcript, assumes away. The gpt-4o-mini sequential cell had not converged, and stronger judges may be
 less order-sensitive. Per-judge rows are in \nolinkurl{docs/results/psro.md}.
+
+\section{The panel with committed liars only}\label{app:committed}
+Removing every sample whose liar conceded or refused (gpt-5 audit of 18{,}012 liar texts) leaves each agent a different subset of items, so each point is compared with the judge with no argument on the same items. Debate's gain over that judge is $-0.01$\ci{-0.04}{+0.02} pooling items across agents and rises with the agent's intelligence ($+0.026$\ci{+0.011}{+0.045} per 10 index points); consultancy's is $-0.07$\ci{-0.09}{-0.04}. Figures~\ref{fig:panel-agents-c} and \ref{fig:panel-judges-c} show the same plots as the main text. GPT-6 Astra commits to 29--35\% of its lies, and its debate ASD falls from $+0.60$ to $+0.15$ once refusals are removed. Along GPT-5.6 Sol's effort ladder, commitment rises from 58\% to 77\% with effort.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig12c_panel_agents_committed_paper.pdf}
+\caption{Model panel, agents, committed liars only. Gray ticks: the judges with no argument, on that agent's items. Dotted gray: the fit with all prompted liars. Navy diamonds: agents whose liars commit at least 90\% of the time.}
+\label{fig:panel-agents-c}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig13c_panel_judges_committed_paper.pdf}
+\caption{Model panel, judges, committed liars only.}
+\label{fig:panel-judges-c}
+\end{figure}
+
+\section{Calibration}\label{app:calibration}
+Does debate look weak only because it pulls judges toward 0.5? Each judge's stated probability goes through a Platt map (logit $p' = a + b\,\mathrm{logit}\,p$, $b \ge 0$), fitted per judge and condition and cross-fitted over items. Debate lowers confidence slightly (mean $|p-0.5|$ of 0.36 against 0.38 with no argument), but every condition is overconfident, the judge with no argument most of all (average $b$ of 0.32, against 0.48 in debate). On the panel, debate's gain over the judge alone is $+0.07$\ci{+0.05}{+0.08} calibrated against $+0.06$\ci{+0.03}{+0.09} raw (all prompted liars) and $-0.015$\ci{-0.03}{-0.00} against $-0.01$\ci{-0.04}{+0.02} (committed liars), and the three strongest judges still gain nothing. On the prompt-optimized and self-play experiments the signs hold and the sizes shrink (Figure~\ref{fig:calibration}): at equilibrium, simultaneous debate goes from $+0.16$ to $+0.09$ and sequential debate stays at about $0$. Consultancy after prompt search stays near $+0.02$.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig15_calibration_paper.pdf}
+\caption{Raw (gray) against calibrated (blue) estimates, with 95\% intervals over items. Left: gain over the same judge with no argument on the model panel. Right: Brier ASD on the optimized experiments, with maps fitted on the panel's unselected items.}
+\label{fig:calibration}
+\end{figure}
 
 \end{document}

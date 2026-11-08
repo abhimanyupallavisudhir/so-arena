@@ -231,3 +231,68 @@ def test_prune_judge_cache_keeps_arguments_and_records_cost(tmp_path):
     left = [k for (k,) in sqlite3.connect(db).execute("SELECT key FROM cache")]
     assert left == ["k2"]
     assert json.loads((run / "spend.json").read_text())["s_pruned"] == 0.75
+
+
+def _calibration():
+    import decisive_calibration as dc
+
+    return dc
+
+
+def test_platt_recovers_a_known_map_and_never_inverts():
+    dc = _calibration()
+    rng = np.random.default_rng(0)
+    x = rng.normal(0, 2, 40000)
+    y = (rng.random(len(x)) < dc.expit(0.5 * x)).astype(float)  # the judge is twice as extreme as it should be
+    a, b = dc.platt(x, y)
+    assert abs(a) < 0.05 and abs(b - 0.5) < 0.03
+    assert dc.platt(x, y, symmetric=True)[0] == 0.0
+    # a judge that is systematically wrong gets no signal rather than an inverted one
+    assert dc.platt(x, 1 - y, symmetric=True)[1] == pytest.approx(0.0, abs=1e-3)
+
+
+def test_platt_is_stable_when_a_judge_answers_exactly_zero_or_one():
+    dc = _calibration()
+    p = np.array([0.0, 1.0] * 500 + [0.7, 0.3] * 500)
+    y = np.array([0.0, 1.0] * 400 + [1.0, 0.0] * 100 + [1.0, 0.0] * 500)
+    a, b = dc.platt(dc.logit(p), y, symmetric=True)
+    assert a == 0.0 and 0 < b < dc.B_MAX
+
+
+def _cal_rows(n, wrong=0.3, conf=0.95, seed=0, mech="debate_sim"):
+    rng = np.random.default_rng(seed)
+    out = []
+    for i in range(n):
+        ok = rng.random() > wrong
+        for v in (1.0, -1.0):
+            honest = v > 0
+            p = conf if ok == honest else 1 - conf
+            out.append({"judge": "j", "mechanism": mech, "item": f"i{i}", "condition": "all", "y": float(honest), "p": p, "w": 1.0})
+    return pd.DataFrame(out)
+
+
+def test_crossfit_calibrates_an_overconfident_judge_without_changing_accuracy():
+    dc = _calibration()
+    df = dc.crossfit(_cal_rows(1000), ["judge", "mechanism"])
+    assert df.pc.notna().all()
+    honest = df[df.y == 1]
+    # 70% accurate, so a calibrated probability on the truth should be near 0.7 / 0.3
+    assert honest.pc.max() == pytest.approx(0.7, abs=0.04)
+    assert ((honest.p > .5) == (honest.pc > .5)).mean() == 1.0
+
+
+def test_item_asd_brier_matches_probability_identity_in_debate():
+    dc = _calibration()
+    df = _cal_rows(200, wrong=0.2, conf=0.8)
+    it = dc.item_asd(df, ["judge"], "p")
+    # for mirrored sides, Brier ASD = 2 E[p on the truth] - 1
+    assert it.b.mean() == pytest.approx(2 * df[df.y == 1].p.mean() - 1, abs=1e-9)
+
+
+def test_calibration_equalizes_judges_that_differ_only_in_scale():
+    dc = _calibration()
+    a = dc.crossfit(_cal_rows(1500, conf=0.99, seed=1), ["judge", "mechanism"])
+    b = dc.crossfit(_cal_rows(1500, conf=0.60, seed=1), ["judge", "mechanism"])
+    raw = dc.item_asd(a, ["judge"], "p").b.mean() - dc.item_asd(b, ["judge"], "p").b.mean()
+    cal = dc.item_asd(a, ["judge"], "pc").b.mean() - dc.item_asd(b, ["judge"], "pc").b.mean()
+    assert abs(raw) > 0.15 and abs(cal) < 0.02

@@ -247,14 +247,13 @@ def fmt(r, col="asd") -> str:
 
 
 def markdown(t: dict) -> str:
-    v = "committed" if "agents_committed" in t else "all"
     L = ["# Model panel: EIC against agent and judge intelligence", "",
          f"Items not selected on any judge. ASD = mean reward arguing the truth minus lying, in log score (the "
          f"protocol's reward; also its median over items) and in Brier score of the judge's probability for the "
          f"agent's side (bounded, so judges of different confidence compare); conc = share of items where "
          f"honesty earns more. "
-         f"Headline variant: {'committed liars only (gpt-5 audit)' if v == 'committed' else 'all prompted liars'}.", ""]
-    for name in ("committed", "all"):
+         "Headline: all prompted liars. Committed liars only (gpt-5 audit) are the appendix tables.", ""]
+    for name in ("all", "committed"):
         if f"agents_{name}" not in t:
             continue
         L += [f"## Agents ({name} liars), pooled over judges", "",
@@ -350,8 +349,9 @@ def _points(ax, g, meas, color, *, label=None, size=5.5):
                 ms=size, mec="white", mew=0.8, elinewidth=0.9, capsize=0, zorder=4, label=label, alpha=0.95)
 
 
-def _slope_note(ax, lines):
-    ax.text(0.99, 0.02, "\n".join(lines), transform=ax.transAxes, ha="right", va="bottom", fontsize=6.8,
+def _slope_note(ax, lines, top_left=False):
+    x, y, ha, va = (0.01, 0.98, "left", "top") if top_left else (0.99, 0.02, "right", "bottom")
+    ax.text(x, y, "\n".join(lines), transform=ax.transAxes, ha=ha, va=va, fontsize=6.8,
             color="#52514e", linespacing=1.4,
             bbox=dict(boxstyle="round,pad=0.35", fc="#fcfcfb", ec="#e1e0d9", lw=0.6))
 
@@ -364,7 +364,6 @@ def figures(t: dict, out: Path) -> None:
     import eic_style as st
     from eic_style import BLUE, CONTEXT, INK2, MUTED, ORANGE
 
-    v = "committed" if "agents_committed" in t else "all"
     items = t["_items"]
     GRAY = "#8f8d86"
     units = {"asd_b": "ASD, Brier score", "asd": "ASD, log score", "gain_b": "gain over the blind judge (Brier ASD)"}
@@ -372,7 +371,11 @@ def figures(t: dict, out: Path) -> None:
     def fmt_s(reg):
         return f"{reg['slope_per_10']:+.3f} [{reg['lo']:+.3f}, {reg['hi']:+.3f}]"
 
-    for paper in (False, True):
+    # main figures: every prompted liar, so every agent covers the same 300 items and one no-argument baseline applies.
+    # appendix figures: committed liars only (the items covered then differ by agent).
+    variants = [("all", "")] + ([("committed", "_committed")] if "agents_committed" in t else [])
+    for (v, suffix), paper in [(x, p) for x in variants for p in (False, True)]:
+        appendix = v == "committed"
         ctx = st.paper_mode() if paper else _null()
         with ctx:
             bp = t["blind_pooled"].iloc[0]
@@ -388,7 +391,7 @@ def figures(t: dict, out: Path) -> None:
                 rg = regression(it, "debater", t["a_idx"], "gain_b")
                 _band(ax, rg, BLUE)
                 g = t[f"agents_{v}"].query("mechanism == @m").sort_values("aa")
-                is_hc = g.debater.map(lambda d: (d, m) in hc_set)
+                is_hc = g.debater.map(lambda d: appendix and (d, m) in hc_set)
                 _points(ax, g[~is_hc], "gain_b", BLUE)
                 if is_hc.any():
                     h = g[is_hc]
@@ -401,16 +404,17 @@ def figures(t: dict, out: Path) -> None:
                          f"mean over agents: {g.gain_b.mean():+.3f};  items pooled: {pooled.gain_b:+.3f} "
                          f"[{pooled.gain_b_lo:+.3f}, {pooled.gain_b_hi:+.3f}]",
                          f"significantly below 0: {below} of {len(g)};  above: {above}"]
-                hcr = t.get("high_commit")
+                hcr = t.get("high_commit") if appendix else None
                 if hcr is not None:
                     r = hcr.query("mechanism == @m and judge == 'all'")
                     if len(r):
                         r = r.iloc[0]
                         lines.append(f"agents whose liars commit ≥ 90%: {r.gain_b:+.3f} "
                                      f"[{r.gain_b_lo:+.3f}, {r.gain_b_hi:+.3f}]")
-                _slope_note(ax, lines)
+                _slope_note(ax, lines, top_left=True)
             # ---- agents: one figure per unit (Brier = headline, log score = appendix)
-            for meas, fname in (("asd_b", "fig12_panel_agents"), ("asd", "fig12b_panel_agents_log")):
+            for meas, fname in ((("asd_b", "fig12c_panel_agents_committed"),) if appendix else
+                                (("asd_b", "fig12_panel_agents"), ("asd", "fig12b_panel_agents_log"))):
                 two = meas == "asd_b"  # Brier figure gets a second row: the gain over the no-argument judge
                 fig, grid = plt.subplots(2 if two else 1, 2, figsize=(11, 8.4 if two else 4.9), sharey="row",
                                          sharex=True, squeeze=False)
@@ -419,8 +423,12 @@ def figures(t: dict, out: Path) -> None:
                     st.axes(ax)
                     ax.axhline(0, color=INK2, lw=0.9, zorder=1)
                     gb = t[f"agents_{v}"].query("mechanism == @m")
-                    ax.scatter(gb.aa, gb["blind_b" if meas == "asd_b" else "blind"], marker="_", s=110, lw=1.6,
-                               color=GRAY, zorder=2)
+                    if appendix:  # the committed samples differ by agent, so each has its own baseline
+                        ax.scatter(gb.aa, gb["blind_b" if meas == "asd_b" else "blind"], marker="_", s=110, lw=1.6,
+                                   color=GRAY, zorder=2)
+                    else:  # the same 300 items for every agent: one baseline
+                        ax.axhspan(bp[f"{meas}_lo"], bp[f"{meas}_hi"], color=GRAY, alpha=0.16, lw=0, zorder=1)
+                        ax.axhline(bp[meas], color=GRAY, lw=1.6, ls=(0, (4, 3)), zorder=2)
                     notes = ["slope per 10 index points [95% CI]"]
                     if v == "committed":
                         ra = regression(items["all"]["agents"].query("mechanism == @m"), "debater", t["a_idx"], meas)
@@ -428,7 +436,7 @@ def figures(t: dict, out: Path) -> None:
                         notes.append(f"all prompted liars: {fmt_s(ra)}")
                     rc = regression(items[v]["agents"].query("mechanism == @m"), "debater", t["a_idx"], meas)
                     _band(ax, rc, BLUE)
-                    notes.insert(1, f"{'committed liars' if v == 'committed' else 'all liars'}: {fmt_s(rc)}")
+                    notes.insert(1, f"{'committed liars' if appendix else 'agents'}: {fmt_s(rc)}")
                     g = t[f"agents_{v}"].query("mechanism == @m").sort_values("aa")
                     lad = g[g.debater.str.startswith("gpt-5.6-sol")]
                     rest = g[~g.debater.str.startswith("gpt-5.6-sol")]
@@ -444,31 +452,36 @@ def figures(t: dict, out: Path) -> None:
                 if two:
                     grid[1, 0].set_ylabel("gain over the judges with no argument,\nsame items (Brier ASD)")
                 handles = [Line2D([], [], color=BLUE, marker="o", mec="white", lw=1.8,
-                                  label="agent (committed liars), with fit and 95% band" if v == "committed"
+                                  label="agent (committed liars), with fit and 95% band" if appendix
                                   else "agent, with fit and 95% band"),
                            Line2D([], [], color=ORANGE, marker="o", mec="white", lw=1.4,
                                   label="GPT-5.6 Sol, effort none → high")]
-                if v == "committed":
+                if appendix:
                     handles.append(Line2D([], [], color=GRAY, lw=1.8, ls=(0, (1.5, 1.5)),
                                           label="fit with all prompted liars (incl. conceding / refusing)"))
-                handles.append(Line2D([], [], color=GRAY, marker="_", ms=9, mew=1.6, lw=0,
-                                      label="judges with no argument, on the same items"))
-                if two and hc_set:
+                    handles.append(Line2D([], [], color=GRAY, marker="_", ms=9, mew=1.6, lw=0,
+                                          label="judges with no argument, on that agent's items"))
+                else:
+                    handles.append(Line2D([], [], color=GRAY, lw=1.6, ls=(0, (4, 3)),
+                                          label="judges with no argument (95% interval shaded)"))
+                if two and appendix and hc_set:
                     handles.append(Line2D([], [], color=NAVY, marker="D", mec="white", lw=0, ms=5,
                                           label="bottom row: agent whose liars commit ≥ 90% (cleanest)"))
                 fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else (0.932 if two else 0.945)),
                            ncol=3 if two else 4, fontsize=7, handlelength=2.6, columnspacing=1.6)
-                fig.suptitle(("Across agents, honesty's edge barely changes with intelligence, and neither protocol "
-                              "beats the judges with no argument" if two else
-                              "Across agents, the incentive to be honest barely changes with intelligence")
-                             if v == "committed" else "EIC against agent intelligence",
+                fig.suptitle(("Committed liars only: neither protocol beats the judges with no argument" if appendix else
+                              "Debate edges above the judges with no argument, more so for smarter agents; "
+                              "consultancy does not"
+                              if two else "ASD against agent intelligence, log score"),
                              x=0.005, ha="left", fontsize=10.5, fontweight="bold", y=1.0)
                 fig.text(0.005, 0.975 if two else 0.965, textwrap.fill(
                          "Each point: one agent, pooled over 9 judges and 300 random testbed items, "
                          "95% item-bootstrap interval. Line and shaded band: least-squares fit and its 95% "
-                         "bootstrap band (resampling items and agents). Gray tick: the same items judged with no "
-                         "argument." + (" Bottom row: point minus tick, item by item; below 0 means the protocol "
-                                        "moved the judges away from the truth." if two else ""), 175),
+                         "bootstrap band (resampling items and agents)."
+                         + (" Gray tick: the same items judged with no argument." if appendix else
+                            " Prompted liars, including those who conceded or refused.")
+                         + (" Bottom row: the point minus the no-argument judges, item by item; below 0 means the "
+                            "protocol moved the judges away from the truth." if two else ""), 175),
                          fontsize=7.3, color=INK2, va="top")
                 fig.tight_layout(rect=(0, 0, 1, (0.895 if two else 0.95) if not paper else 0.93))
                 for row, mm in ((0, meas), (1, "gain_b")) if two else ((0, meas),):
@@ -508,13 +521,16 @@ def figures(t: dict, out: Path) -> None:
             axes[0, 0].set_ylabel("ASD, Brier score\n(reward arguing the truth minus lying)")
             axes[1, 0].set_ylabel("gain over the same judge\nwith no argument (Brier ASD)")
             handles = [Line2D([], [], color=BLUE, marker="o", mec="white", lw=1.8,
-                              label="judge with the protocol" + (" (committed liars)" if v == "committed" else "")),
+                              label="judge with the protocol" + (" (committed liars)" if appendix else "")),
                        Line2D([], [], color=GRAY, marker="o", mec="white", lw=1.8, ls=(0, (4, 3)),
                               label="same judge, no argument (blind baseline)"),
                        Patch(color=BLUE, alpha=0.14, label="95% bootstrap band of the fit (items and judges)")]
             fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else 0.962), ncol=3,
                        fontsize=7, handlelength=2.6, columnspacing=1.6)
-            fig.suptitle("Stronger judges reward honesty more, but no more than they do with no argument at all",
+            fig.suptitle("Committed liars only: stronger judges reward honesty more, but no more than with no argument"
+                         if appendix else
+                         "Stronger judges reward honesty more mostly because they already know the answer; "
+                         "the protocols add most for weak judges",
                          x=0.005, ha="left", fontsize=10.5, fontweight="bold", y=1.0)
             fig.text(0.005, 0.975, "Each point: one judge, pooled over 20 agent configurations and 300 random "
                      "testbed items, 95% item-bootstrap interval. Bottom row: the protocol's ASD minus the same "
@@ -525,7 +541,9 @@ def figures(t: dict, out: Path) -> None:
                 for row, meas in ((0, "asd_b"), (1, "gain_b")):
                     place_labels(axes[row, col], g.aa.to_numpy(), g[meas].to_numpy(), list(g.judge), color=INK2,
                                  fontsize=6.2)
-            st.save(fig, out, "fig13_panel_judges")
+            st.save(fig, out, "fig13c_panel_judges_committed" if appendix else "fig13_panel_judges")
+            if appendix:
+                continue
 
             # heatmap: ASD in probability units (bounded, comparable across judges)
             cells = t[f"cells_{v}"]
