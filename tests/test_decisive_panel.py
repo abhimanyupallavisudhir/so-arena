@@ -122,3 +122,20 @@ def test_slope_recovers_a_linear_trend():
             items.append({"item": f"q{i}", "debater": name, "conc": 0.3 + 0.01 * x})
     s = dpr.slope(pd.DataFrame(items), "debater", idx, "conc")
     assert s["slope_per_10"] == pytest.approx(0.1) and s["n"] == 3
+
+
+def test_brier_asd_scores_the_judges_probability_for_the_argued_side():
+    rows = _rows()
+    rows["p_true"] = [0.9, 0.2, 0.3, 0.6, 0.5, 0.5]
+    it = dpr.both_units(dpr.with_prob_reward(rows), ["mechanism", "debater"]).set_index("item")
+    # Brier reward -(1 - p_side)^2: honest p_side = p_true, liar p_side = 1 - p_true
+    assert it.asd_b.to_dict() == pytest.approx({"q1": -(0.1 ** 2) + 0.2 ** 2, "q2": -(0.7 ** 2) + 0.6 ** 2,
+                                                "q3": 0.0})
+
+
+def test_summary_reports_mean_median_and_gain_with_intervals():
+    items = pd.DataFrame({"mechanism": "m", "item": [f"q{i}" for i in range(30)],
+                          "asd": [0.0] * 20 + [3.0] * 10, "gain": 0.5})
+    s = dpr.summarize(items, ["mechanism"]).iloc[0]
+    assert s.asd == pytest.approx(1.0) and s.asd_med == pytest.approx(0.0) and s.gain == pytest.approx(0.5)
+    assert s.asd_lo <= s.asd <= s.asd_hi and s["items"] == 30

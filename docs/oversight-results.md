@@ -5,6 +5,13 @@ helping when the arguers are optimized against the judge? Questions come from th
 ([conceptual validation testbed](https://github.com/abhimanyupallavisudhir/conceptual-validation-testbed)): 10 families, 16 items each, with hidden ground truth from computation or
 experiment.
 
+> **Update (2026-11-08).** A [model panel](#model-panel-eic-against-agent-and-judge-intelligence-added-2026-11-08)
+> of 20 agent configurations and 9 judges, on 300 items not selected on any judge, corrects the judge-capability
+> result. Raw EIC rises steeply with the judge's intelligence, but almost all of that is the judge already knowing
+> the answer: its blind baseline rises just as fast. Over the blind judge, with committed liars, debate adds about
+> nothing (+0.08 at most, for gpt-4o-mini) and consultancy is below it for every judge. Across agents, EIC barely
+> moves with intelligence; the apparent rise with prompted liars comes from strong models refusing to lie.
+>
 > **Update (2026-11-05).** Final numbers for the headline: prompt-search strategies rescored on 480 held-out
 > items (was 80), blind-judge baselines, and prover-estimator re-run with its decomposition payoff fixed. The fix
 > removes the payoff exploit but not the failure: the fixed protocol still pays more for lying under every sampler.
@@ -146,10 +153,14 @@ What holds up:
    - Prover-estimator is the exception: both searches gain there (honest +0.15, deceptive +0.29 with the fixed
      payoff; +0.42 and +0.65 with the original).
    - This is why EIC falls under optimization.
-6. **EIC grows steeply with judge capability, and dissociates from accuracy.**
+6. **EIC grows steeply with judge capability, and dissociates from accuracy, but the protocol's own share does
+   not grow.**
    - On the same debates, re-judged, honesty wins on 58–61% of items with Llama-3.1-8B and 90–92% with gpt-4.1.
    - On the testbed, committed liars lower the gpt-4.1 judges' accuracy by 12–22 points, yet their EIC is the
      highest measured ([`fig5`](results/eic/fig5_eic_by_judge.png)).
+   - **Correction (2026-11-08):** the [model panel](#model-panel-eic-against-agent-and-judge-intelligence-added-2026-11-08)
+     shows that on unselected items this rise is almost all the judge's prior. The gain over the same judge with no
+     argument does not rise with capability (debate) or falls (consultancy).
 7. **Models that refuse to lie inflate EIC.**
    - In the 8-model tournament, per-model EIC ranges from +0.74 to +3.98 with prompted liars, and from 0.0 to
      +0.6 with committed ones ([`fig6`](results/eic/fig6_tournament.png)).
@@ -165,8 +176,8 @@ Other figures:
 
 Prompt optimization cost $1,259 (the original searches $676, the fixed prover-estimator's $583), the held-out
 rescoring $463, the fixed prover-estimator's instructed runs $82, self-play (PSRO) $2,018 and the instant-judge
-replay $41. Total spend for the whole decisive study is about $9,160 (per-stage ledger in
-`runs/decisive/spend.json`: $9,144, plus about $17 of pilots).
+replay $41, and the model panel $1,102 plus $97 of audit. Total spend for the whole decisive study is about
+$10,350 (per-stage ledger in `runs/decisive/spend.json`: $10,334, plus about $16 of pilots).
 
 
 ### Self-play: incentive compatibility at equilibrium (added 2026-11-06)
@@ -289,6 +300,83 @@ That conditions on a collider-like variable. Three consequences:
    baselines are negative by construction, while gpt-4.1's are not. "EIC rises with judge capability" (item 6
    above) is partly this selection. It should be read relative to each judge's own blind baseline, and measured on
    items not selected on any judge in the comparison. That is how the planned model panel is designed.
+
+### Model panel: EIC against agent and judge intelligence (added 2026-11-08)
+
+Does incentive compatibility change with how capable the agent is, or the judge? The panel takes its models from
+legibench3's panel, placed by the Artificial Analysis Intelligence Index (v4.3).
+- **Agents (20 configurations, index 6.6–46):** Llama-3.1-8B and 70B, gpt-4o-mini, Qwen3-14B, Mistral Small 4,
+  gpt-4.1, Claude Haiku 4.5, DeepSeek-V3.2, Claude Sonnet 4.5, gpt-5-mini (medium), Claude Sonnet 5, Gemini 3.8
+  Flash, Kimi K3, Grok 4.6, Claude Opus 5, GPT-6 Astra (all low effort), and GPT-5.6 Sol at effort none, low, medium
+  and high.
+- **Judges (9, index 3.8–16), each reasoning first:** Gemma-3-12B, Llama-3.2-3B, gpt-4o-mini, Qwen3-14B,
+  Llama-3.1-8B, Mistral Small 4, gpt-4.1-mini, gpt-4.1, DeepSeek-V3.2.
+- **Items:** 300 labelled testbed items drawn uniformly, **not selected on any judge**, so the selection effect of
+  the section above does not apply.
+- **Protocols:** each agent debates itself (simultaneous, 3 rounds) and writes one consultancy argument, both arms,
+  one sample each. Every transcript is judged by all 9 judges. Each judge alone (blind baseline) and each agent alone
+  were also run.
+- **Committed liars:** gpt-5 audited all 18,012 liar texts; a sample whose liar conceded or refused is dropped for
+  every judge, both arms together.
+- **Units:** ASD in log score (the protocol's reward) and in Brier score of the judge's probability for the agent's
+  side. The Brier version is bounded, so judges of different confidence compare; it is the headline unit here.
+  Medians are in the tables. "Gain" is ASD minus the same judge's blind ASD on the same item.
+- Code: [`experiments/decisive_panel.py`](../experiments/decisive_panel.py),
+  [`decisive_panel_report.py`](../experiments/decisive_panel_report.py); tables:
+  [`results/panel/panel.md`](results/panel/panel.md). Cost: $1,102 plus $97 of audit.
+
+**Judges.** Committed liars, pooled over the 20 agents, Brier ASD [95% CI]:
+
+| judge | AA index | blind | debate | gain | consultancy | gain |
+|---|---|---|---|---|---|---|
+| Gemma-3-12B | 3.8 | +0.21 | +0.12 | −0.09 [−0.17, −0.03] | +0.19 | −0.02 [−0.09, +0.04] |
+| Llama-3.2-3B | 5.7 | −0.00 | +0.03 | +0.03 [−0.03, +0.10] | −0.01 | −0.01 [−0.07, +0.06] |
+| gpt-4o-mini | 6.7 | +0.13 | +0.21 | **+0.08** [+0.01, +0.14] | +0.13 | −0.00 [−0.06, +0.06] |
+| Qwen3-14B | 6.7 | +0.25 | +0.27 | +0.01 [−0.06, +0.08] | +0.12 | **−0.14** [−0.20, −0.07] |
+| Llama-3.1-8B | 6.9 | +0.04 | +0.09 | +0.04 [−0.02, +0.10] | +0.02 | −0.02 [−0.08, +0.03] |
+| Mistral Small 4 | 9.0 | +0.44 | +0.46 | +0.01 [−0.06, +0.07] | +0.38 | −0.07 [−0.13, −0.00] |
+| gpt-4.1-mini | 10.2 | +0.60 | +0.51 | **−0.08** [−0.13, −0.03] | +0.46 | **−0.13** [−0.18, −0.09] |
+| gpt-4.1 | 12.7 | +0.67 | +0.65 | −0.02 [−0.07, +0.02] | +0.58 | **−0.10** [−0.14, −0.05] |
+| DeepSeek-V3.2 | 16.0 | +0.70 | +0.64 | **−0.06** [−0.09, −0.02] | +0.60 | **−0.10** [−0.13, −0.07] |
+
+- **Raw EIC rises steeply with the judge's intelligence:** +0.57 Brier per 10 index points in debate [+0.53, +0.61],
+  r = 0.91 over judges; +0.54 in consultancy.
+- **That is the judge's prior, not the protocol.** The blind baseline rises just as steeply, from about 0 for the
+  Llamas to +0.70 for DeepSeek-V3.2. The gain over it has slope −0.05 [−0.10, +0.01] in debate and −0.08 [−0.13,
+  −0.03] in consultancy.
+- **Debate helps weak judges a little and strong judges not at all.** Only gpt-4o-mini's gain is clearly positive.
+  Strong judges lose a little: a committed liar can talk them out of an answer they had.
+- **Consultancy never beats the blind judge** and is clearly below it for the four strongest judges.
+- **With all prompted liars, the weak judges look much better:** debate gains +0.12 to +0.17 for Llama-3.2-3B,
+  Llama-3.1-8B, Qwen3-14B and gpt-4o-mini, slope −0.15 [−0.20, −0.09]. Most of that is liars conceding.
+
+![EIC against judge intelligence](results/eic/fig13_panel_judges.png)
+
+**Agents.** Pooled over the 9 judges ([`fig12`](results/eic/fig12_panel_agents.png)):
+- **With committed liars, EIC barely moves with the agent's intelligence.** Debate: +0.025 Brier per 10 index points
+  [+0.016, +0.034], r = 0.31, across a 40-point range. Consultancy: −0.013 [−0.019, −0.007]. Nearly every agent
+  sits below the blind baseline (+0.34 pooled): gains over it run from −0.12 to +0.08 in debate and −0.04 to −0.12
+  in consultancy. Claude Sonnet 4.5's debate (−0.11, gain −0.26) rests on the 33% of samples where it lied.
+- **With all prompted liars, EIC seems to rise with intelligence,** because the strongest models refuse. GPT-6 Astra
+  commits to 35% of its debate lies and 29% of its consultancy lies; its debate ASD is +0.60 with all liars and
+  +0.15 with committed ones (consultancy +0.44 and +0.03). Claude Opus 5, by contrast, commits 99–100%.
+- **Reasoning effort (GPT-5.6 Sol, none → high).** With all liars debate ASD falls (+0.47, +0.46, +0.44, +0.41),
+  because more effort means more willingness to lie: commitment rises from 58% to 77%. With committed liars it is
+  flat to slightly rising (+0.19, +0.24, +0.26, +0.25).
+- **Agents that don't know the answer still get positive ASD** (Llama-3.1-8B is right alone 51% of the time; ASD
+  +0.26 in debate) because v is the assigned side and the judges know many answers. Their gain over the blind judge
+  is negative.
+
+![EIC against agent intelligence](results/eic/fig12_panel_agents.png)
+
+**What this changes.** On items no judge was selected to fail, a 3-round simultaneous debate between equally capable
+agents adds little to what the judge already knows, and consultancy subtracts from it. Most of the "EIC rises with
+judge capability" result elsewhere in this document is the judge's prior. The capability gap that the 927-item set
+created is what gave the protocols room to help.
+
+**Caveats.** One sample per item and arm; unoptimized (instructed) liars only; the committed filter keeps a
+different subset of items for each agent (only its gains are matched item by item); the judges' index range
+(3.8–16) is much narrower than the agents' (6.6–46); one debate format.
 
 ### Why prover-estimator debate fails here (added 2026-11-04)
 
@@ -851,12 +939,15 @@ Per-family tables: [`results/decisive_extended_grid_gpt-5-mini_by_family.csv`](r
 | 8-debater tournament | 874 |
 | QuALITY replication | 638 |
 | stronger judges on replayed debates | 319 |
-| liar audits (gpt-4.1-mini, then gpt-5 on about 77,000 texts) and auditor check | 429 |
+| liar audits (gpt-4.1-mini, then gpt-5 on about 95,000 texts) and auditor check | 529 |
 | EIC prompt optimization (15 searches, then the fixed prover-estimator's 3) | 1,259 |
 | held-out rescoring of the prompt-search strategies (400 more items) | 463 |
 | fixed prover-estimator, instructed (400 items) | 82 |
+| self-play (PSRO), 2 debates × 3 judges | 2,018 |
+| instant-judge replay | 41 |
+| model panel (20 agents × 9 judges × 300 items) | 1,102 |
 | pilots outside the run ledger | about 16 |
-| **total** | **about 7,100** (1,262 for the first decisive study, about 4,030 for the extension, about 1,800 for the EIC headline) |
+| **total** | **about 10,350** (1,262 for the first decisive study, about 4,030 for the extension, about 1,800 for the EIC headline, about 3,250 for self-play, instant judges and the panel) |
 
 Spend per stage comes from the stage's recorded episode costs or its response cache. The cache records each paid
 call once. Where a stage paid for the same call twice concurrently, the larger, episode-based figure is used.

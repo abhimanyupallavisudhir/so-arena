@@ -1,6 +1,6 @@
 {
  "audit": 15.317141,
- "audit_gpt-5": 411.778592,
+ "audit_gpt-5": 500.294199,
  "auditcheck": 13.717181,
  "eic_po": 1258.785599,
  "eic_rescore": 463.350973,
@@ -8,6 +8,8 @@
  "judges": 318.839597,
  "multiround": 733.774526,
  "optimize": 235.841613,
+ "panel": 1100.215831,
+ "panel_discarded": 1.6092,
  "pe_v2": 82.468593,
  "promptsearch": 491.258316,
  "protocols": 1345.187476,

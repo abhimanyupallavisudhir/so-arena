@@ -42,7 +42,9 @@ best-respond to each other (PSRO self-play, 390 held-out items), simultaneous de
 ($+0.48$) and sequential debate does not ($+0.05$, negative under one judge). The cheap sampler only
 partly predicts the optimized one (Spearman $0.69$ across protocol--judge cells). EIC rises steeply with judge capability (in debate, honesty
 wins on 58--61\% of items with Llama-3.1-8B and 90--92\% with gpt-4.1) and, unlike accuracy, stays high for
-judges that already know the answer. Prompted liars that refuse to lie, common among safety-trained models,
+judges that already know the answer; but a panel of 20 agents and 9 judges on 300 unselected items shows this rise is
+the judge's own prior: over a judge that sees no argument, debate adds at most $+0.08$ (Brier) and consultancy
+subtracts, and neither changes much with the agent's intelligence. Prompted liars that refuse to lie, common among safety-trained models,
 inflate a model's EIC from at most $+0.6$ to as much as $+4.0$.
 \end{abstract}
 
@@ -77,8 +79,9 @@ conceptual-reasoning benchmark with a 54-point gap between agents and judges, wi
 independent judge samples throughout (\S\ref{sec:samplers}--\ref{sec:po}).
 \item A comparison of samplers: does the cheap instructed sampler rank protocols as optimization does
 (\S\ref{sec:agreement})?
-\item EIC across five judges of increasing capability on the same debates, and its dissociation from accuracy
-(\S\ref{sec:judges}).
+\item EIC across five judges of increasing capability on the same debates, and its dissociation from accuracy;
+and a model panel (20 agents, 9 judges, unselected items) separating the protocol's contribution from the judge's
+prior (\S\ref{sec:judges}).
 \item The refusal confound: models that will not lie make every protocol look incentive compatible
 (\S\ref{sec:tournament}); and two hazards for anyone optimizing against LLM judges (\S\ref{sec:hazards}).
 \end{itemize}
@@ -344,6 +347,44 @@ committed liars \emph{lower} their accuracy by 12--22 points, yet the protocols'
 highest we measured. Accuracy and incentive compatibility dissociate, as the argument for measuring incentives
 predicts.
 
+\paragraph{A model panel on unselected items.} The 927 items were selected for the weak judges failing, which
+exaggerates any trend with judge capability (Section~\ref{sec:hazards}). We therefore ran a panel of 20 agent
+configurations (Artificial Analysis Intelligence Index 6.6--46, including GPT-5.6 Sol at four reasoning efforts) and
+9 reasoning judges (index 3.8--16) on 300 testbed items drawn uniformly. Each agent debates itself (simultaneous,
+3 rounds) and writes one consultancy argument; every transcript is judged by all 9 judges, and gpt-5 audits all
+18{,}012 liar texts. We report ASD as a Brier score of the judge's probability for the agent's side, which is bounded
+and so comparable across judges, and its gain over the same judge with no argument on the same item.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig13_panel_judges_paper.pdf}
+\caption{Model panel, judges (committed liars, pooled over 20 agents). Top: ASD (Brier) with each judge's blind
+baseline dashed. Bottom: gain over the blind judge. 95\% item-bootstrap intervals.}
+\label{fig:panel-judges}
+\end{figure}
+
+Raw EIC rises steeply with the judge's capability ($+0.57$ Brier per 10 index points in debate, $r=0.91$), but the
+blind baseline rises just as fast, from about $0$ for the Llama judges to $+0.70$ for DeepSeek-V3.2
+(Figure~\ref{fig:panel-judges}). With committed liars, debate's gain over the blind judge is at most $+0.08$
+[$+0.01$, $+0.14$] (gpt-4o-mini) and slightly negative for the strongest judges (slope $-0.05$ [$-0.10$, $+0.01$]);
+consultancy's is never positive and is $-0.10$ to $-0.14$ for the four strongest. With all prompted liars debate gains
+$+0.12$ to $+0.17$ for the weakest judges, mostly from liars conceding. Across agents, committed-liar EIC barely moves
+with intelligence ($+0.025$ per 10 points in debate, $-0.013$ in consultancy, Figure~\ref{fig:panel-agents}); the
+apparent rise with all prompted liars comes from the strongest models refusing (GPT-6 Astra commits to 29--35\% of
+its lies, and its debate ASD falls from $+0.60$ to $+0.15$ once refusals are removed). Along GPT-5.6 Sol's effort
+ladder, more effort means more willingness to lie (commitment 58\%$\to$77\%), so all-liar EIC falls while committed
+EIC is flat. On items no judge was selected to fail, then, debate between equally capable agents adds little to what
+the judge already knows, and consultancy subtracts from it: the room for a protocol to help came from the capability
+gap.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig12_panel_agents_paper.pdf}
+\caption{Model panel, agents (committed liars, pooled over 9 judges; hollow: all prompted liars). Orange: GPT-5.6 Sol
+at effort none, low, medium, high. Dashed: the judges with no argument.}
+\label{fig:panel-agents}
+\end{figure}
+
 \section{Liars that refuse}\label{sec:tournament}
 
 \begin{figure}[t]
@@ -428,7 +469,7 @@ weak judges, the answer depends on the protocol and on the optimizer. Instructed
 recursive debate all look incentive compatible. A prompt optimizer that searches for good lies breaks consultancy and
 leaves debate's incentive positive but diminished; when both debaters best-respond to each other, simultaneous
 debate keeps it ($+0.48$) while sequential debate's is optimized away ($+0.05$); prover-estimator debate with a weak leaf judge rewards lying
-under every sampler, with or without its payoff exploit. The incentive grows with the judge's capability, far more than with the protocol.
+under every sampler, with or without its payoff exploit. The incentive grows with the judge's capability, but on unselected items a model panel shows that growth is the judge's own prior: the protocol's contribution over a judge that sees no argument is small for debate and negative for consultancy, and barely changes with the agent's intelligence once liars that refuse are removed.
 
 \paragraph{Limitations.} $v$ is by construction and binary; graded ground truth (e.g.\ expert-rated essays) would
 allow richer behaviour spaces. The optimizers are inference-time; whether EIC under these samplers predicts the effect
@@ -438,7 +479,7 @@ commitment. Judges are LLMs, not people.
 
 \paragraph{Reproducibility.} All experiments use the open-source \texttt{so-arena} library. The scripts are in its
 \nolinkurl{experiments/} directory, the data and tables in \nolinkurl{docs/results/}. Total API spend was
-about \$9{,}160.
+about \$10{,}350.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}
