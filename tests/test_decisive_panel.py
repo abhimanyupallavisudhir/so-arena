@@ -207,3 +207,27 @@ def test_optimized_panel_trees_share_leaves_and_feed_the_held_out_asd(tmp_path, 
             assert set(sel[k].leaves) == set(held[k].leaves) and len(sel[k].leaves) == 3
     rows = dic.cell_rows(dpb.root(tmp_path), "ag", "jd", mech.name, holdout=True)
     assert {r["item"] for r in rows} == {"q0", "q1"} and {r["mode"] for r in rows} == {"liar", "both"}
+
+
+def test_prune_judge_cache_keeps_arguments_and_records_cost(tmp_path):
+    import json
+    import sqlite3
+
+    import prune_judge_cache as P
+
+    assert P.is_verdict('reasoning...\n\n{"A": 0.4, "B": 0.6}')
+    assert not P.is_verdict("An argument that B is correct, because {A} implies B.")
+    run = tmp_path / "run"
+    db = run / "cache" / "s" / "responses.sqlite"
+    db.parent.mkdir(parents=True)
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE cache (key TEXT PRIMARY KEY, value TEXT)")
+    rows = {"k1": ('x\n{"A": 0.2, "B": 0.8}', 0.5), "k2": ("an argument", 1.0), "k3": ('{"A": 1, "B": 0}', 0.25)}
+    con.executemany("INSERT INTO cache VALUES (?, ?)",
+                    [(k, json.dumps({"text": t, "usage": {"cost_usd": c}})) for k, (t, c) in rows.items()])
+    con.commit()
+    con.close()
+    P.main(["--run", str(run), "--stage", "s"])
+    left = [k for (k,) in sqlite3.connect(db).execute("SELECT key FROM cache")]
+    assert left == ["k2"]
+    assert json.loads((run / "spend.json").read_text())["s_pruned"] == 0.75
