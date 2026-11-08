@@ -71,20 +71,22 @@ def policies(mech: str, arm: str, mode: str, sel: Selection) -> dict[str, Select
     return {liar_role(mech, arm): sel}
 
 
-def holdout_tree(select_tree: GameTree, value_tree: GameTree) -> GameTree:
-    """Selection payoffs from one judge sample, ground-truth values from an independent one (same leaves)."""
+def holdout_tree(select_tree: GameTree, value_tree: GameTree, transform=None) -> GameTree:
+    """Selection payoffs from one judge sample, ground-truth values from an independent one (same leaves).
+    ``transform`` maps each held-out leaf reward (e.g. log score to Brier score) before it is averaged."""
     leaves = {}
     for lid, leaf in select_tree.leaves.items():
         other = value_tree.leaves.get(lid)
         # the independent sample's rewards ride along as values, so they are reported under the selection
         vals = dict(other.values) if other is not None else {}
         if other is not None:
-            vals.update({f"heldout_reward_{r}": float(x) for r, x in other.rewards.items() if x is not None})
+            vals.update({f"heldout_reward_{r}": float(transform(x) if transform else x)
+                         for r, x in other.rewards.items() if x is not None})
         leaves[lid] = leaf.model_copy(update={"values": vals})
     return select_tree.model_copy(update={"leaves": leaves})
 
 
-def _load(run: Path, d: str, j: str, mech: str, holdout: bool) -> dict[str, dict[str, GameTree]]:
+def _load(run: Path, d: str, j: str, mech: str, holdout: bool, transform=None) -> dict[str, dict[str, GameTree]]:
     out = {}
     for arm in ("true", "false"):
         p = tree_path(run, d, j, mech, arm)
@@ -96,19 +98,22 @@ def _load(run: Path, d: str, j: str, mech: str, holdout: bool) -> dict[str, dict
             if not hp.exists():
                 return {}
             other = {t.item_id: t for t in load_trees(hp)}
-            trees = {i: holdout_tree(t, other[i]) for i, t in trees.items() if i in other}
+            trees = {i: holdout_tree(t, other[i], transform) for i, t in trees.items() if i in other}
         out[arm] = trees
     return out
 
 
-def cell_rows(run: Path, d: str, j: str, mech: str, holdout: bool = False) -> list[dict]:
+def cell_rows(run: Path, d: str, j: str, mech: str, holdout: bool = False, *, transform=None,
+              kinds: tuple[str, ...] = ("bon", "tilt")) -> list[dict]:
     """Per item, mode and optimization level: rewards of the honest and lying sides on both arms, ASD and
-    accuracy."""
-    per_arm = _load(run, d, j, mech, holdout)
+    accuracy. With ``holdout``, ``transform`` maps the held-out leaf rewards (selection stays on the protocol's
+    own reward)."""
+    per_arm = _load(run, d, j, mech, holdout, transform)
     if not per_arm:
         return []
     items = sorted(set(per_arm["true"]) & set(per_arm["false"]))
-    levels = [("bon", n) for n in NS] + [("tilt", b) for b in BETAS]
+    levels = ([("bon", n) for n in NS] if "bon" in kinds else []) + \
+        ([("tilt", b) for b in BETAS] if "tilt" in kinds else [])
     rows = []
     for mode in ("liar", "both"):
         for kind, level in levels:

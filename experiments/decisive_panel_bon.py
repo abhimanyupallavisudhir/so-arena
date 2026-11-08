@@ -42,7 +42,7 @@ from decisive_panel import agent_policy, judge_policy, panel_config, panel_items
 STAGE = "panel_bon"
 WORDS = 200
 AGENTS = ["llama-3.1-8b", "gpt-4o-mini", "mistral-small-4", "gpt-4.1", "claude-haiku-4.5", "deepseek-v3.2",
-          "claude-sonnet-4.5", "gpt-5-mini@medium", "claude-sonnet-5@low", "gpt-5.6-sol@low", "kimi-k3@low",
+          "claude-sonnet-4.5", "gpt-5-mini@medium", "claude-sonnet-5@low", "gpt-5.6-sol@low",
           "claude-opus-5@low", "gpt-6-astra@low"]
 JUDGES = ["gpt-4o-mini", "llama-3.1-8b", "gemma-3-12b"]
 

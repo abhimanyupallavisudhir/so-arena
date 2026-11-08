@@ -96,7 +96,7 @@ def _routed(spec: dict, model):
     return get_model(model, provider=route)
 
 
-def agent_policy(spec: dict, *, solo: bool = False) -> soa.LLMPolicy:
+def agent_policy(spec: dict, *, solo: bool = False, strategy: str | None = None) -> soa.LLMPolicy:
     """An agent at its configured reasoning effort. Reasoning configurations get room for hidden reasoning (it
     shares max_tokens); the others write directly (solo answers reason in the open)."""
     from decisive_common import _model
@@ -104,10 +104,11 @@ def agent_policy(spec: dict, *, solo: bool = False) -> soa.LLMPolicy:
     effort = spec.get("reasoning_effort")
     thinks = effort not in (None, "none")
     model = _routed(spec, _model(spec["model"], "speech_reasoning" if thinks else ("solo" if solo else "speech")))
+    extra = {"strategy": strategy} if strategy else {}  # a searched strategy (decisive_panel_po.py)
     if thinks:
-        return soa.LLMPolicy(model, temperature=None, max_tokens=16000, reasoning_effort=effort)
+        return soa.LLMPolicy(model, temperature=None, max_tokens=16000, reasoning_effort=effort, **extra)
     return soa.LLMPolicy(model, temperature=None, max_tokens=3000 if solo else 1500, reasoning_effort=effort,
-                         cot=solo)
+                         cot=solo, **extra)
 
 
 def judge_policy(spec: dict) -> soa.LLMPolicy:
