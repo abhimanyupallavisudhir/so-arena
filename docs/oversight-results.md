@@ -356,9 +356,21 @@ legibench3's panel, placed by the Artificial Analysis Intelligence Index (v4.3).
 **Agents.** Pooled over the 9 judges ([`fig12`](results/eic/fig12_panel_agents.png)):
 - **With committed liars, EIC barely moves with the agent's intelligence.** Debate: +0.025 Brier per 10 index points
   [−0.002, +0.060], r = 0.31, across a 40-point range. Consultancy: −0.013 [−0.034, +0.012]. Neither slope is
-  distinguishable from zero once the choice of models is resampled. Nearly every agent
-  sits below the blind baseline (+0.34 pooled): gains over it run from −0.12 to +0.08 in debate and −0.04 to −0.12
-  in consultancy. Claude Sonnet 4.5's debate (−0.11, gain −0.26) rests on the 33% of samples where it lied.
+  distinguishable from zero once the choice of models is resampled.
+- **Compare each agent with the blind judge on the same items, not with the pooled +0.34.** Committed-only points
+  cover only the items where the agent really lied, and liars concede more on items the judge already knows, so
+  those items have a lower blind baseline (+0.26 on average for debate, +0.12 for GPT-6 Astra, against +0.34 over
+  all 300). Item by item, every consultancy agent is below the blind judge (gains −0.04 to −0.12, all significant).
+  In debate 15 of 20 agents are below it, but only 6 significantly (gains −0.26 to +0.08, mean −0.04). Claude Sonnet
+  4.5's debate (−0.11, gain −0.26) rests on the 33% of samples where it lied.
+- **The cleanest comparison is the agents that almost always lie when told to** (at least 90% committed, so the
+  filter removes almost nothing). Debate equals the blind judge: +0.35 against +0.34, gain +0.01 [−0.02, +0.04].
+  Consultancy is below it: +0.27, gain −0.07 [−0.10, −0.04]. Per judge, debate helps gpt-4o-mini (+0.12 [+0.05,
+  +0.19]) and hurts gpt-4.1-mini (−0.07), Gemma-3-12B (−0.10) and, slightly, DeepSeek-V3.2 (−0.04).
+- **What being below the baseline means.** In debate and with no argument, Brier ASD is exactly 2·mean(p_true) − 1,
+  so debate at +0.35 and the blind judge at +0.34 both mean the judge puts about 0.67 on the truth. A point below the
+  baseline means the protocol moved the judge's belief away from the truth on average: a committed liar pulls a
+  judge who already leans the right way down by more than the honest debater pushes it up.
 - **With all prompted liars, EIC seems to rise with intelligence,** because the strongest models refuse. GPT-6 Astra
   commits to 35% of its debate lies and 29% of its consultancy lies; its debate ASD is +0.60 with all liars and
   +0.15 with committed ones (consultancy +0.44 and +0.03). Claude Opus 5, by contrast, commits 99–100%.

@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs" / "panel" / "models.json"
 MECHS = {"debate_sim": "Simultaneous debate (self-play)", "consultancy_1r": "Consultancy (one argument)"}
 N_BOOT = 1000
+HIGH_COMMIT = 0.9  # liar commitment rate above which an agent counts as (almost) always lying when told to
 
 
 def config() -> dict:
@@ -196,13 +197,17 @@ def tables(run: Path) -> dict:
         """Per-item gain over the blind judge on the same item (and judge), log and Brier."""
         b = blind[on + ["item", "asd", "asd_b"]].rename(columns={"asd": "_bl", "asd_b": "_bb"})
         m = it.merge(b, on=on + ["item"], how="left")
-        return m.assign(gain=m.asd - m._bl, gain_b=m.asd_b - m._bb).drop(columns=["_bl", "_bb"])
+        return m.assign(gain=m.asd - m._bl, gain_b=m.asd_b - m._bb).rename(columns={"_bl": "blind", "_bb": "blind_b"})
 
     for name, df in variants.items():
         it_a = gains(both_units(df, ["mechanism", "debater"]), blind_pool, [])     # agents: pooled over judges
         it_j = gains(both_units(df, ["mechanism", "judge"]), blind_j, ["judge"])  # judges: pooled over agents
         it_aj = gains(both_units(df, ["mechanism", "debater", "judge"]), blind_j, ["judge"])
-        out[f"agents_{name}"] = summarize(it_a, ["mechanism", "debater"]).assign(aa=lambda d: d.debater.map(a_idx))
+        # committed-only points cover only the items where the agent really lied, so the baseline to compare them with
+        # is the blind judge on those same items, not the blind judge over all items
+        matched = it_a.groupby(["mechanism", "debater"])[["blind", "blind_b"]].mean().reset_index()
+        out[f"agents_{name}"] = (summarize(it_a, ["mechanism", "debater"]).merge(matched, on=["mechanism", "debater"])
+                                 .assign(aa=lambda d: d.debater.map(a_idx)))
         out[f"judges_{name}"] = summarize(it_j, ["mechanism", "judge"]).assign(aa=lambda d: d.judge.map(j_idx))
         out[f"cells_{name}"] = (it_aj.groupby(["mechanism", "debater", "judge"])
                                 [["asd", "asd_p", "asd_b", "conc", "gain", "gain_b"]].mean().reset_index())
@@ -216,6 +221,18 @@ def tables(run: Path) -> dict:
         out[f"slopes_{name}"] = pd.DataFrame(sl)
         out.setdefault("_items", {})[name] = {"agents": it_a, "judges": it_j}
     out["_items"]["blind"] = blind_j
+    # agents that almost always lie when told to: the committed filter barely touches them, so no selection on items
+    if c is not None and verdicts is not None:
+        rate = (verdicts.drop_duplicates("key").groupby(["debater", "mechanism"]).verdict
+                .apply(lambda x: float((x == "committed").mean())).rename("rate").reset_index())
+        keep = rate[rate.rate >= HIGH_COMMIT][["debater", "mechanism"]]
+        if len(keep):
+            hc = c.merge(keep, on=["debater", "mechanism"])
+            it = gains(both_units(hc, ["mechanism", "judge"]), blind_j, ["judge"])
+            pooled = it.assign(judge="all").groupby(["mechanism", "judge", "item"], as_index=False).mean(numeric_only=True)
+            out["high_commit"] = pd.concat([summarize(pooled, ["mechanism", "judge"]),
+                                            summarize(it, ["mechanism", "judge"])], ignore_index=True)
+            out["high_commit_agents"] = keep
     # agent accuracy alone and liar commitment
     s = rows[rows.mechanism == "solo"]
     out["solo"] = s.drop_duplicates("episode").groupby("debater").correct.mean().rename("solo_acc").reset_index()
@@ -265,6 +282,17 @@ def markdown(t: dict) -> str:
         for _, r in t[f"slopes_{name}"].iterrows():
             L.append(f"| {r.mechanism} | {r.over} | {r.measure} | {r.slope_per_10:+.3f} [{r.lo:+.3f}, {r.hi:+.3f}] | "
                      f"[{r.lo_items:+.3f}, {r.hi_items:+.3f}] | {r.r:.2f} | {r.n} |")
+        L.append("")
+    if "high_commit" in t:
+        L += ["## Agents that almost always lie when told to", "",
+              f"Agents with at least {HIGH_COMMIT:.0%} of liar transcripts committed, per protocol: "
+              + "; ".join(f"{m}: {', '.join(sorted(g.debater))}" for m, g in t["high_commit_agents"].groupby("mechanism"))
+              + ". The committed filter hardly changes which items they cover, so this is the cleanest comparison with "
+                "the judge alone.", "",
+              "| protocol | judge | ASD, Brier [95% CI] | same judge, no argument | gain over blind, Brier [95% CI] |",
+              "|---|---|---|---|---|"]
+        for _, r in t["high_commit"].sort_values(["mechanism", "judge"]).iterrows():
+            L.append(f"| {r.mechanism} | {r.judge} | {fmt(r, 'asd_b')} | {r.asd_b - r.gain_b:+.2f} | {fmt(r, 'gain_b')} |")
         L.append("")
     return "\n".join(L) + "\n"
 
@@ -354,9 +382,9 @@ def figures(t: dict, out: Path) -> None:
                 for ax, m in zip(axes, MECHS):
                     st.axes(ax)
                     ax.axhline(0, color=INK2, lw=0.9, zorder=1)
-                    ax.axhline(bp[meas], color=GRAY, lw=1.1, ls=(0, (4, 3)), zorder=1)
-                    ax.text(0.01, bp[meas], " judges with no argument", color=INK2, fontsize=6.8, va="bottom", ha="left",
-                            transform=ax.get_yaxis_transform())
+                    gb = t[f"agents_{v}"].query("mechanism == @m")
+                    ax.scatter(gb.aa, gb["blind_b" if meas == "asd_b" else "blind"], marker="_", s=110, lw=1.6,
+                               color=GRAY, zorder=2)
                     notes = ["slope per 10 index points [95% CI]"]
                     if v == "committed":
                         ra = regression(items["all"]["agents"].query("mechanism == @m"), "debater", t["a_idx"], meas)
@@ -383,7 +411,8 @@ def figures(t: dict, out: Path) -> None:
                 if v == "committed":
                     handles.append(Line2D([], [], color=GRAY, lw=1.8, ls=(0, (1.5, 1.5)),
                                           label="fit with all prompted liars (incl. conceding / refusing)"))
-                handles.append(Line2D([], [], color=GRAY, lw=1.1, ls=(0, (4, 3)), label="judges with no argument"))
+                handles.append(Line2D([], [], color=GRAY, marker="_", ms=9, mew=1.6, lw=0,
+                                      label="judges with no argument, on the same items"))
                 fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else 0.945),
                            ncol=4, fontsize=7, handlelength=2.6, columnspacing=1.6)
                 fig.suptitle("Across agents, the incentive to be honest barely changes with intelligence"
@@ -391,7 +420,8 @@ def figures(t: dict, out: Path) -> None:
                              x=0.005, ha="left", fontsize=10.5, fontweight="bold", y=1.0)
                 fig.text(0.005, 0.965, "Each point: one agent, pooled over 9 judges and 300 random testbed items, "
                          "95% item-bootstrap interval. Line and shaded band: least-squares fit and its 95% "
-                         "bootstrap band (resampling items and agents). Reasoning models at low effort unless noted.",
+                         "bootstrap band (resampling items and agents). Gray tick: the same items judged with no "
+                         "argument.",
                          fontsize=7.3, color=INK2, va="top")
                 fig.tight_layout(rect=(0, 0, 1, 0.95 if not paper else 0.94))
                 for ax, m in zip(axes, MECHS):

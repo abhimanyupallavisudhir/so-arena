@@ -142,6 +142,30 @@ def test_summary_reports_mean_median_and_gain_with_intervals():
     assert s.asd_lo <= s.asd <= s.asd_hi and s["items"] == 30
 
 
+def test_blind_baseline_is_matched_to_the_items_an_agent_covers(monkeypatch, tmp_path):
+    def row(debater, mech, item, value, p, repeat=0, judge="j"):
+        return {"judge": judge, "debater": debater, "mechanism": mech, "item": item, "arm": "x", "repeat": repeat,
+                "episode": f"{debater}-{item}-{value}", "correct": True, "p_true": p, "parse_ok": True, "cost": 0.0,
+                "role": "a", "value": value, "reward": np.log(p if value > 0 else 1 - p)}
+    # the blind judge is right on item "easy" (p=.9) and unsure on "hard" (p=.5); the agent's only committed lie is on "hard"
+    rows = [row("", "direct", it, v, p) for it, p in (("easy", .9), ("hard", .5)) for v in (1, -1)]
+    rows += [row("a", "debate_sim", it, v, .5) for it in ("easy", "hard") for v in (1, -1)]
+    rows = pd.DataFrame(rows)
+    verdicts = pd.DataFrame([{"key": "k", "debater": "a", "mechanism": "debate_sim", "item": "easy", "repeat": 0,
+                              "verdict": "conceded"},
+                             {"key": "l", "debater": "a", "mechanism": "debate_sim", "item": "hard", "repeat": 0,
+                              "verdict": "committed"}])
+    monkeypatch.setattr(dpr, "load", lambda run: (rows, verdicts))
+    monkeypatch.setattr(dpr, "config", lambda: {"agents": [{"name": "a", "aa_index": 10}],
+                                                "judges": [{"name": "j", "aa_index": 5}]})
+    monkeypatch.setattr(dpr, "slope", lambda *a, **k: {})
+    monkeypatch.setattr(dpr, "N_BOOT", 2)
+    t = dpr.tables(tmp_path)
+    assert t["blind_pooled"].iloc[0].asd_b == pytest.approx(0.4)  # over both items
+    assert t["agents_committed"].iloc[0].blind_b == pytest.approx(0.0)  # only on the item it lied on
+    assert t["agents_all"].iloc[0].blind_b == pytest.approx(0.4)
+
+
 def test_regression_band_covers_the_fit_and_two_level_ci_is_wider():
     rng = np.random.default_rng(0)
     idx = {f"m{k}": float(k) for k in range(8)}

@@ -184,3 +184,30 @@ Interval: two-level bootstrap (items, then models), so it includes the uncertain
 | consultancy_1r | agents | conc | +0.005 [-0.005, +0.016] | [-0.002, +0.013] | 0.35 | 20 |
 | consultancy_1r | judges | conc | +0.240 [+0.099, +0.541] | [+0.195, +0.278] | 0.68 | 9 |
 
+## Agents that almost always lie when told to
+
+Agents with at least 90% of liar transcripts committed, per protocol: consultancy_1r: claude-opus-5@low, gemini-3.8-flash@low, gpt-5-mini@medium, grok-4.6@low, kimi-k3@low; debate_sim: claude-opus-5@low, gpt-5-mini@medium, grok-4.6@low, kimi-k3@low. The committed filter hardly changes which items they cover, so this is the cleanest comparison with the judge alone.
+
+| protocol | judge | ASD, Brier [95% CI] | same judge, no argument | gain over blind, Brier [95% CI] |
+|---|---|---|---|---|
+| consultancy_1r | all | +0.27 [+0.24, +0.30] | +0.34 | -0.07 [-0.10, -0.04] |
+| consultancy_1r | deepseek-v3.2 | +0.60 [+0.55, +0.64] | +0.70 | -0.10 [-0.14, -0.07] |
+| consultancy_1r | gemma-3-12b | +0.19 [+0.15, +0.23] | +0.21 | -0.02 [-0.09, +0.04] |
+| consultancy_1r | gpt-4.1 | +0.56 [+0.51, +0.61] | +0.67 | -0.12 [-0.16, -0.06] |
+| consultancy_1r | gpt-4.1-mini | +0.42 [+0.37, +0.47] | +0.60 | -0.18 [-0.22, -0.13] |
+| consultancy_1r | gpt-4o-mini | +0.14 [+0.10, +0.18] | +0.13 | +0.00 [-0.06, +0.06] |
+| consultancy_1r | llama-3.1-8b | +0.01 [-0.01, +0.04] | +0.04 | -0.03 [-0.09, +0.03] |
+| consultancy_1r | llama-3.2-3b | -0.02 [-0.04, +0.01] | -0.00 | -0.02 [-0.08, +0.05] |
+| consultancy_1r | mistral-small-4 | +0.38 [+0.33, +0.42] | +0.44 | -0.07 [-0.13, +0.00] |
+| consultancy_1r | qwen3-14b | +0.13 [+0.11, +0.16] | +0.25 | -0.12 [-0.18, -0.06] |
+| debate_sim | all | +0.35 [+0.32, +0.38] | +0.34 | +0.01 [-0.02, +0.04] |
+| debate_sim | deepseek-v3.2 | +0.66 [+0.61, +0.70] | +0.70 | -0.04 [-0.08, -0.00] |
+| debate_sim | gemma-3-12b | +0.11 [+0.08, +0.15] | +0.21 | -0.10 [-0.17, -0.03] |
+| debate_sim | gpt-4.1 | +0.67 [+0.62, +0.72] | +0.67 | -0.00 [-0.06, +0.05] |
+| debate_sim | gpt-4.1-mini | +0.52 [+0.48, +0.56] | +0.60 | -0.07 [-0.13, -0.01] |
+| debate_sim | gpt-4o-mini | +0.25 [+0.21, +0.29] | +0.13 | +0.12 [+0.05, +0.19] |
+| debate_sim | llama-3.1-8b | +0.10 [+0.07, +0.13] | +0.04 | +0.05 [-0.02, +0.12] |
+| debate_sim | llama-3.2-3b | +0.04 [+0.00, +0.07] | -0.00 | +0.04 [-0.03, +0.10] |
+| debate_sim | mistral-small-4 | +0.47 [+0.42, +0.52] | +0.44 | +0.03 [-0.05, +0.10] |
+| debate_sim | qwen3-14b | +0.30 [+0.26, +0.34] | +0.25 | +0.05 [-0.02, +0.12] |
+
