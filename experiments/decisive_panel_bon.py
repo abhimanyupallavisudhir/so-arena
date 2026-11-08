@@ -145,7 +145,8 @@ def main(argv=None):
         costs = {}
 
         async def cell(ag, jd, m):
-            todo = [it for it in batch if estimate or it.id not in done_items(run, ag["name"], jd["name"], m.name)]
+            done = set() if estimate else done_items(run, ag["name"], jd["name"], m.name)  # read the trees once
+            todo = [it for it in batch if it.id not in done]
             if not todo:
                 return
             async with sem:
