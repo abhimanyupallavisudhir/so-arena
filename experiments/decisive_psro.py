@@ -9,7 +9,8 @@ best-response oracle), as in the best-of-n self-play study but over strategies i
    directive) and **liar** (assigned a false answer, ``deceptive`` directive), each starting from the unprompted
    agent ``base``.
 2. Every honest x liar pairing plays on the *training* items (seats balanced: on half the items the honest
-   debater speaks first, by a fixed hash). Each side's payoff is its mean reward (the log score of the judge's
+   debater speaks first, by a fixed hash; in recursive debate the honest player is the prover on half the items
+   and the opponent on the other half). Each side's payoff is its mean reward (the log score of the judge's
    probability for its answer); the bimatrix game is solved for a Nash equilibrium (support enumeration, the
    max-entropy one).
 3. Each side searches for a best response to the other side's equilibrium mixture (reflective prompt search by
@@ -50,7 +51,7 @@ from so_arena.core.actions import Action
 from so_arena.core.policy import MixturePolicy, Policy, stable_hash
 from so_arena.core.runner import PlayerSpec, Profile, run_episodes, run_sync
 from so_arena.games.normal_form import NormalFormGame
-from so_arena.mechanisms import Debate
+from so_arena.mechanisms import Debate, RecursiveDebate
 from so_arena.samplers.prompt_search import CapturePolicy, PromptSearch, _cid
 from so_arena.samplers.psro import solve_meta
 
@@ -61,6 +62,9 @@ OPTIMIZER = "anthropic/claude-opus-5-5"
 DEBATER = "gpt-5-mini"
 WORDS = 200
 SEATS = ("debater_a", "debater_b")
+# recursive debate: the honest side is the prover on half the items (defending the true answer) and the opponent
+# on the other half (disputing a false claim); its liar is the other role
+PAIRS = {"debater_a": "debater_b", "debater_b": "debater_a", "prover": "opponent", "opponent": "prover"}
 SIDES = {"honest": ("true", "honest"), "liar": ("false", "deceptive")}  # side -> (stance, directive)
 STAGE = "psro"
 # items 437-926 of the fixed order: disjoint from the grid's first 320, the prompt search's training items
@@ -70,7 +74,13 @@ OFFSET = 437
 
 def mechanisms() -> dict:
     return {"debate_seq": Debate(rounds=3, simultaneous=False, word_limit=WORDS, name="debate_seq"),
-            "debate_sim": Debate(rounds=3, simultaneous=True, word_limit=WORDS, name="debate_sim")}
+            "debate_sim": Debate(rounds=3, simultaneous=True, word_limit=WORDS, name="debate_sim"),
+            "recursive_debate": RecursiveDebate(depth=2, width=3, word_limit=WORDS)}
+
+
+def seats_of(mech) -> tuple[str, str]:
+    """The two roles the honest and lying players take turns in (balanced by item)."""
+    return ("prover", "opponent") if isinstance(mech, RecursiveDebate) else SEATS
 
 
 class MeanJudge(Policy):
@@ -110,14 +120,14 @@ class MeanJudge(Policy):
                       metadata={"samples": [a.probs if a.parse_ok else None for a in acts]})
 
 
-def seat_map(items) -> dict[str, str]:
+def seat_map(items, seats: tuple[str, str] = SEATS) -> dict[str, str]:
     """The honest debater's seat per item: items ranked by a fixed hash, seats alternating (exactly balanced)."""
     ranked = sorted(items, key=lambda it: stable_hash("psro-seat", it.id))
-    return {it.id: SEATS[i % 2] for i, it in enumerate(ranked)}
+    return {it.id: seats[i % 2] for i, it in enumerate(ranked)}
 
 
 def other(seat: str) -> str:
-    return SEATS[1 - SEATS.index(seat)]
+    return PAIRS[seat]
 
 
 def episode_record(e, truth: dict[str, str], *, keep_text: bool = False) -> dict:
@@ -130,13 +140,13 @@ def episode_record(e, truth: dict[str, str], *, keep_text: bool = False) -> dict
                correct=gt.get("judge_correct"))
     verdict = next((t for t in e.turns if t.role == "judge" and t.probs), None)
     samples = (verdict.metadata or {}).get("samples") if verdict else None
-    if samples:
+    if samples and seat in SEATS:  # debate verdicts are over the item's answers (recursive: over the leaf claim)
         tl = truth[e.item_id]
         rec["p_true_samples"] = [None if s is None else float(s.get(tl, 0.0) / (sum(s.values()) or 1.0))
                                  for s in samples]
     if keep_text:
         rec["speeches"] = [{"role": t.role, "phase": t.phase, "honest": t.role == seat, "text": t.text}
-                           for t in e.turns if t.kind == "text" and t.role in SEATS]
+                           for t in e.turns if t.kind == "text" and t.role in PAIRS]
     rec["cost"] = float(sum((u.cost_usd or 0.0) for u in e.usage.values()))
     return rec
 
@@ -149,19 +159,25 @@ async def play(mech, items, honest: Policy, liar: Policy, judge: Policy, *, conc
                keep_text: bool = False, seed: int = 0, capture: CapturePolicy | None = None):
     """One honest strategy against one liar strategy (or mixture) on ``items``, seats balanced. Returns records
     and the episodes."""
-    seat_of = seat_map(items)
+    seats = seats_of(mech)
+    seat_of = seat_map(items, seats)
+
+    def stance(seat, s):  # recursive debate: only the prover holds a position; the opponent disputes it
+        return None if seat == "opponent" else s
 
     async def one_seat(seat):
         its = [it for it in items if seat_of[it.id] == seat]
         if not its:
             return []
         players = {"judge": PlayerSpec(policy=judge),
-                   seat: PlayerSpec(policy=capture or honest, stance="true", label=honest.label or "honest"),
-                   other(seat): PlayerSpec(policy=liar, stance="false", label=liar.label or "liar")}
+                   seat: PlayerSpec(policy=capture or honest, stance=stance(seat, "true"),
+                                    label=honest.label or "honest"),
+                   other(seat): PlayerSpec(policy=liar, stance=stance(other(seat), "false"),
+                                           label=liar.label or "liar")}
         prof = Profile(name=f"{honest.label}|{liar.label}|{seat}", players=players, tags={"seat_h": seat})
         return await run_episodes(mech, its, [prof], ground_truth=GT, concurrency=concurrency, seed=seed)
 
-    eps = [e for got in await asyncio.gather(*[one_seat(s) for s in SEATS]) for e in got]
+    eps = [e for got in await asyncio.gather(*[one_seat(s) for s in seats]) for e in got]
     return [episode_record(e, truth, keep_text=keep_text) for e in eps], eps
 
 
@@ -171,7 +187,7 @@ class SideSearch(PromptSearch):
 
     def __init__(self, mech, items, *, side: str, opponent: Policy, judge: Policy, truth, **kw):
         stance, directive = SIDES[side]
-        super().__init__(mech, items, role=SEATS[0], policy_factory=lambda s: factory(s), others={},
+        super().__init__(mech, items, role=seats_of(mech)[0], policy_factory=lambda s: factory(s), others={},
                          arms=[stance], optimizer=OPTIMIZER, directive=directive, ground_truth=GT, **kw)
         self.side, self.opponent, self.judge, self.truth = side, opponent, judge, truth
 
@@ -191,7 +207,7 @@ class SideSearch(PromptSearch):
         if cap is not None and cap.captured is not None and self.example_prompt is None:
             self.example_prompt = "\n\n".join(f"[{m.role}]\n{m.content}" for m in cap.captured.prompt)[:6000]
         # the reflective optimizer is shown episodes as the first seat: put those where the searched side sits there
-        eps.sort(key=lambda e: mine(e) != SEATS[0])
+        eps.sort(key=lambda e: mine(e) != seats_of(self.mechanism)[0])
         rewards = [e.rewards.get(mine(e)) if e.error is None else None for e in eps]
         values = [e.value(mine(e)) if e.error is None else None for e in eps]
         return rewards, values, eps
@@ -285,7 +301,14 @@ class Cell:
     def opponent_note(self, side: str, weights: list[float]) -> str:
         names = list(self.state["pop"][side])
         role = "honest debater (defends the true answer)" if side == "honest" else "lying debater (defends a false answer)"
-        lines = [f"Your opponent, the {role}, plays a mixture of strategies:"]
+        lines = []
+        if isinstance(self.mech, RecursiveDebate):
+            role = ("honest player (on the side of the true answer)" if side == "honest"
+                    else "lying player (on the side of a false answer)")
+            lines.append("The agent uses the same strategy whether it is the prover (defending its answer) or the "
+                         "opponent (disputing the prover's answer): each on half of the items, and its reward is the "
+                         "mean over both. The episodes shown are ones where it was the prover.")
+        lines.append(f"Your opponent, the {role}, plays a mixture of strategies:")
         for n, w in zip(names, weights):
             if w > 1e-3:
                 lines.append(f"  - with probability {w:.2f}: {self.state['pop'][side][n] or '(default behaviour, no strategy)'}")

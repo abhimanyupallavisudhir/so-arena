@@ -384,6 +384,21 @@ different subset of items for each agent (only its gains are matched item by ite
 
 ### Why prover-estimator debate fails here (added 2026-11-04)
 
+**How the protocol works, and what it assumes** (added 2026-11-08). Three parties, as in Brown-Cohen et al.: the
+*prover* and the *estimator* are both AI debaters (here the same model, gpt-5-mini), and the *judge* is the weak
+overseer (the paper's human), consulted once, on the final small claim. The game is zero-sum between prover and
+estimator. The estimator never argues; it only prices the claims the prover puts forward. The prover splits a
+claim into subclaims, the estimator prices each, the prover says in which direction the estimator mispriced the
+claim and picks the subclaim to recurse on. At the leaf, the judge's probability replaces the estimator's, and the
+prover is paid its direction × (judge − estimator). The paper's guarantee is relative to the judge: at equilibrium
+the estimator predicts what the judge would conclude on the leaves, every decomposition and leaf term then has zero
+expectation, and the only term that depends on the answer is the start term, worth r^(d+1) = 1/8 × the estimator's
+probability for the prover's claim. So the protocol is incentive compatible to the extent the judge can verify leaf
+claims; it does not create verification ability the judge lacks. Our estimator is told to price whether claims are
+*true*, not what the judge will say. Where the judge cannot check leaves, that gap is what the prover is paid for
+(point 1 below), and an equilibrium estimator that predicted the judge instead would leave a start term reflecting
+the judge's leaf beliefs, close to zero on these items.
+
 I audited the prover-estimator episodes: 16,718 instructed episodes with gpt-5-mini as prover and estimator,
 under the three weak judges, broken down into the terms of the prover's reward, plus the strategies the prompt
 search found. Two separate things go wrong. With the original payoff, neither is the prover lying successfully

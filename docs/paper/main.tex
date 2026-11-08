@@ -412,7 +412,7 @@ $-$ estimator's probability) for the final subclaim, with the direction chosen b
 reward of 16{,}718 instructed episodes into these terms shows that the leaf term carries the deficit: the strong
 estimator prices true leaves at 0.87 and false ones at 0.21, while the weak judges stay near the middle (0.56 and
 0.40), so an honest prover defending a true leaf loses on average ($-0.20$). Llama-3.1-8B is anti-informative at
-the leaf (0.28 for true leaves, 0.43 for false).
+the leaf (0.28 for true leaves, 0.43 for false). The protocol's guarantee is relative to the judge: prover and estimator are AI debaters playing a zero-sum game, and at equilibrium the estimator predicts what the judge would conclude on the leaves, so every term but the start term (weight $r^{d+1}=1/8$) has zero expectation. It is incentive compatible to the extent the judge can verify leaf claims; our estimator prices truth rather than the judge's verdict, and that gap is what the prover is paid for.
 
 Our first implementation also paid each decomposition round for any gap between the estimator's probability of the
 claim and of the conjunction of its subclaims. Since our subclaims need only imply the claim, $P(\text{all}) <

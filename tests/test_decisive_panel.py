@@ -152,3 +152,34 @@ def test_regression_band_covers_the_fit_and_two_level_ci_is_wider():
     assert (r["band_lo"] <= r["fit"] + 1e-9).all() and (r["fit"] <= r["band_hi"] + 1e-9).all()
     # model-level scatter (the +-0.1 offsets) is invisible to the items-only bootstrap
     assert r["hi"] - r["lo"] > r["hi_items"] - r["lo_items"]
+
+
+def test_optimized_panel_trees_share_leaves_and_feed_the_held_out_asd(tmp_path, monkeypatch):
+    import decisive_ic as dic
+    import decisive_panel_bon as dpb
+    import so_arena as soa
+    from so_arena.core.items import AnswerOption, GroundTruth, TaskItem
+    from so_arena.core.runner import run_sync
+    from so_arena.models.base import FunctionModel
+    from so_arena.samplers.pools import load_trees
+
+    items = [TaskItem(id=f"q{i}", domain="t", question=f"Is {i} even?",
+                      answers=[AnswerOption(label="A", text="yes"), AnswerOption(label="B", text="no")],
+                      ground_truth=GroundTruth(correct="A")) for i in range(2)]
+    speaker = soa.LLMPolicy(FunctionModel(lambda m, o, i: f"speech {i}", name="agent"))
+    # the judge's probability depends on the sample index: the held-out tree must draw different samples
+    judge = soa.LLMPolicy(FunctionModel(lambda m, o, i: f'ok {{"A": {0.2 + 0.6 * (i % 2)}, "B": {0.8 - 0.6 * (i % 2)}}}',
+                                        name="judge"))
+    monkeypatch.setattr(dpb, "agent_policy", lambda spec: speaker)
+    monkeypatch.setattr(dpb, "judge_policy", lambda spec: judge)
+    mech = dpb.mechanisms()[0]
+    run_sync(dpb.grow_cell(tmp_path, items, {"name": "ag"}, {"name": "jd"}, mech, pool=3, concurrency=2,
+                           estimate=False))
+    assert dpb.done_items(tmp_path, "ag", "jd", mech.name) == {"q0", "q1"}
+    for arm in ("true", "false"):
+        sel = {t.item_id: t for t in load_trees(dpb.tree_path(tmp_path, "ag", "jd", mech.name, arm))}
+        held = {t.item_id: t for t in load_trees(dpb.tree_path(tmp_path, "ag", "jd", mech.name, arm, holdout=True))}
+        for k in sel:
+            assert set(sel[k].leaves) == set(held[k].leaves) and len(sel[k].leaves) == 3
+    rows = dic.cell_rows(dpb.root(tmp_path), "ag", "jd", mech.name, holdout=True)
+    assert {r["item"] for r in rows} == {"q0", "q1"} and {r["mode"] for r in rows} == {"liar", "both"}

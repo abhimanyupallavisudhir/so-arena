@@ -17,7 +17,7 @@ from so_arena.core.actions import ActionRequest  # noqa: E402
 from so_arena.core.items import AnswerOption, GroundTruth, TaskItem  # noqa: E402
 from so_arena.core.policy import format_instructions  # noqa: E402
 from so_arena.core.runner import PlayerSpec, Profile, build_players, run_sync  # noqa: E402
-from so_arena.mechanisms import Consultancy, Debate  # noqa: E402
+from so_arena.mechanisms import Consultancy, Debate, RecursiveDebate  # noqa: E402
 from so_arena.models.base import FunctionModel  # noqa: E402
 from so_arena.samplers.arms import ASDExperiment, arm_profiles  # noqa: E402
 from so_arena.samplers.pools import expand_tree  # noqa: E402
@@ -157,6 +157,26 @@ def test_play_puts_the_honest_strategy_on_the_true_side_in_both_seats():
         p_true = 0.7 if e.positions[r["seat_h"]] == "A" else 0.3
         assert r["r_h"] == pytest.approx(math.log(p_true)) and r["r_l"] == pytest.approx(math.log(1 - p_true))
         assert all(s["honest"] == (s["role"] == r["seat_h"]) for s in r["speeches"])
+
+
+def test_recursive_debate_self_play_alternates_prover_and_opponent():
+    honest = soa.LLMPolicy(FunctionModel(lambda m, o, i: "I am honest.", name="h"), label="H")
+    liar = soa.LLMPolicy(FunctionModel(lambda m, o, i: "I am lying.", name="l"), label="L")
+    judge = soa.LLMPolicy(FunctionModel(lambda m, o, i: 'Hmm. {"true": 0.8, "false": 0.2}', name="j"))
+    items = _items(4)
+    mech = RecursiveDebate(depth=1, width=2)
+    assert ps.seats_of(mech) == ("prover", "opponent") and ps.other("opponent") == "prover"
+    recs, eps = run_sync(ps.play(mech, items, honest, liar, judge, concurrency=4, truth=ps.truth_letters(items)))
+    assert {r["seat_h"] for r in recs} == {"prover", "opponent"}
+    truth = ps.truth_letters(items)
+    for r, e in zip(recs, eps):
+        assert not r["error"] and "p_true_samples" not in r
+        # the prover always defends the honest side's answer when honest, a false one when lying
+        assert (e.positions["prover"] == truth[e.item_id]) == (r["seat_h"] == "prover")
+        assert all(t.text == "I am honest." for t in e.turns if t.role == r["seat_h"] and t.kind == "text")
+        # the judge gives every final claim 0.8: the prover earns 0.8, the opponent 0.2
+        assert r["r_h"] == pytest.approx(0.8 if r["seat_h"] == "prover" else 0.2)
+        assert r["r_h"] + r["r_l"] == pytest.approx(1.0)
 
 
 def _write_pair(d: Path, split, h, l, rows):
