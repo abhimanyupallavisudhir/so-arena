@@ -117,23 +117,59 @@ def summarize(items: pd.DataFrame, keys: list[str], seed: int = 0) -> pd.DataFra
     return pd.DataFrame(out)
 
 
-def slope(items: pd.DataFrame, key: str, index: dict, col: str = "conc", seed: int = 1) -> dict:
-    """OLS slope of the per-key mean of ``col`` on the AA index, per 10 index points, item-bootstrap CI."""
-    rng = np.random.default_rng(seed)
+def _pivot(items: pd.DataFrame, key: str, index: dict, col: str):
     pivot = items.pivot_table(index="item", columns=key, values=col)
     names = [n for n in pivot.columns if n in index and index[n] is not None]
-    xs = np.array([index[n] for n in names])
+    return pivot[names], np.array([index[n] for n in names], dtype=float)
 
-    def fit(p):
-        ys = p[names].mean().to_numpy()
+
+def regression(items: pd.DataFrame, key: str, index: dict, col: str = "conc", seed: int = 1,
+               grid: np.ndarray | None = None) -> dict:
+    """OLS of the per-model mean of ``col`` on the AA index, with two bootstraps.
+
+    * items only (models held fixed): the uncertainty in each model's point;
+    * two-level (resample items, then resample the models): also the uncertainty from *which* models are on the
+      panel. This is the honest interval for "does EIC change with intelligence across models", and the one
+      reported as ``lo``/``hi`` and drawn as the regression band.
+    Returns the slope per 10 index points, both intervals, r, and the fitted line with its band on ``grid``.
+    """
+    rng = np.random.default_rng(seed)
+    pivot, xs = _pivot(items, key, index, col)
+    if grid is None:
+        grid = np.linspace(xs.min(), xs.max(), 60) if len(xs) else np.array([])
+
+    def fit(p, take=None):
+        ys = p.mean().to_numpy()
+        x = xs
+        if take is not None:
+            x, ys = x[take], ys[take]
         ok = np.isfinite(ys)
-        return 10 * np.polyfit(xs[ok], ys[ok], 1)[0] if ok.sum() > 2 else np.nan
+        if ok.sum() < 3 or np.unique(x[ok]).size < 2:
+            return np.nan, np.nan
+        b, a = np.polyfit(x[ok], ys[ok], 1)
+        return b, a
 
-    est = fit(pivot)
-    boots = [fit(pivot.iloc[rng.integers(0, len(pivot), len(pivot))]) for _ in range(N_BOOT)]
-    r = np.corrcoef(xs, pivot[names].mean().to_numpy())[0, 1] if len(names) > 2 else np.nan
-    return {"slope_per_10": est, "lo": np.nanquantile(boots, .025), "hi": np.nanquantile(boots, .975), "r": r,
-            "n": len(names)}
+    b0, a0 = fit(pivot)
+    s_items, s_two, lines = [], [], []
+    n_it, n_m = len(pivot), len(xs)
+    for _ in range(N_BOOT):
+        p = pivot.iloc[rng.integers(0, n_it, n_it)]
+        s_items.append(fit(p)[0])
+        b, a = fit(p, rng.integers(0, n_m, n_m))
+        s_two.append(b)
+        lines.append(a + b * grid)
+    lines = np.array(lines)
+    r = np.corrcoef(xs, pivot.mean().to_numpy())[0, 1] if n_m > 2 else np.nan
+    return {"slope_per_10": 10 * b0, "lo": 10 * np.nanquantile(s_two, .025), "hi": 10 * np.nanquantile(s_two, .975),
+            "lo_items": 10 * np.nanquantile(s_items, .025), "hi_items": 10 * np.nanquantile(s_items, .975),
+            "r": r, "n": n_m, "grid": grid, "fit": a0 + b0 * grid,
+            "band_lo": np.nanquantile(lines, .025, axis=0), "band_hi": np.nanquantile(lines, .975, axis=0)}
+
+
+def slope(items: pd.DataFrame, key: str, index: dict, col: str = "conc", seed: int = 1) -> dict:
+    """Slope of the per-model mean of ``col`` on the AA index, per 10 index points (see :func:`regression`)."""
+    r = regression(items, key, index, col, seed)
+    return {k: r[k] for k in ("slope_per_10", "lo", "hi", "lo_items", "hi_items", "r", "n")}
 
 
 def tables(run: Path) -> dict:
@@ -178,6 +214,8 @@ def tables(run: Path) -> dict:
                 sl.append({"variant": name, "mechanism": m, "over": "judges", "measure": col,
                            **slope(it_j[it_j.mechanism == m], "judge", j_idx, col)})
         out[f"slopes_{name}"] = pd.DataFrame(sl)
+        out.setdefault("_items", {})[name] = {"agents": it_a, "judges": it_j}
+    out["_items"]["blind"] = blind_j
     # agent accuracy alone and liar commitment
     s = rows[rows.mechanism == "solo"]
     out["solo"] = s.drop_duplicates("episode").groupby("debater").correct.mean().rename("solo_acc").reset_index()
@@ -219,11 +257,14 @@ def markdown(t: dict) -> str:
             bl, bp = b.asd.get(r.judge, np.nan), b.asd_b.get(r.judge, np.nan)
             L.append(f"| {r.judge} | {r.aa:.1f} | {r.mechanism} | {fmt(r)} | {r.asd_med:+.2f} | {fmt(r, 'asd_b')} | "
                      f"{fmt(r, 'conc')} | {bl:+.2f} / {bp:+.2f} | {fmt(r, 'gain')} | {fmt(r, 'gain_b')} |")
-        L += ["", f"## Slopes on the AA index ({name} liars; per 10 index points, item bootstrap)", "",
-              "| protocol | across | measure | slope [95% CI] | r | points |", "|---|---|---|---|---|---|"]
+        L += ["", f"## Slopes on the AA index ({name} liars; per 10 index points)", "",
+              "Interval: two-level bootstrap (items, then models), so it includes the uncertainty from which "
+              "models are on the panel. The items-only interval treats the models as fixed.", "",
+              "| protocol | across | measure | slope [95% CI] | items-only CI | r | points |",
+              "|---|---|---|---|---|---|---|"]
         for _, r in t[f"slopes_{name}"].iterrows():
             L.append(f"| {r.mechanism} | {r.over} | {r.measure} | {r.slope_per_10:+.3f} [{r.lo:+.3f}, {r.hi:+.3f}] | "
-                     f"{r.r:.2f} | {r.n} |")
+                     f"[{r.lo_items:+.3f}, {r.hi_items:+.3f}] | {r.r:.2f} | {r.n} |")
         L.append("")
     return "\n".join(L) + "\n"
 
@@ -263,71 +304,150 @@ def place_labels(ax, xs, ys, names, *, fontsize=6.3, color=None, pad=5) -> None:
 
 
 
+def short(name: str) -> str:
+    """Compact point label: reasoning models run at low effort unless the label says otherwise."""
+    n = name.replace("@low", "").replace("@medium", " (medium)").replace("@high", " (high)").replace("@none", " (none)")
+    return n
+
+
+def _band(ax, reg: dict, color, *, label=None, alpha=0.14, ls="-"):
+    """Regression line with its two-level bootstrap 95% band (the shaded region)."""
+    ax.fill_between(reg["grid"], reg["band_lo"], reg["band_hi"], color=color, alpha=alpha, lw=0, zorder=1)
+    ax.plot(reg["grid"], reg["fit"], color=color, lw=1.8, ls=ls, zorder=2, label=label)
+
+
+def _points(ax, g, meas, color, *, label=None, size=5.5):
+    """Each model's estimate with its 95% item-bootstrap interval (thin vertical bar)."""
+    ax.errorbar(g.aa, g[meas], yerr=[g[meas] - g[f"{meas}_lo"], g[f"{meas}_hi"] - g[meas]], fmt="o", color=color,
+                ms=size, mec="white", mew=0.8, elinewidth=0.9, capsize=0, zorder=4, label=label, alpha=0.95)
+
+
+def _slope_note(ax, lines):
+    ax.text(0.99, 0.02, "\n".join(lines), transform=ax.transAxes, ha="right", va="bottom", fontsize=6.8,
+            color="#52514e", linespacing=1.4,
+            bbox=dict(boxstyle="round,pad=0.35", fc="#fcfcfb", ec="#e1e0d9", lw=0.6))
+
+
 def figures(t: dict, out: Path) -> None:
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
 
     import eic_style as st
-    from eic_style import BLUE, CONTEXT, INK2, ORANGE
+    from eic_style import BLUE, CONTEXT, INK2, MUTED, ORANGE
 
     v = "committed" if "agents_committed" in t else "all"
-    liars = "committed liars only (gpt-5 audit); " if v == "committed" else "all prompted liars; "
+    items = t["_items"]
+    GRAY = "#8f8d86"
+    units = {"asd_b": "ASD, Brier score", "asd": "ASD, log score", "gain_b": "gain over the blind judge (Brier ASD)"}
+
+    def fmt_s(reg):
+        return f"{reg['slope_per_10']:+.3f} [{reg['lo']:+.3f}, {reg['hi']:+.3f}]"
+
     for paper in (False, True):
         ctx = st.paper_mode() if paper else _null()
         with ctx:
             bp = t["blind_pooled"].iloc[0]
-            for who, key, idx_label, sub, rows_ in (
-                    ("agents", "debater", "agent", "Each agent debates itself / argues once; pooled over 9 judges; "
-                     + liars + "95% item-bootstrap intervals. Orange: GPT-5.6 Sol at effort none, low, medium, high. "
-                     "Dashed gray: the judges with no argument (blind baseline)."
-                     + (" Hollow gray: the same agent with all prompted liars (conceding and refusing ones kept)."
-                        if v == "committed" else ""),
-                     (("asd", "ASD, log score\n(the protocol's reward)"),
-                      ("asd_b", "ASD, Brier score\n(of the judge's probability)"))),
-                    ("judges", "judge", "judge", "Pooled over 20 agent configurations; " + liars + "dashed gray: the "
-                     "same judge with no argument (blind baseline); 95% item-bootstrap intervals.",
-                     (("asd_b", "ASD, Brier score\n(of the judge's probability)"),
-                      ("gain_b", "Gain over the blind judge\n(ASD, Brier score)")))):
-                fig, axes = plt.subplots(2, 2, figsize=(11, 7.2), sharex=True, sharey="row")
-                d = t[f"{who}_{v}"]
-                for row, (meas, mlabel) in enumerate(rows_):
-                    for col, m in enumerate(MECHS):
-                        ax = axes[row, col]
-                        st.axes(ax)
-                        g = d[d.mechanism == m].sort_values("aa")
-                        for _, r in g.iterrows():
-                            ladder = who == "agents" and r[key].startswith("gpt-5.6-sol")
-                            st.dot_ci(ax, r.aa, r[meas], r[f"{meas}_lo"], r[f"{meas}_hi"],
-                                      ORANGE if ladder else BLUE, horizontal=False, size=6)
-                        if who == "agents" and v == "committed":
-                            ga = t["agents_all"][t["agents_all"].mechanism == m]
-                            ax.scatter(ga.aa, ga[meas], s=22, facecolors="none", edgecolors=CONTEXT, lw=0.9,
-                                       zorder=0.5)
-                        if who == "agents":
-                            lad = g[g[key].str.startswith("gpt-5.6-sol")]
-                            ax.plot(lad.aa, lad[meas], color=ORANGE, lw=1.2, zorder=1)
-                            ax.axhline(bp[meas], color=CONTEXT, lw=1.2, ls=(0, (4, 3)), zorder=0)
-                        elif meas != "gain_b":
-                            b = t["blind"].sort_values("aa")
-                            ax.plot(b.aa, b[meas], color=CONTEXT, lw=1.2, ls=(0, (4, 3)), marker="o", ms=3, zorder=1)
-                        ax.axhline(0, color=INK2, lw=1)
-                        if row == 0:
-                            ax.set_title(MECHS[m])
-                        if row == 1:
-                            ax.set_xlabel(f"{idx_label}: Artificial Analysis Intelligence Index (v4.3)")
-                        if col == 0:
-                            ax.set_ylabel(mlabel)
-                fig.suptitle(f"Does incentive compatibility change with the {idx_label}'s intelligence?", x=0.005,
-                             ha="left", fontsize=10, fontweight="bold", y=1.03)
-                fig.text(0.005, 0.985, textwrap.fill(sub + " ASD = mean reward arguing the truth minus lying.", 190),
-                         fontsize=7.5, color=INK2, va="top")
-                fig.tight_layout()
-                for row, (meas, _) in enumerate(rows_):
-                    for col, m in enumerate(MECHS):
-                        g = d[d.mechanism == m]
-                        if len(g):
-                            place_labels(axes[row, col], g.aa.to_numpy(), g[meas].to_numpy(), list(g[key]),
-                                         color=INK2)
-                st.save(fig, out, "fig12_panel_agents" if who == "agents" else "fig13_panel_judges")
+            # ---- agents: one figure per unit (Brier = headline, log score = appendix)
+            for meas, fname in (("asd_b", "fig12_panel_agents"), ("asd", "fig12b_panel_agents_log")):
+                fig, axes = plt.subplots(1, 2, figsize=(11, 4.9), sharey=True)
+                for ax, m in zip(axes, MECHS):
+                    st.axes(ax)
+                    ax.axhline(0, color=INK2, lw=0.9, zorder=1)
+                    ax.axhline(bp[meas], color=GRAY, lw=1.1, ls=(0, (4, 3)), zorder=1)
+                    ax.text(0.01, bp[meas], " judges with no argument", color=INK2, fontsize=6.8, va="bottom", ha="left",
+                            transform=ax.get_yaxis_transform())
+                    notes = ["slope per 10 index points [95% CI]"]
+                    if v == "committed":
+                        ra = regression(items["all"]["agents"].query("mechanism == @m"), "debater", t["a_idx"], meas)
+                        _band(ax, ra, GRAY, alpha=0.10, ls=(0, (1.5, 1.5)))
+                        notes.append(f"all prompted liars: {fmt_s(ra)}")
+                    rc = regression(items[v]["agents"].query("mechanism == @m"), "debater", t["a_idx"], meas)
+                    _band(ax, rc, BLUE)
+                    notes.insert(1, f"{'committed liars' if v == 'committed' else 'all liars'}: {fmt_s(rc)}")
+                    g = t[f"agents_{v}"].query("mechanism == @m").sort_values("aa")
+                    lad = g[g.debater.str.startswith("gpt-5.6-sol")]
+                    rest = g[~g.debater.str.startswith("gpt-5.6-sol")]
+                    _points(ax, rest, meas, BLUE)
+                    ax.plot(lad.aa, lad[meas], color=ORANGE, lw=1.4, zorder=3)
+                    _points(ax, lad, meas, ORANGE)
+                    ax.set_title(MECHS[m])
+                    ax.set_xlabel("agent: Artificial Analysis Intelligence Index (v4.3)")
+                    _slope_note(ax, notes)
+                axes[0].set_ylabel(units[meas] + "\n(reward arguing the truth minus lying)")
+                handles = [Line2D([], [], color=BLUE, marker="o", mec="white", lw=1.8,
+                                  label="agent (committed liars), with fit and 95% band" if v == "committed"
+                                  else "agent, with fit and 95% band"),
+                           Line2D([], [], color=ORANGE, marker="o", mec="white", lw=1.4,
+                                  label="GPT-5.6 Sol, effort none → high")]
+                if v == "committed":
+                    handles.append(Line2D([], [], color=GRAY, lw=1.8, ls=(0, (1.5, 1.5)),
+                                          label="fit with all prompted liars (incl. conceding / refusing)"))
+                handles.append(Line2D([], [], color=GRAY, lw=1.1, ls=(0, (4, 3)), label="judges with no argument"))
+                fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else 0.945),
+                           ncol=4, fontsize=7, handlelength=2.6, columnspacing=1.6)
+                fig.suptitle("Across agents, the incentive to be honest barely changes with intelligence"
+                             if v == "committed" else "EIC against agent intelligence",
+                             x=0.005, ha="left", fontsize=10.5, fontweight="bold", y=1.0)
+                fig.text(0.005, 0.965, "Each point: one agent, pooled over 9 judges and 300 random testbed items, "
+                         "95% item-bootstrap interval. Line and shaded band: least-squares fit and its 95% "
+                         "bootstrap band (resampling items and agents). Reasoning models at low effort unless noted.",
+                         fontsize=7.3, color=INK2, va="top")
+                fig.tight_layout(rect=(0, 0, 1, 0.95 if not paper else 0.94))
+                for ax, m in zip(axes, MECHS):
+                    g = t[f"agents_{v}"].query("mechanism == @m")
+                    names = [("effort: " + n.split("@")[1]) if n.startswith("gpt-5.6-sol") else short(n)
+                             for n in g.debater]
+                    place_labels(ax, g.aa.to_numpy(), g[meas].to_numpy(), names, color=INK2, fontsize=6.2)
+                st.save(fig, out, fname)
+
+            # ---- judges: raw ASD next to the blind baseline, then the gain over it
+            fig, axes = plt.subplots(2, 2, figsize=(11, 7.6), sharex=True, sharey="row")
+            bl = t["blind"].sort_values("aa")
+            rb = regression(items["blind"], "judge", t["j_idx"], "asd_b")
+            for col, m in enumerate(MECHS):
+                ax = axes[0, col]
+                st.axes(ax)
+                ax.axhline(0, color=INK2, lw=0.9, zorder=1)
+                _band(ax, rb, GRAY, alpha=0.12, ls=(0, (4, 3)))
+                _points(ax, bl, "asd_b", GRAY, size=5)
+                rj = regression(items[v]["judges"].query("mechanism == @m"), "judge", t["j_idx"], "asd_b")
+                _band(ax, rj, BLUE)
+                g = t[f"judges_{v}"].query("mechanism == @m").sort_values("aa")
+                _points(ax, g, "asd_b", BLUE)
+                ax.set_title(MECHS[m])
+                _slope_note(ax, ["slope per 10 index points [95% CI]", f"with the protocol: {fmt_s(rj)}",
+                                 f"no argument: {fmt_s(rb)}"])
+                ax2 = axes[1, col]
+                st.axes(ax2)
+                ax2.axhline(0, color=INK2, lw=0.9, zorder=1)
+                rg = regression(items[v]["judges"].query("mechanism == @m"), "judge", t["j_idx"], "gain_b")
+                _band(ax2, rg, BLUE)
+                _points(ax2, g, "gain_b", BLUE)
+                ax2.set_xlabel("judge: Artificial Analysis Intelligence Index (v4.3)")
+                _slope_note(ax2, ["slope per 10 index points [95% CI]", fmt_s(rg)])
+            axes[0, 0].set_ylabel("ASD, Brier score\n(reward arguing the truth minus lying)")
+            axes[1, 0].set_ylabel("gain over the same judge\nwith no argument (Brier ASD)")
+            handles = [Line2D([], [], color=BLUE, marker="o", mec="white", lw=1.8,
+                              label="judge with the protocol" + (" (committed liars)" if v == "committed" else "")),
+                       Line2D([], [], color=GRAY, marker="o", mec="white", lw=1.8, ls=(0, (4, 3)),
+                              label="same judge, no argument (blind baseline)"),
+                       Patch(color=BLUE, alpha=0.14, label="95% bootstrap band of the fit (items and judges)")]
+            fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else 0.962), ncol=3,
+                       fontsize=7, handlelength=2.6, columnspacing=1.6)
+            fig.suptitle("Stronger judges reward honesty more, but no more than they do with no argument at all",
+                         x=0.005, ha="left", fontsize=10.5, fontweight="bold", y=1.0)
+            fig.text(0.005, 0.975, "Each point: one judge, pooled over 20 agent configurations and 300 random "
+                     "testbed items, 95% item-bootstrap interval. Bottom row: the protocol's ASD minus the same "
+                     "judge's ASD with no argument, item by item.", fontsize=7.3, color=INK2, va="top")
+            fig.tight_layout(rect=(0, 0, 1, 0.945 if not paper else 0.965))
+            for col, m in enumerate(MECHS):
+                g = t[f"judges_{v}"].query("mechanism == @m")
+                for row, meas in ((0, "asd_b"), (1, "gain_b")):
+                    place_labels(axes[row, col], g.aa.to_numpy(), g[meas].to_numpy(), list(g.judge), color=INK2,
+                                 fontsize=6.2)
+            st.save(fig, out, "fig13_panel_judges")
+
             # heatmap: ASD in probability units (bounded, comparable across judges)
             cells = t[f"cells_{v}"]
             fig, axes = plt.subplots(1, 2, figsize=(12, 5.2))

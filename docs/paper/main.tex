@@ -358,18 +358,19 @@ and so comparable across judges, and its gain over the same judge with no argume
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig13_panel_judges_paper.pdf}
-\caption{Model panel, judges (committed liars, pooled over 20 agents). Top: ASD (Brier) with each judge's blind
-baseline dashed. Bottom: gain over the blind judge. 95\% item-bootstrap intervals.}
+\caption{Model panel, judges (committed liars, pooled over 20 agents). Top: ASD (Brier) with the protocol (blue)
+and for the same judge with no argument (gray). Bottom: gain over the blind judge. Points: 95\% item-bootstrap
+intervals. Lines and shaded bands: least-squares fit and its 95\% bootstrap band, resampling items and judges.}
 \label{fig:panel-judges}
 \end{figure}
 
-Raw EIC rises steeply with the judge's capability ($+0.57$ Brier per 10 index points in debate, $r=0.91$), but the
+Raw EIC rises steeply with the judge's capability ($+0.57$ Brier per 10 index points in debate [$+0.44$, $+0.94$], $r=0.91$; slope intervals resample both items and models), but the
 blind baseline rises just as fast, from about $0$ for the Llama judges to $+0.70$ for DeepSeek-V3.2
 (Figure~\ref{fig:panel-judges}). With committed liars, debate's gain over the blind judge is at most $+0.08$
-[$+0.01$, $+0.14$] (gpt-4o-mini) and slightly negative for the strongest judges (slope $-0.05$ [$-0.10$, $+0.01$]);
+[$+0.01$, $+0.14$] (gpt-4o-mini) and slightly negative for the strongest judges (slope $-0.05$ [$-0.20$, $+0.14$], no detectable trend);
 consultancy's is never positive and is $-0.10$ to $-0.14$ for the four strongest. With all prompted liars debate gains
 $+0.12$ to $+0.17$ for the weakest judges, mostly from liars conceding. Across agents, committed-liar EIC barely moves
-with intelligence ($+0.025$ per 10 points in debate, $-0.013$ in consultancy, Figure~\ref{fig:panel-agents}); the
+with intelligence ($+0.025$ [$-0.002$, $+0.060$] per 10 points in debate, $-0.013$ [$-0.034$, $+0.012$] in consultancy, Figure~\ref{fig:panel-agents}); the
 apparent rise with all prompted liars comes from the strongest models refusing (GPT-6 Astra commits to 29--35\% of
 its lies, and its debate ASD falls from $+0.60$ to $+0.15$ once refusals are removed). Along GPT-5.6 Sol's effort
 ladder, more effort means more willingness to lie (commitment 58\%$\to$77\%), so all-liar EIC falls while committed
@@ -380,8 +381,9 @@ gap.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig12_panel_agents_paper.pdf}
-\caption{Model panel, agents (committed liars, pooled over 9 judges; hollow: all prompted liars). Orange: GPT-5.6 Sol
-at effort none, low, medium, high. Dashed: the judges with no argument.}
+\caption{Model panel, agents (committed liars, pooled over 9 judges). Blue line and band: least-squares fit and
+its 95\% bootstrap band, resampling items and agents; dotted gray: the same fit with all prompted liars. Orange:
+GPT-5.6 Sol at effort none, low, medium, high. Dashed: the judges with no argument.}
 \label{fig:panel-agents}
 \end{figure}
 

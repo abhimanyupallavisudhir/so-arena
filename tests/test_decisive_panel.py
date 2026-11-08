@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -139,3 +140,15 @@ def test_summary_reports_mean_median_and_gain_with_intervals():
     s = dpr.summarize(items, ["mechanism"]).iloc[0]
     assert s.asd == pytest.approx(1.0) and s.asd_med == pytest.approx(0.0) and s.gain == pytest.approx(0.5)
     assert s.asd_lo <= s.asd <= s.asd_hi and s["items"] == 30
+
+
+def test_regression_band_covers_the_fit_and_two_level_ci_is_wider():
+    rng = np.random.default_rng(0)
+    idx = {f"m{k}": float(k) for k in range(8)}
+    items = [{"item": i, "debater": m, "conc": 0.05 * x + rng.normal(0, 0.05) + (0.1 if k % 2 else -0.1)}
+             for i in range(60) for k, (m, x) in enumerate(idx.items())]
+    r = dpr.regression(pd.DataFrame(items), "debater", idx, "conc")
+    assert r["slope_per_10"] == pytest.approx(0.5, abs=0.15)
+    assert (r["band_lo"] <= r["fit"] + 1e-9).all() and (r["fit"] <= r["band_hi"] + 1e-9).all()
+    # model-level scatter (the +-0.1 offsets) is invisible to the items-only bootstrap
+    assert r["hi"] - r["lo"] > r["hi_items"] - r["lo_items"]

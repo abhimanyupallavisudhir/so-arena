@@ -70,26 +70,28 @@ Items not selected on any judge. ASD = mean reward arguing the truth minus lying
 | gpt-4.1 | 12.7 | debate_sim | +4.26 [+3.87, +4.62] | +4.60 | +0.65 [+0.60, +0.70] | +0.89 [+0.85, +0.92] | +4.83 / +0.67 | -0.57 [-0.84, -0.26] | -0.02 [-0.07, +0.02] |
 | deepseek-v3.2 | 16.0 | debate_sim | +3.14 [+2.84, +3.41] | +2.76 | +0.64 [+0.60, +0.68] | +0.91 [+0.87, +0.94] | +4.61 / +0.70 | -1.47 [-1.76, -1.20] | -0.06 [-0.09, -0.02] |
 
-## Slopes on the AA index (committed liars; per 10 index points, item bootstrap)
+## Slopes on the AA index (committed liars; per 10 index points)
 
-| protocol | across | measure | slope [95% CI] | r | points |
-|---|---|---|---|---|---|
-| debate_sim | agents | asd | +0.106 [+0.061, +0.149] | 0.21 | 20 |
-| debate_sim | judges | asd | +3.078 [+2.827, +3.328] | 0.79 | 9 |
-| debate_sim | agents | asd_b | +0.025 [+0.016, +0.034] | 0.31 | 20 |
-| debate_sim | judges | asd_b | +0.571 [+0.531, +0.609] | 0.91 | 9 |
-| debate_sim | agents | gain_b | +0.026 [+0.017, +0.035] | 0.50 | 20 |
-| debate_sim | judges | gain_b | -0.045 [-0.097, +0.009] | -0.29 | 9 |
-| debate_sim | agents | conc | +0.021 [+0.007, +0.035] | 0.30 | 20 |
-| debate_sim | judges | conc | +0.276 [+0.232, +0.319] | 0.87 | 9 |
-| consultancy_1r | agents | asd | -0.066 [-0.109, -0.025] | -0.19 | 20 |
-| consultancy_1r | judges | asd | +3.430 [+3.083, +3.799] | 0.79 | 9 |
-| consultancy_1r | agents | asd_b | -0.013 [-0.019, -0.007] | -0.27 | 20 |
-| consultancy_1r | judges | asd_b | +0.535 [+0.490, +0.580] | 0.87 | 9 |
-| consultancy_1r | agents | gain_b | -0.009 [-0.015, -0.002] | -0.54 | 20 |
-| consultancy_1r | judges | gain_b | -0.081 [-0.127, -0.033] | -0.57 | 9 |
-| consultancy_1r | agents | conc | -0.008 [-0.019, +0.002] | -0.16 | 20 |
-| consultancy_1r | judges | conc | +0.315 [+0.269, +0.361] | 0.81 | 9 |
+Interval: two-level bootstrap (items, then models), so it includes the uncertainty from which models are on the panel. The items-only interval treats the models as fixed.
+
+| protocol | across | measure | slope [95% CI] | items-only CI | r | points |
+|---|---|---|---|---|---|---|
+| debate_sim | agents | asd | +0.106 [-0.074, +0.329] | [+0.059, +0.150] | 0.21 | 20 |
+| debate_sim | judges | asd | +3.078 [+1.925, +5.958] | [+2.816, +3.312] | 0.79 | 9 |
+| debate_sim | agents | asd_b | +0.025 [-0.002, +0.060] | [+0.017, +0.034] | 0.31 | 20 |
+| debate_sim | judges | asd_b | +0.571 [+0.441, +0.937] | [+0.528, +0.608] | 0.91 | 9 |
+| debate_sim | agents | gain_b | +0.026 [+0.011, +0.045] | [+0.016, +0.035] | 0.50 | 20 |
+| debate_sim | judges | gain_b | -0.045 [-0.201, +0.136] | [-0.100, +0.007] | -0.29 | 9 |
+| debate_sim | agents | conc | +0.021 [-0.005, +0.054] | [+0.007, +0.034] | 0.30 | 20 |
+| debate_sim | judges | conc | +0.276 [+0.181, +0.517] | [+0.234, +0.317] | 0.87 | 9 |
+| consultancy_1r | agents | asd | -0.066 [-0.228, +0.124] | [-0.105, -0.025] | -0.19 | 20 |
+| consultancy_1r | judges | asd | +3.430 [+1.988, +7.481] | [+3.084, +3.766] | 0.79 | 9 |
+| consultancy_1r | agents | asd_b | -0.013 [-0.034, +0.012] | [-0.019, -0.007] | -0.27 | 20 |
+| consultancy_1r | judges | asd_b | +0.535 [+0.367, +0.964] | [+0.487, +0.578] | 0.87 | 9 |
+| consultancy_1r | agents | gain_b | -0.009 [-0.018, +0.002] | [-0.015, -0.002] | -0.54 | 20 |
+| consultancy_1r | judges | gain_b | -0.081 [-0.227, -0.002] | [-0.127, -0.036] | -0.57 | 9 |
+| consultancy_1r | agents | conc | -0.008 [-0.038, +0.021] | [-0.018, +0.002] | -0.16 | 20 |
+| consultancy_1r | judges | conc | +0.315 [+0.174, +0.658] | [+0.270, +0.359] | 0.81 | 9 |
 
 ## Agents (all liars), pooled over judges
 
@@ -159,24 +161,26 @@ Items not selected on any judge. ASD = mean reward arguing the truth minus lying
 | gpt-4.1 | 12.7 | debate_sim | +4.64 [+4.23, +5.01] | +5.00 | +0.67 [+0.62, +0.71] | +0.90 [+0.86, +0.93] | +4.83 / +0.67 | -0.19 [-0.46, +0.10] | -0.01 [-0.05, +0.04] |
 | deepseek-v3.2 | 16.0 | debate_sim | +3.52 [+3.18, +3.82] | +3.47 | +0.65 [+0.61, +0.70] | +0.91 [+0.88, +0.94] | +4.61 / +0.70 | -1.09 [-1.35, -0.83] | -0.04 [-0.08, -0.01] |
 
-## Slopes on the AA index (all liars; per 10 index points, item bootstrap)
+## Slopes on the AA index (all liars; per 10 index points)
 
-| protocol | across | measure | slope [95% CI] | r | points |
-|---|---|---|---|---|---|
-| debate_sim | agents | asd | +0.224 [+0.176, +0.273] | 0.44 | 20 |
-| debate_sim | judges | asd | +2.561 [+2.368, +2.751] | 0.73 | 9 |
-| debate_sim | agents | asd_b | +0.033 [+0.026, +0.040] | 0.59 | 20 |
-| debate_sim | judges | asd_b | +0.469 [+0.436, +0.501] | 0.88 | 9 |
-| debate_sim | agents | gain_b | +0.033 [+0.026, +0.040] | 0.59 | 20 |
-| debate_sim | judges | gain_b | -0.147 [-0.199, -0.093] | -0.71 | 9 |
-| debate_sim | agents | conc | +0.015 [+0.007, +0.023] | 0.69 | 20 |
-| debate_sim | judges | conc | +0.156 [+0.122, +0.193] | 0.80 | 9 |
-| consultancy_1r | agents | asd | +0.068 [+0.035, +0.101] | 0.22 | 20 |
-| consultancy_1r | judges | asd | +3.027 [+2.734, +3.322] | 0.71 | 9 |
-| consultancy_1r | agents | asd_b | +0.005 [+0.000, +0.010] | 0.14 | 20 |
-| consultancy_1r | judges | asd_b | +0.483 [+0.444, +0.522] | 0.82 | 9 |
-| consultancy_1r | agents | gain_b | +0.005 [+0.000, +0.010] | 0.14 | 20 |
-| consultancy_1r | judges | gain_b | -0.133 [-0.180, -0.085] | -0.84 | 9 |
-| consultancy_1r | agents | conc | +0.005 [-0.001, +0.013] | 0.35 | 20 |
-| consultancy_1r | judges | conc | +0.240 [+0.197, +0.281] | 0.68 | 9 |
+Interval: two-level bootstrap (items, then models), so it includes the uncertainty from which models are on the panel. The items-only interval treats the models as fixed.
+
+| protocol | across | measure | slope [95% CI] | items-only CI | r | points |
+|---|---|---|---|---|---|---|
+| debate_sim | agents | asd | +0.224 [+0.003, +0.444] | [+0.175, +0.277] | 0.44 | 20 |
+| debate_sim | judges | asd | +2.561 [+1.396, +5.520] | [+2.361, +2.746] | 0.73 | 9 |
+| debate_sim | agents | asd_b | +0.033 [+0.009, +0.058] | [+0.026, +0.040] | 0.59 | 20 |
+| debate_sim | judges | asd_b | +0.469 [+0.340, +0.807] | [+0.434, +0.500] | 0.88 | 9 |
+| debate_sim | agents | gain_b | +0.033 [+0.009, +0.058] | [+0.026, +0.040] | 0.59 | 20 |
+| debate_sim | judges | gain_b | -0.147 [-0.324, +0.003] | [-0.202, -0.094] | -0.71 | 9 |
+| debate_sim | agents | conc | +0.015 [+0.002, +0.028] | [+0.008, +0.023] | 0.69 | 20 |
+| debate_sim | judges | conc | +0.156 [+0.085, +0.316] | [+0.121, +0.193] | 0.80 | 9 |
+| consultancy_1r | agents | asd | +0.068 [-0.089, +0.216] | [+0.034, +0.102] | 0.22 | 20 |
+| consultancy_1r | judges | asd | +3.027 [+1.562, +7.204] | [+2.725, +3.304] | 0.71 | 9 |
+| consultancy_1r | agents | asd_b | +0.005 [-0.015, +0.024] | [-0.000, +0.010] | 0.14 | 20 |
+| consultancy_1r | judges | asd_b | +0.483 [+0.306, +0.924] | [+0.440, +0.521] | 0.82 | 9 |
+| consultancy_1r | agents | gain_b | +0.005 [-0.015, +0.024] | [-0.000, +0.010] | 0.14 | 20 |
+| consultancy_1r | judges | gain_b | -0.133 [-0.274, -0.062] | [-0.180, -0.088] | -0.84 | 9 |
+| consultancy_1r | agents | conc | +0.005 [-0.005, +0.016] | [-0.002, +0.013] | 0.35 | 20 |
+| consultancy_1r | judges | conc | +0.240 [+0.099, +0.541] | [+0.195, +0.278] | 0.68 | 9 |
 

@@ -339,22 +339,24 @@ legibench3's panel, placed by the Artificial Analysis Intelligence Index (v4.3).
 | gpt-4.1 | 12.7 | +0.67 | +0.65 | −0.02 [−0.07, +0.02] | +0.58 | **−0.10** [−0.14, −0.05] |
 | DeepSeek-V3.2 | 16.0 | +0.70 | +0.64 | **−0.06** [−0.09, −0.02] | +0.60 | **−0.10** [−0.13, −0.07] |
 
-- **Raw EIC rises steeply with the judge's intelligence:** +0.57 Brier per 10 index points in debate [+0.53, +0.61],
-  r = 0.91 over judges; +0.54 in consultancy.
+- **Raw EIC rises steeply with the judge's intelligence:** +0.57 Brier per 10 index points in debate [+0.44, +0.94],
+  r = 0.91 over judges; +0.54 in consultancy. Slope intervals here resample both items and models (the panel's
+  models are themselves a sample); an items-only bootstrap, used in an earlier version, was too narrow.
 - **That is the judge's prior, not the protocol.** The blind baseline rises just as steeply, from about 0 for the
-  Llamas to +0.70 for DeepSeek-V3.2. The gain over it has slope −0.05 [−0.10, +0.01] in debate and −0.08 [−0.13,
-  −0.03] in consultancy.
+  Llamas to +0.70 for DeepSeek-V3.2. The gain over it has slope −0.05 [−0.20, +0.14] in debate (no detectable trend)
+  and −0.08 [−0.23, −0.00] in consultancy.
 - **Debate helps weak judges a little and strong judges not at all.** Only gpt-4o-mini's gain is clearly positive.
   Strong judges lose a little: a committed liar can talk them out of an answer they had.
 - **Consultancy never beats the blind judge** and is clearly below it for the four strongest judges.
 - **With all prompted liars, the weak judges look much better:** debate gains +0.12 to +0.17 for Llama-3.2-3B,
-  Llama-3.1-8B, Qwen3-14B and gpt-4o-mini, slope −0.15 [−0.20, −0.09]. Most of that is liars conceding.
+  Llama-3.1-8B, Qwen3-14B and gpt-4o-mini, slope −0.15 [−0.32, +0.00]. Most of that is liars conceding.
 
 ![EIC against judge intelligence](results/eic/fig13_panel_judges.png)
 
 **Agents.** Pooled over the 9 judges ([`fig12`](results/eic/fig12_panel_agents.png)):
 - **With committed liars, EIC barely moves with the agent's intelligence.** Debate: +0.025 Brier per 10 index points
-  [+0.016, +0.034], r = 0.31, across a 40-point range. Consultancy: −0.013 [−0.019, −0.007]. Nearly every agent
+  [−0.002, +0.060], r = 0.31, across a 40-point range. Consultancy: −0.013 [−0.034, +0.012]. Neither slope is
+  distinguishable from zero once the choice of models is resampled. Nearly every agent
   sits below the blind baseline (+0.34 pooled): gains over it run from −0.12 to +0.08 in debate and −0.04 to −0.12
   in consultancy. Claude Sonnet 4.5's debate (−0.11, gain −0.26) rests on the 33% of samples where it lied.
 - **With all prompted liars, EIC seems to rise with intelligence,** because the strongest models refuse. GPT-6 Astra
@@ -368,6 +370,8 @@ legibench3's panel, placed by the Artificial Analysis Intelligence Index (v4.3).
   is negative.
 
 ![EIC against agent intelligence](results/eic/fig12_panel_agents.png)
+
+The same in log score (the protocols' own reward): [`fig12b`](results/eic/fig12b_panel_agents_log.png).
 
 **What this changes.** On items no judge was selected to fail, a 3-round simultaneous debate between equally capable
 agents adds little to what the judge already knows, and consultancy subtracts from it. Most of the "EIC rises with
