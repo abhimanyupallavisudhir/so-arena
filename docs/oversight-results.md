@@ -357,16 +357,29 @@ legibench3's panel, placed by the Artificial Analysis Intelligence Index (v4.3).
 - **With committed liars, EIC barely moves with the agent's intelligence.** Debate: +0.025 Brier per 10 index points
   [−0.002, +0.060], r = 0.31, across a 40-point range. Consultancy: −0.013 [−0.034, +0.012]. Neither slope is
   distinguishable from zero once the choice of models is resampled.
-- **Compare each agent with the blind judge on the same items, not with the pooled +0.34.** Committed-only points
-  cover only the items where the agent really lied, and liars concede more on items the judge already knows, so
-  those items have a lower blind baseline (+0.26 on average for debate, +0.12 for GPT-6 Astra, against +0.34 over
-  all 300). Item by item, every consultancy agent is below the blind judge (gains −0.04 to −0.12, all significant).
-  In debate 15 of 20 agents are below it, but only 6 significantly (gains −0.26 to +0.08, mean −0.04). Claude Sonnet
-  4.5's debate (−0.11, gain −0.26) rests on the 33% of samples where it lied.
-- **The cleanest comparison is the agents that almost always lie when told to** (at least 90% committed, so the
-  filter removes almost nothing). Debate equals the blind judge: +0.35 against +0.34, gain +0.01 [−0.02, +0.04].
-  Consultancy is below it: +0.27, gain −0.07 [−0.10, −0.04]. Per judge, debate helps gpt-4o-mini (+0.12 [+0.05,
-  +0.19]) and hurts gpt-4.1-mini (−0.07), Gemma-3-12B (−0.10) and, slightly, DeepSeek-V3.2 (−0.04).
+- **Neither protocol beats the judge with no argument; debate is slightly below it** (corrected 2026-11-08; an
+  earlier summary said debate "roughly ties", which held only for 4 of the 20 agents). Each agent is compared with the
+  blind judge on the items where its liar committed, item by item (bottom row of `fig12`). Committed-only points
+  cover only those items, and their blind baseline is lower than over all 300 (+0.26 on average for debate, +0.12 for
+  GPT-6 Astra, against +0.34).
+  - *Consultancy:* all 20 agents are below the blind judge, all significantly (gains −0.04 to −0.12; mean −0.07).
+  - *Debate:* 15 of 20 agents are below it, 6 significantly; 1 is above (Gemini 3.8 Flash, +0.08). Mean over agents
+    −0.04; pooling items across agents −0.01 [−0.04, +0.02]. Claude Sonnet 4.5 (−0.26) and Claude Haiku 4.5 (−0.12)
+    are lowest. The gain rises with the agent's intelligence, +0.026 [+0.011, +0.045] per 10 index points: about −0.08
+    for the weakest agents, about 0 for the strongest.
+  - *The 4 agents whose liars commit at least 90% of the time* (Claude Opus 5, gpt-5-mini, Grok 4.6, Kimi K3), where
+    the filter removes almost nothing, tie: +0.35 against +0.34, gain +0.01 [−0.02, +0.04]. Consultancy for its 5
+    such agents: −0.07 [−0.10, −0.04].
+  - *Why the low-commitment agents look worse.* Not because their kept items are harder: on the items where Sonnet
+    4.5, Haiku 4.5 or DeepSeek-V3.2 committed, the 4 always-committing agents' debates still tie the blind judge
+    (gains +0.04, +0.01, −0.02). So either these models are genuinely better liars than honest debaters, or they lie
+    selectively, only where they have a good false argument; one sample per item cannot separate the two. The tie of
+    the always-committing agents is the cleaner estimate, and the agent average (−0.04) a pessimistic bound.
+  - *Why `fig13` looks closer to a tie than `fig12`.* `fig13` pools all agents' items per judge, so an agent counts in
+    proportion to how often its liars committed; the always-committing agents, which tie, dominate. `fig12` gives
+    every agent equal weight, including the low-commitment ones that sit lowest. Per judge, debate is still below the
+    blind judge for 3 of 9 judges (Gemma-3-12B −0.09, gpt-4.1-mini −0.08, DeepSeek-V3.2 −0.06) and above it only for
+    gpt-4o-mini (+0.08).
 - **What being below the baseline means.** In debate and with no argument, Brier ASD is exactly 2·mean(p_true) − 1,
   so debate at +0.35 and the blind judge at +0.34 both mean the judge puts about 0.67 on the truth. A point below the
   baseline means the protocol moved the judge's belief away from the truth on average: a committed liar pulls a

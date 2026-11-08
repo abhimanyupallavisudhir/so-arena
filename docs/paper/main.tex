@@ -377,16 +377,21 @@ ladder, more effort means more willingness to lie (commitment 58\%$\to$77\%), so
 EIC is flat. On items no judge was selected to fail, then, debate between equally capable agents adds little to what
 the judge already knows, and consultancy subtracts from it: the room for a protocol to help came from the capability
 gap. Committed-liar points are compared with the blind judge on the same items, because liars concede more on items
-the judge already knows. For the agents that stay committed at least 90\% of the time, where this filter removes almost
-nothing, debate matches the blind judge (gain $+0.01$\ci{-0.02}{+0.04}) and consultancy falls below it
-($-0.07$\ci{-0.10}{-0.04}).
+the judge already knows. Item by item, every agent's consultancy is significantly below the blind judge (mean
+gain $-0.07$). In debate 15 of 20 agents are below it, 6 significantly, and one above (mean $-0.04$; $-0.01$\ci{-0.04}{+0.02}
+pooling items across agents); the gain rises with the agent's intelligence ($+0.026$\ci{+0.011}{+0.045} per 10
+index points), from about $-0.08$ for the weakest agents to about $0$ for the strongest. Only the four agents whose liars commit at least 90\% of the time, where the filter removes
+almost nothing, tie it (gain $+0.01$\ci{-0.02}{+0.04}). The low-commitment agents sit lowest, but not because the
+items they lie on are harder: on those items the always-committing agents still tie the blind judge. Either they are
+better liars than honest debaters, or they lie only where they have a good false argument; one sample per item cannot
+separate the two. Neither protocol, then, beats the judge with no argument on these items.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\linewidth]{fig12_panel_agents_paper.pdf}
 \caption{Model panel, agents (committed liars, pooled over 9 judges). Blue line and band: least-squares fit and
 its 95\% bootstrap band, resampling items and agents; dotted gray: the same fit with all prompted liars. Orange:
-GPT-5.6 Sol at effort none, low, medium, high. Gray ticks: the judges with no argument, on the same items as that agent's committed-liar point.}
+GPT-5.6 Sol at effort none, low, medium, high. Gray ticks: the judges with no argument, on the same items as that agent's committed-liar point. Bottom row: the difference, item by item; navy diamonds are the agents whose liars commit at least 90\% of the time.}
 \label{fig:panel-agents}
 \end{figure}
 

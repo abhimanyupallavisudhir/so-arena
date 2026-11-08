@@ -376,9 +376,45 @@ def figures(t: dict, out: Path) -> None:
         ctx = st.paper_mode() if paper else _null()
         with ctx:
             bp = t["blind_pooled"].iloc[0]
+            NAVY = "#123a73"
+            hc = t.get("high_commit_agents")
+            hc_set = set() if hc is None else {(r.debater, r.mechanism) for r in hc.itertuples()}
+
+            def gain_row(ax, m):
+                """Each agent's gain over the no-argument judges on its own items; pooled means in the note."""
+                st.axes(ax)
+                ax.axhline(0, color=INK2, lw=0.9, zorder=1)
+                it = items[v]["agents"].query("mechanism == @m")
+                rg = regression(it, "debater", t["a_idx"], "gain_b")
+                _band(ax, rg, BLUE)
+                g = t[f"agents_{v}"].query("mechanism == @m").sort_values("aa")
+                is_hc = g.debater.map(lambda d: (d, m) in hc_set)
+                _points(ax, g[~is_hc], "gain_b", BLUE)
+                if is_hc.any():
+                    h = g[is_hc]
+                    ax.errorbar(h.aa, h.gain_b, yerr=[h.gain_b - h.gain_b_lo, h.gain_b_hi - h.gain_b], fmt="D",
+                                color=NAVY, ms=5, mec="white", mew=0.8, elinewidth=0.9, capsize=0, zorder=5)
+                pooled = summarize(it.assign(pool="all").groupby(["pool", "item"], as_index=False).mean(numeric_only=True),
+                                   ["pool"]).iloc[0]
+                below = int((g.gain_b_hi < 0).sum()); above = int((g.gain_b_lo > 0).sum())
+                lines = ["slope per 10 index points [95% CI]", fmt_s(rg),
+                         f"mean over agents: {g.gain_b.mean():+.3f};  items pooled: {pooled.gain_b:+.3f} "
+                         f"[{pooled.gain_b_lo:+.3f}, {pooled.gain_b_hi:+.3f}]",
+                         f"significantly below 0: {below} of {len(g)};  above: {above}"]
+                hcr = t.get("high_commit")
+                if hcr is not None:
+                    r = hcr.query("mechanism == @m and judge == 'all'")
+                    if len(r):
+                        r = r.iloc[0]
+                        lines.append(f"agents whose liars commit ≥ 90%: {r.gain_b:+.3f} "
+                                     f"[{r.gain_b_lo:+.3f}, {r.gain_b_hi:+.3f}]")
+                _slope_note(ax, lines)
             # ---- agents: one figure per unit (Brier = headline, log score = appendix)
             for meas, fname in (("asd_b", "fig12_panel_agents"), ("asd", "fig12b_panel_agents_log")):
-                fig, axes = plt.subplots(1, 2, figsize=(11, 4.9), sharey=True)
+                two = meas == "asd_b"  # Brier figure gets a second row: the gain over the no-argument judge
+                fig, grid = plt.subplots(2 if two else 1, 2, figsize=(11, 8.4 if two else 4.9), sharey="row",
+                                         sharex=True, squeeze=False)
+                axes = grid[0]
                 for ax, m in zip(axes, MECHS):
                     st.axes(ax)
                     ax.axhline(0, color=INK2, lw=0.9, zorder=1)
@@ -400,9 +436,13 @@ def figures(t: dict, out: Path) -> None:
                     ax.plot(lad.aa, lad[meas], color=ORANGE, lw=1.4, zorder=3)
                     _points(ax, lad, meas, ORANGE)
                     ax.set_title(MECHS[m])
-                    ax.set_xlabel("agent: Artificial Analysis Intelligence Index (v4.3)")
                     _slope_note(ax, notes)
+                    if two:
+                        gain_row(grid[1, list(MECHS).index(m)], m)
+                    grid[-1, list(MECHS).index(m)].set_xlabel("agent: Artificial Analysis Intelligence Index (v4.3)")
                 axes[0].set_ylabel(units[meas] + "\n(reward arguing the truth minus lying)")
+                if two:
+                    grid[1, 0].set_ylabel("gain over the judges with no argument,\nsame items (Brier ASD)")
                 handles = [Line2D([], [], color=BLUE, marker="o", mec="white", lw=1.8,
                                   label="agent (committed liars), with fit and 95% band" if v == "committed"
                                   else "agent, with fit and 95% band"),
@@ -413,22 +453,31 @@ def figures(t: dict, out: Path) -> None:
                                           label="fit with all prompted liars (incl. conceding / refusing)"))
                 handles.append(Line2D([], [], color=GRAY, marker="_", ms=9, mew=1.6, lw=0,
                                       label="judges with no argument, on the same items"))
-                fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else 0.945),
-                           ncol=4, fontsize=7, handlelength=2.6, columnspacing=1.6)
-                fig.suptitle("Across agents, the incentive to be honest barely changes with intelligence"
+                if two and hc_set:
+                    handles.append(Line2D([], [], color=NAVY, marker="D", mec="white", lw=0, ms=5,
+                                          label="bottom row: agent whose liars commit ≥ 90% (cleanest)"))
+                fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else (0.932 if two else 0.945)),
+                           ncol=3 if two else 4, fontsize=7, handlelength=2.6, columnspacing=1.6)
+                fig.suptitle(("Across agents, honesty's edge barely changes with intelligence, and neither protocol "
+                              "beats the judges with no argument" if two else
+                              "Across agents, the incentive to be honest barely changes with intelligence")
                              if v == "committed" else "EIC against agent intelligence",
                              x=0.005, ha="left", fontsize=10.5, fontweight="bold", y=1.0)
-                fig.text(0.005, 0.965, "Each point: one agent, pooled over 9 judges and 300 random testbed items, "
+                fig.text(0.005, 0.975 if two else 0.965, textwrap.fill(
+                         "Each point: one agent, pooled over 9 judges and 300 random testbed items, "
                          "95% item-bootstrap interval. Line and shaded band: least-squares fit and its 95% "
                          "bootstrap band (resampling items and agents). Gray tick: the same items judged with no "
-                         "argument.",
+                         "argument." + (" Bottom row: point minus tick, item by item; below 0 means the protocol "
+                                        "moved the judges away from the truth." if two else ""), 175),
                          fontsize=7.3, color=INK2, va="top")
-                fig.tight_layout(rect=(0, 0, 1, 0.95 if not paper else 0.94))
-                for ax, m in zip(axes, MECHS):
-                    g = t[f"agents_{v}"].query("mechanism == @m")
-                    names = [("effort: " + n.split("@")[1]) if n.startswith("gpt-5.6-sol") else short(n)
-                             for n in g.debater]
-                    place_labels(ax, g.aa.to_numpy(), g[meas].to_numpy(), names, color=INK2, fontsize=6.2)
+                fig.tight_layout(rect=(0, 0, 1, (0.895 if two else 0.95) if not paper else 0.93))
+                for row, mm in ((0, meas), (1, "gain_b")) if two else ((0, meas),):
+                    for col, m in enumerate(MECHS):
+                        g = t[f"agents_{v}"].query("mechanism == @m")
+                        names = [("effort: " + n.split("@")[1]) if n.startswith("gpt-5.6-sol") else short(n)
+                                 for n in g.debater]
+                        place_labels(grid[row, col], g.aa.to_numpy(), g[mm].to_numpy(), names, color=INK2,
+                                     fontsize=6.2)
                 st.save(fig, out, fname)
 
             # ---- judges: raw ASD next to the blind baseline, then the gain over it
