@@ -20,6 +20,7 @@ class InspectModel(Model):
         self._model_args = model_args
         self._max_connections = max_connections
         self._model = None
+        self._no_reasoning_model = None
         self.spec = get_spec(name)
         self.supports_logprobs = supports_logprobs(name)
 
@@ -29,6 +30,15 @@ class InspectModel(Model):
 
             self._model = get_model(self.name, **self._model_args)
         return self._model
+
+    def _get_no_reasoning(self):
+        """OpenRouter ignores ``reasoning.effort="none"`` on hybrid models (Qwen3, DeepSeek-V3.2 keep thinking, up to
+        ``max_tokens``); only ``reasoning.enabled=false`` turns thinking off."""
+        if self._no_reasoning_model is None:
+            from inspect_ai.model import get_model
+
+            self._no_reasoning_model = get_model(self.name, **{**self._model_args, "reasoning_enabled": False})
+        return self._no_reasoning_model
 
     async def generate(self, messages, options=None, *, sample_index=0):
         from inspect_ai.model import (
@@ -40,6 +50,12 @@ class InspectModel(Model):
         )
 
         options = options or GenerateOptions()
+        no_reasoning = options.reasoning_effort == "none" and self.name.startswith("openrouter/")
+        if no_reasoning and "qwen3" in self.name.lower() and messages:
+            # Qwen3's OpenRouter providers ignore every reasoning flag; the model's own soft switch works
+            i = max(k for k, m in enumerate(messages) if m.role != "assistant")
+            messages = [*messages[:i], messages[i].model_copy(update={"content": messages[i].content + " /no_think"}),
+                        *messages[i + 1:]]
         converted = []
         for m in messages:
             if m.role == "system":
@@ -48,8 +64,10 @@ class InspectModel(Model):
                 converted.append(ChatMessageAssistant(content=m.content))
             else:
                 converted.append(ChatMessageUser(content=m.content))
+        from so_arena.config import settings
         from so_arena.models.base import draw_seed
 
+        effort = None if no_reasoning else options.reasoning_effort
         seed = None
         if options.seed is not None:
             seed = options.seed + sample_index + draw_seed(options)
@@ -61,10 +79,13 @@ class InspectModel(Model):
             logprobs=True if options.logprobs else None,
             top_logprobs=options.top_logprobs if options.logprobs else None,
             stop_seqs=list(options.stop) if options.stop else None,
-            reasoning_effort=options.reasoning_effort,  # type: ignore[arg-type]
-            max_connections=self._max_connections,
+            reasoning_effort=effort,  # type: ignore[arg-type]
+            max_connections=self._max_connections or settings.max_connections,
+            max_retries=settings.max_retries,
+            attempt_timeout=settings.attempt_timeout,
         )
-        out = await self._get().generate(converted, config=config, cache=False)
+        model = self._get_no_reasoning() if no_reasoning else self._get()
+        out = await model.generate(converted, config=config, cache=False)
 
         reasoning = None
         logprobs = None

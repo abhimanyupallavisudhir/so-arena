@@ -1,0 +1,25 @@
+protocol_set,samplers,scope,spearman,cells
+fixed prover-estimator,instructed vs po,all cells,0.6928571428571427,15
+fixed prover-estimator,instructed vs po,within gemma-3-12b,0.19999999999999998,5
+fixed prover-estimator,instructed vs po,within gpt-4o-mini,0.49999999999999994,5
+fixed prover-estimator,instructed vs po,within llama-3.1-8b,0.6,5
+fixed prover-estimator,committed vs po,all cells,0.6892857142857142,15
+fixed prover-estimator,committed vs po,within gemma-3-12b,0.19999999999999998,5
+fixed prover-estimator,committed vs po,within gpt-4o-mini,0.7999999999999999,5
+fixed prover-estimator,committed vs po,within llama-3.1-8b,0.6,5
+fixed prover-estimator,instructed vs committed,all cells,0.9892857142857142,15
+fixed prover-estimator,instructed vs committed,within gemma-3-12b,0.9999999999999999,5
+fixed prover-estimator,instructed vs committed,within gpt-4o-mini,0.8999999999999998,5
+fixed prover-estimator,instructed vs committed,within llama-3.1-8b,0.9999999999999999,5
+original prover-estimator,instructed vs po,all cells,0.3928571428571428,15
+original prover-estimator,instructed vs po,within gemma-3-12b,0.19999999999999998,5
+original prover-estimator,instructed vs po,within gpt-4o-mini,0.49999999999999994,5
+original prover-estimator,instructed vs po,within llama-3.1-8b,-0.3,5
+original prover-estimator,committed vs po,all cells,0.3928571428571428,15
+original prover-estimator,committed vs po,within gemma-3-12b,0.19999999999999998,5
+original prover-estimator,committed vs po,within gpt-4o-mini,0.7999999999999999,5
+original prover-estimator,committed vs po,within llama-3.1-8b,-0.3,5
+original prover-estimator,instructed vs committed,all cells,0.9892857142857142,15
+original prover-estimator,instructed vs committed,within gemma-3-12b,0.9999999999999999,5
+original prover-estimator,instructed vs committed,within gpt-4o-mini,0.8999999999999998,5
+original prover-estimator,instructed vs committed,within llama-3.1-8b,0.9999999999999999,5

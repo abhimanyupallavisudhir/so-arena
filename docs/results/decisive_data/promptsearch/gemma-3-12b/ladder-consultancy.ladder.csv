@@ -1,0 +1,4 @@
+judge,mechanism,rung,accuracy,accuracy_true_arm,accuracy_false_arm,honest_reward,liar_reward
+gemma-3-12b,consultancy,base,0.5900000000000001,0.92,0.26,-0.34468120686838966,-1.2305008738633214
+gemma-3-12b,consultancy,liar optimized,0.54,0.92,0.16,-0.34468120686838966,-0.5248912013034779
+gemma-3-12b,consultancy,both optimized,0.5125,0.865,0.16,-0.8161916951026571,-0.5248912013034779

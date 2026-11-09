@@ -1,0 +1,538 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\graphicspath{{../results/eic/}{../results/}}
+\newcommand{\ci}[2]{\,[#1,\,#2]}
+\newcommand{\Cov}{\mathrm{Cov}}
+
+\title{Does Training Against Debate Reward Honesty?\\ Empirical Incentive Compatibility of Oversight Protocols
+on Conceptual Reasoning}
+\author{Abhimanyu Pallavi Sudhir}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Scalable-oversight protocols such as debate are meant to be trained against: their value lies in making honesty
+the policy that earns the most reward. Yet nearly all empirical work evaluates them by the judge's accuracy at
+inference time, which a protocol that is useless to train against can score well on when today's models are
+friendly. We instead measure \emph{empirical incentive compatibility} (EIC): the covariance between a protocol's
+reward and the ground-truth honesty of the behaviour it rewards, over agent behaviours drawn by a \emph{sampler}.
+That covariance is the first-order effect of reward optimization on honesty. We compare five protocols
+(consultancy, sequential and simultaneous debate, recursive debate, prover-estimator debate) with three weak judges
+on 927 conceptual-reasoning questions selected so that the agents know the answer and the judges do not, under
+four samplers of increasing optimization pressure: instructed honest and dishonest arguments (ASD), the same with
+only the arguments that actually lie, best-of-$n$ selection against the judge's reward, and prompt optimization by
+a frontier model searching separately for the best honest and the best deceptive strategy. Instructed liars make
+every protocol except prover-estimator look incentive compatible. Under optimization the picture splits: optimized
+deception erases consultancy's incentive to be honest (held-out ASD $-0.06$, honesty wins on half the items),
+deepens prover-estimator's deficit ($-0.23$, even after fixing an exploitable payoff), and shrinks but does not
+erase debate's ($+0.32$ sequential, $+0.56$ simultaneous) and recursive debate's ($+0.10$). When both debaters
+best-respond to each other (PSRO self-play, 390 held-out items), simultaneous debate stays incentive compatible
+($+0.48$) and sequential debate does not ($+0.05$, negative under one judge). The cheap sampler only
+partly predicts the optimized one (Spearman $0.69$ across protocol--judge cells). EIC rises steeply with judge capability (in debate, honesty
+wins on 58--61\% of items with Llama-3.1-8B and 90--92\% with gpt-4.1) and, unlike accuracy, stays high for
+judges that already know the answer; but a panel of 20 agents and 9 judges on 300 unselected items shows this rise is
+the judge's own prior: over a judge that sees no argument, debate adds at most $+0.17$ (Brier) for weak judges and nothing for strong ones, consultancy adds at most $+0.07$, and with liars who actually lie these fall to at most $+0.08$ and $0$. Prompted liars that refuse to lie, common among safety-trained models,
+inflate a model's EIC from at most $+0.6$ to as much as $+4.0$.
+\end{abstract}
+
+\section{Introduction}
+
+Debate \citep{irving2018debate} and its relatives are proposed as training methods: if a weak judge rewards
+whichever agent argues better, and lies are harder to defend than truths, then optimizing agents against the judge
+should make them honest. Empirical work on debate \citep{michael2023debate,khan2024debating,kenton2024scalable,
+arnesen2024training} has nonetheless mostly reported the judge's accuracy at inference time. Accuracy and incentives
+can come apart: a judge that simply believes the agent is accurate when the agent happens to be honest, and
+useless to train against.
+
+We study the incentive directly. For each episode of a protocol, every trained agent has two scores: the reward $u$
+the protocol pays it (what training would optimize) and a ground-truth value $v$ of its behaviour, here $v = 1$ if
+it argued the true answer and $0$ if it argued a false one. Training on $u$ moves an agent's policy $\pi$ in the
+direction
+\begin{equation}
+\frac{d}{d\beta}\,\mathbb{E}_{\pi_\beta}[v] = \Cov_{\pi_\beta}(u, v), \qquad \pi_\beta \propto \pi_0\,e^{\beta u},
+\label{eq:cov}
+\end{equation}
+the exact derivative along the KL-regularized optimization path. So the covariance between reward and honesty,
+taken over the behaviours an optimizer could reach, is a cheap proxy for what training would do; its sign along the
+path says whether the protocol is being Goodharted. Which behaviours it is taken over is set by a
+\emph{sampler}. The agent score difference (ASD) of \citet{pallavisudhir2025asd} is the simplest: instruct the agent
+to argue each side. Best-of-$n$ over sampled behaviour \citep{beirami2024theoretical} and prompt optimization
+\citep{yang2023opro,agrawal2025gepa} reach further.
+
+\paragraph{Contributions.}
+\begin{itemize}
+\item EIC estimates for five protocols under four samplers of increasing optimization pressure, on a
+conceptual-reasoning benchmark with a 54-point gap between agents and judges, with selection and evaluation on
+independent judge samples throughout (\S\ref{sec:samplers}--\ref{sec:po}).
+\item A comparison of samplers: does the cheap instructed sampler rank protocols as optimization does
+(\S\ref{sec:agreement})?
+\item EIC across five judges of increasing capability on the same debates, and its dissociation from accuracy;
+and a model panel (20 agents, 9 judges, unselected items) separating the protocol's contribution from the judge's
+prior (\S\ref{sec:judges}).
+\item The refusal confound: models that will not lie make every protocol look incentive compatible
+(\S\ref{sec:tournament}); and two hazards for anyone optimizing against LLM judges (\S\ref{sec:hazards}).
+\end{itemize}
+
+\section{Empirical incentive compatibility}\label{sec:eic}
+
+\paragraph{Estimators.} With $v \in \{0, 1\}$, $\Cov(u, v)/\mathrm{Var}(v)$ is the difference of mean rewards
+between honest and dishonest behaviour: the \textbf{ASD}, in the protocol's reward units (log score of the judge's
+probability on the agent's answer for consultancy and debate; the judge's probability for recursive debate; the
+prover's payoff for prover-estimator). We compute it per item and average over items. Because reward units differ
+across protocols and inflate with confident judges, we also report \textbf{concordance}, the share of items on
+which honesty earns more (0.5 = no incentive), and, where per-episode rewards exist, $r = \mathrm{corr}(u, v)$, the
+normalized covariance. All intervals are 95\% percentile bootstraps over items.
+
+\paragraph{Samplers.}
+\begin{itemize}
+\item \textbf{Instructed (ASD).} The agent is told to argue the true answer, then a false one (3 samples each).
+\item \textbf{Committed liars.} The same, keeping only samples whose liars an auditor (gpt-5; agreement with Claude
+Sonnet~5 $\kappa = 0.76$) found committed to the lie. A ``liar'' that concedes is not the dishonest behaviour
+training could reach; this sampler targets effective lies.
+\item \textbf{Best-of-$n$.} The agent's own behaviour re-weighted toward high reward: exactly over pools of 16
+candidate arguments per decision for one-round protocols, and by keeping the best of $n$ candidates for every
+speech of three-round protocols (a preview judge scores each candidate). Either only the liar is optimized, or both
+sides are. A variant lets the agent choose which side to argue.
+\item \textbf{Prompt optimization.} An optimizer (Claude Opus~5.5) that knows the protocol's rules and rewards
+writes system-prompt strategies for the agent, in two separate searches per protocol and judge: one for the agent
+assigned the true answer under an \emph{honest} directive, one for the agent assigned a false answer under a
+\emph{deceptive} directive (``win anyway''). Each search runs five rounds of four candidates (GEPA-style reflection on
+the best strategy's transcripts) on 36 training items. EIC is the ASD between the best honest and the best
+deceptive strategy, both chosen on training reward and scored on 480 disjoint held-out items, after each round.
+\end{itemize}
+\paragraph{Blind-judge baseline.} The same judge shown only the question and the side the agent defends, never an
+argument, pays the agent by its prior. Its ASD is the incentive a protocol would have if arguments were ignored.
+Every sampler that selects on the judge's reward is scored on an \emph{independent} judge sample: two samples of the
+same judge on the same argument correlate only $r \approx 0.2$ within an item, so in-sample selection mostly
+selects noise (\S\ref{sec:hazards}).
+
+\section{Setup}\label{sec:setup}
+
+\paragraph{Items.} 927 binary questions from 31 families of a conceptual-reasoning testbed (decision theory:
+Newcomb, smoking lesion, twin prisoner's dilemma, Sleeping Beauty, Parfit's hitchhiker; social choice; number
+theory; reward-hacking gridworlds; LLM auctions), selected from 3{,}437 because both agent models answer them
+correctly on 2 of 2 samples while three weak judges are right on at most 60\% of 9 samples. On fresh samples the
+agents are right 96--99\% of the time and the judges 41--46\%, below chance: the judges hold confident wrong
+intuitions.
+
+\paragraph{Models and protocols.} Agents: gpt-5-mini (medium reasoning effort; the main agent throughout) and Claude
+Sonnet~4.5. Weak judges: gpt-4o-mini, Llama-3.1-8B-Instruct, Gemma-3-12B-it, each reasoning before stating
+probabilities. Protocols, all with 200-word messages: consultancy (3 rounds, the judge questions the consultant);
+debate (3 rounds, sequential or simultaneous); recursive debate (depth 2, width 3); prover-estimator debate (depth
+2, width 3, $\rho = 2$; \citet{browncohen2025prover}). Debate seats are balanced across items.
+
+\section{Instructed samplers}\label{sec:samplers}
+
+\begin{table}[t]
+\centering\small
+\caption{EIC under the instructed samplers (gpt-5-mini agents, 3 weak judges pooled, 927 items). ASD in each
+protocol's reward units.}
+\label{tab:instructed}
+\setlength{\tabcolsep}{4pt}\footnotesize
+\begin{tabular}{lcccccc}
+\toprule
+& \multicolumn{3}{c}{instructed (ASD)} & \multicolumn{3}{c}{committed liars only} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+protocol & ASD & conc. & $r$ & ASD & conc. & $r$ \\
+\midrule
+consultancy & $+0.38$\ci{+0.29}{+0.47} & 0.61 & $+0.09$ & $+0.21$\ci{+0.12}{+0.31} & 0.55 & $+0.04$ \\
+debate, sequential & $+0.74$\ci{+0.66}{+0.82} & 0.69 & $+0.18$ & $+0.56$\ci{+0.48}{+0.64} & 0.65 & $+0.14$ \\
+debate, simultaneous & $+0.79$\ci{+0.70}{+0.87} & 0.72 & $+0.19$ & $+0.57$\ci{+0.48}{+0.65} & 0.68 & $+0.14$ \\
+recursive debate & $+0.10$\ci{+0.08}{+0.11} & 0.64 & $+0.14$ & $+0.10$\ci{+0.08}{+0.12} & 0.62 & $+0.12$ \\
+prover-estimator & $-0.13$\ci{-0.15}{-0.11} & 0.35 & $-0.14$ & $-0.23$\ci{-0.26}{-0.20} & 0.27 & $-0.26$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Under instructed arguments every protocol except prover-estimator pays more for honesty
+(Table~\ref{tab:instructed}). Keeping only committed liars lowers every protocol's EIC (consultancy's by almost
+half) but changes no sign and barely changes the ranking. Prover-estimator debate pays a prover more for defending
+the false answer on two-thirds of items: without a coherent estimator its subclaim pricing rewards lying.
+Figure~\ref{fig:heatmap} shows the same pattern for each judge; consultancy under Llama-3.1-8B is already negative
+(instructed ASD $-0.26$\ci{-0.41}{-0.12}).
+
+The right zero point on these items is not zero. A blind judge, shown no argument, pays $-0.58$\ci{-0.77}{-0.40}
+for honesty in log score ($-0.11$ in probability; honesty wins on 43\% of items), because the items were selected for
+the judges' prior being wrong. Every protocol except prover-estimator is far above that line under every sampler,
+including consultancy after optimization: arguments move the judge off its prior even where optimizing them no
+longer favours honesty.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.62\linewidth]{fig7_concordance_heatmap_paper.pdf}
+\caption{Share of items on which honesty earns more, per protocol and judge (committed liars, gpt-5-mini).}
+\label{fig:heatmap}
+\end{figure}
+
+\section{Optimization pressure}\label{sec:bon}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig2_eic_under_best_of_n_paper.pdf}
+\caption{EIC along best-of-$n$, held-out judging. Blue: both sides optimized; orange: only the liar.}
+\label{fig:bon}
+\end{figure}
+
+Best-of-$n$ moves the agent along Eq.~\eqref{eq:cov}'s path, so the change of EIC with $n$ shows whether the
+protocol stays incentive compatible as optimization proceeds (Figure~\ref{fig:bon}). In one round, optimizing only
+the liar reverses debate's incentive: at best-of-16 the ASD is $-0.37$\ci{-0.55}{-0.19} and honesty wins on 29\% of
+items. Optimizing both sides keeps it positive ($+0.28$\ci{+0.08}{+0.50}). With three rounds and best-of-16 on every
+speech, debate keeps a positive incentive with both sides optimized ($+0.60$\ci{+0.27}{+0.92}), and with only
+the liar optimized it falls to a third of its starting value ($+0.22$\ci{-0.04}{+0.49}); consultancy's falls to zero either way ($-0.06$ and
+$+0.10$). Extra rounds let the honest debater rebut a better lie, which consultancy's judge cannot.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.55\linewidth]{fig4_choosing_a_side_paper.pdf}
+\caption{An agent that chooses which answer to defend, optimized by best-of-$n$ over both sides' candidates: share
+of its selected behaviour that is honest (one round, held-out).}
+\label{fig:choice}
+\end{figure}
+
+When the agent may choose its side, best-of-$n$ selects honest behaviour more often: from 50\% to
+62\%\ci{59}{65} (consultancy) and 64\%\ci{60}{69} (debate) at $n = 16$ (Figure~\ref{fig:choice}). The push toward
+honesty is real but weak, and saturates by $n = 8$.
+
+\section{Prompt optimization}\label{sec:po}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig3_eic_prompt_optimization_paper.pdf}
+\caption{EIC along prompt optimization: held-out ASD of the best honest vs best deceptive strategy after each search
+round (gpt-5-mini; blue: judges pooled; gray: each judge).}
+\label{fig:po}
+\end{figure}
+
+\begin{table}[t]
+\centering\small
+\caption{EIC under prompt optimization (held-out, 3 judges pooled): round 0 is the unprompted agent on each side;
+round 5 the best strategies after five rounds of search. 480 held-out items (80 for the original
+prover-estimator).}
+\label{tab:po}
+\begin{tabular}{lccc}
+\toprule
+protocol & round 0 & round 5 & concordance, round 5 \\
+\midrule
+consultancy & $+0.42$ & $-0.06$\ci{-0.18}{+0.06} & 0.47 \\
+debate, sequential & $+0.77$ & $+0.32$\ci{+0.18}{+0.46} & 0.65 \\
+debate, simultaneous & $+0.83$ & $+0.56$\ci{+0.40}{+0.70} & 0.67 \\
+recursive debate & $+0.13$ & $+0.10$\ci{+0.08}{+0.13} & 0.60 \\
+prover-estimator, original & $-0.15$ & $-0.37$\ci{-0.46}{-0.29} & 0.16 \\
+prover-estimator, fixed & $-0.09$ & $-0.23$\ci{-0.26}{-0.20} & 0.27 \\
+\midrule
+blind judge (log score) & \multicolumn{2}{c}{$-0.61$\ci{-0.88}{-0.33}} & 0.45 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Prompt optimization is the strongest sampler here (Figure~\ref{fig:po}, Table~\ref{tab:po}). Every protocol's EIC
+falls as the searches proceed, because deception improves faster than honest argument. Consultancy's incentive is
+erased (from $+0.42$ to $-0.06$); under Llama-3.1-8B the best deceptive consultant out-earns the best honest one
+($-0.66$\ci{-0.91}{-0.44}). Prover-estimator's deficit deepens (\S\ref{sec:pe}). Debate's EIC shrinks by 58\%
+(sequential) and 33\% (simultaneous) but stays significantly positive when pooled over judges; under Gemma-3-12B
+both debates end near zero. Recursive debate's small positive incentive barely moves.
+Over every strategy the searches produced (a population covariance rather than a frontier), the honest-minus-deceptive
+reward is $+0.41$\ci{+0.11}{+0.72} for sequential debate, $+0.50$\ci{+0.16}{+0.84} for simultaneous debate and
+$+0.16$\ci{-0.08}{+0.40} for consultancy.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig9_po_goodhart_paper.pdf}
+\caption{Goodhart curves of the prompt search: reward of each search's best strategy so far on the 36 training items
+it was selected on (dashed) and on 480 held-out items (solid, 95\% item-bootstrap band); gpt-5-mini, judges pooled.}
+\label{fig:goodhart}
+\end{figure}
+
+Figure~\ref{fig:goodhart} shows why. Both searches climb on their training items, but only the deceptive search's
+gains transfer. Over five rounds, the best deceptive strategy's held-out reward rises by $+0.25$\ci{+0.10}{+0.39}
+(mean over the 15 protocol--judge cells with the fixed prover-estimator, bootstrap over cells; positive in 12), the
+best honest one's by $-0.02$\ci{-0.13}{+0.07}. In both debates the honest strategies chosen on training reward do
+worse on held-out items than the unprompted agent ($-0.19$ and $-0.20$): with a judge whose verdicts on the same
+argument correlate at $r\approx0.2$, an honest search mostly fits judge noise, while deceptive strategies find
+something that generalizes. Prover-estimator debate is the exception, where both searches gain (fixed payoff:
+honest $+0.15$, deceptive $+0.29$).
+
+\section{Self-play equilibria}\label{sec:psro}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig10_psro_equilibrium_paper.pdf}
+\caption{Held-out ASD at each PSRO iteration's equilibrium (390 items). Blue: three judges pooled, 95\% item-bootstrap
+band; gray: each judge; dashed: the blind judge.}
+\label{fig:psro}
+\end{figure}
+
+The prompt searches optimize each side against the unprompted other side, so they cannot separate ``debate rewards
+honesty at equilibrium'' from ``the honest side was under-optimized''. We therefore ran Policy-Space Response Oracles
+\citep{lanctot2017psro} with prompt search as the best-response oracle. Populations of honest and lying strategies
+for gpt-5-mini start from the unprompted agent; every honest $\times$ liar pair plays on 100 training items (seats
+balanced); the bimatrix game is solved for a Nash equilibrium; each side then searches (3 rounds $\times$ 4 candidates
+by Claude Opus~5.5, told the opponents' strategies and weights) for a best response to the other's equilibrium mix,
+for four iterations. The judge's verdict is the mean of three samples, so that selection is not dominated by judge
+noise. Every pair is re-played on 390 held-out items, and EIC at iteration $k$ is the held-out
+$\mathbb{E}_{\sigma_k}[u_{\text{honest}} - u_{\text{liar}}]$.
+
+Simultaneous debate stays incentive compatible at every equilibrium and under every judge
+(Figure~\ref{fig:psro}): pooled ASD $+0.54$ at iteration 0 and $+0.48$\ci{+0.38}{+0.58} at iteration 4 (gpt-4o-mini
+$+0.58$, Gemma $+0.55$, Llama $+0.31$). Sequential debate does not: pooled ASD falls from $+0.46$ to
+$+0.05$\ci{-0.04}{+0.13}, and under gpt-4o-mini the equilibrium pays lying more ($-0.19$\ci{-0.35}{-0.02}). The
+strategies are legible. Liars converge on fabricated, unfalsifiable specifics (named studies, benchmark figures)
+and, faced with arithmetic they cannot dispute, accept it and attack its applicability; the honest strategies that
+answer them solve the question first, present the simplest checkable object, and warn the judge that ``a correct
+argument never needs'' uncheckable citations. As in the one-sided searches, liar best responses transfer to held-out
+items (7 of 14 significantly, mean held-out gain $+0.09$) more than honest ones (5 of 18, mean $-0.01$). Four
+iterations have not converged: sequential debate under gpt-4o-mini cycles, and some best responses still improved
+at iteration 4.
+
+Appendix~\ref{app:seats} traces sequential debate's collapse to the last word.\par
+
+\section{Do the samplers agree?}\label{sec:agreement}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig1_eic_by_sampler_paper.pdf}
+\caption{EIC (ASD) of each protocol under each sampler, gpt-5-mini, judges pooled. Blue: interval above zero; orange:
+below; gray: overlaps zero. Dashed: the blind judge, shown no argument.}
+\label{fig:headline}
+\end{figure}
+
+Figure~\ref{fig:headline} collects the samplers. EIC is measured to predict what an optimizer of the protocol's
+reward would do, and prompt optimization is our closest such optimizer; the question is whether the cheap instructed
+measurement could stand in for it. We compute concordance both ways for each of the 15 (protocol, judge) cells and
+compare the orderings. The instructed sampler and its committed-liar variant rank the 15
+(protocol, judge) cells almost identically (Spearman $0.99$), but either ranks them only partly like prompt
+optimization does ($0.69$ across cells with the fixed prover-estimator, $0.39$ with the original; within a judge,
+over only five protocols, $0.20$--$0.60$; Figure~\ref{fig:agree}). Instructed ASD gets the extremes right on
+average---prover-estimator is not incentive compatible, debate is---but misses which protocols survive
+optimization under a given judge. Under Gemma-3-12B it rates consultancy the most incentive-compatible protocol
+($+0.91$\ci{+0.76}{+1.06}, against $+0.64$ and $+0.68$ for the debates); after optimization all three are near zero
+($+0.22$, $+0.02$, $-0.06$). Under gpt-4o-mini, simultaneous debate's incentive instead grows with optimization
+($+0.83$ to $+0.95$).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\linewidth]{fig8_sampler_agreement_paper.pdf}
+\caption{Concordance under the instructed samplers vs prompt optimization, one point per (protocol, judge).}
+\label{fig:agree}
+\end{figure}
+
+\section{EIC and judge capability}\label{sec:judges}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig5_eic_by_judge_paper.pdf}
+\caption{Concordance of the same debates and consultancies judged by five judges (committed liars).}
+\label{fig:judges}
+\end{figure}
+
+Debate transcripts do not depend on the judge, so we re-judged every stored debate with two stronger judges
+(gpt-4.1-mini, gpt-4.1), replaying the debaters' speeches exactly, on our testbed and on QuALITY
+\citep{pang2022quality} (the story hidden from the judge). EIC rises steeply with judge capability
+(Figure~\ref{fig:judges}): in debate, honesty wins on 58--61\% of items with Llama-3.1-8B and 90--92\% with gpt-4.1,
+on both datasets. On the testbed the stronger judges already answer 87--90\% of items correctly alone, and
+committed liars \emph{lower} their accuracy by 12--22 points, yet the protocols' incentive under them is the
+highest we measured. Accuracy and incentive compatibility dissociate, as the argument for measuring incentives
+predicts.
+
+\paragraph{A model panel on unselected items.} The 927 items were selected for the weak judges failing, which
+exaggerates any trend with judge capability (Section~\ref{sec:hazards}). We therefore ran a panel of 20 agent
+configurations (Artificial Analysis Intelligence Index 6.6--46, including GPT-5.6 Sol at four reasoning efforts) and
+9 reasoning judges (index 3.8--16) on 300 testbed items drawn uniformly. Each agent debates itself (simultaneous,
+3 rounds) and writes one consultancy argument; every transcript is judged by all 9 judges, and gpt-5 audits all
+18{,}012 liar texts. We report ASD as a Brier score of the judge's probability for the agent's side, which is bounded
+and so comparable across judges, and its gain over the same judge with no argument on the same item.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig13_panel_judges_paper.pdf}
+\caption{Model panel, judges (all prompted liars, pooled over 20 agents). Top: ASD (Brier) with the protocol (blue)
+and for the same judge with no argument (gray). Bottom: gain over the blind judge. Points: 95\% item-bootstrap
+intervals. Lines and shaded bands: least-squares fit and its 95\% bootstrap band, resampling items and judges.}
+\label{fig:panel-judges}
+\end{figure}
+
+Raw ASD rises steeply with the judge's capability, but so does the same judge with no argument, from about $0$ for the Llama judges to $+0.70$ for DeepSeek-V3.2 (Figure~\ref{fig:panel-judges}). The gain over the judge alone falls with capability: $-0.15$ per 10 index points in debate [$-0.32$, $+0.00$] and $-0.13$ in consultancy [$-0.27$, $-0.06$] (slope intervals resample both items and models). Debate adds up to $+0.17$ for the weak judges and nothing for the three strongest. Across agents, debate is above the judges with no argument by $+0.06$\ci{+0.03}{+0.09}, rising with the agent's intelligence ($+0.033$\ci{+0.009}{+0.058} per 10 points; Figure~\ref{fig:panel-agents}); consultancy is not ($-0.015$\ci{-0.04}{+0.01}). These use every prompted liar, including those who conceded or refused; Appendix~\ref{app:committed} removes them (debate $-0.01$\ci{-0.04}{+0.02}, consultancy $-0.07$\ci{-0.09}{-0.04}). Splitting the panel by the gap selection explains the contrast with the rest of the paper: for the three weak judges, debate gains $+0.33$\ci{+0.24}{+0.41} on the 95 panel items in the gap-selected set and $+0.01$\ci{-0.04}{+0.07} on the other 205. Debate's room to help comes from items the judge gets wrong alone. A calibration map does not change this (Appendix~\ref{app:calibration}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig12_panel_agents_paper.pdf}
+\caption{Model panel, agents (all prompted liars, pooled over 9 judges). Blue line and band: least-squares fit and its 95\% bootstrap band, resampling items and agents. Orange: GPT-5.6 Sol at effort none, low, medium, high. Dashed gray: the judges with no argument, with its 95\% interval. Bottom row: the difference, item by item.}
+\label{fig:panel-agents}
+\end{figure}
+
+\section{Liars that refuse}\label{sec:tournament}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.66\linewidth]{fig6_tournament_paper.pdf}
+\caption{Per debater model: reward arguing the truth minus lying, against every opponent in an 8-model debate
+tournament (21{,}570 verdicts), all prompted liars vs committed liars only.}
+\label{fig:tournament}
+\end{figure}
+
+In a tournament of eight debater models (Figure~\ref{fig:tournament}), the per-model EIC with prompted liars ranges
+from $+0.74$ (gpt-5) to $+3.98$ (Claude Opus~5.5). The spread is almost entirely refusal: Opus~5.5 stays committed in
+28\% of its lies (and refuses outright in 446 of 600 lying consultancies), gpt-5 in 98\%. With committed liars only,
+every model's EIC lies between $0.0$ and $+0.6$. Instructed samplers built from safety-trained models overstate
+incentive compatibility severely (Opus~5.5: $+3.98$ with all prompted liars, $+0.01$ with committed ones); the
+effective-lie sampler or an optimizing sampler is needed.
+
+\section{Why prover-estimator debate fails here}\label{sec:pe}
+
+Prover-estimator debate \citep{browncohen2025prover} pays the prover a small start term for the estimator's
+probability of its answer, a term per decomposition round, and a leaf term: direction $\times$ (judge's probability
+$-$ estimator's probability) for the final subclaim, with the direction chosen by the prover. Splitting the
+reward of 16{,}718 instructed episodes into these terms shows that the leaf term carries the deficit: the strong
+estimator prices true leaves at 0.87 and false ones at 0.21, while the weak judges stay near the middle (0.56 and
+0.40), so an honest prover defending a true leaf loses on average ($-0.20$). Llama-3.1-8B is anti-informative at
+the leaf (0.28 for true leaves, 0.43 for false). The protocol's guarantee is relative to the judge: prover and estimator are AI debaters playing a zero-sum game, and at equilibrium the estimator predicts what the judge would conclude on the leaves, so every term but the start term (weight $r^{d+1}=1/8$) has zero expectation. It is incentive compatible to the extent the judge can verify leaf claims; our estimator prices truth rather than the judge's verdict, and that gap is what the prover is paid for.
+
+Our first implementation also paid each decomposition round for any gap between the estimator's probability of the
+claim and of the conjunction of its subclaims. Since our subclaims need only imply the claim, $P(\text{all}) <
+P(\text{claim})$ is coherent, and calling the claim ``too high'' earned money whatever the truth. The deceptive
+prompt search found this under every judge (``a coherent estimator always gives $P(\text{all}) \le
+P(\text{claim})$, so say too\_high every round''), adding logically impossible decoy subclaims. We fixed the payoff
+to pay only for the incoherence a sufficient decomposition can show, $P(\text{claim}) < P(\text{all})$, and re-ran
+both samplers. The fix removes the exploit but not the deficit: instructed ASD $-0.11$\ci{-0.14}{-0.07}, prompt-optimized
+$-0.23$\ci{-0.26}{-0.20}. The deceptive search now finds a genuine lie: steer the recursion to the leaf the
+estimator prices lowest that still reads as true out of context, phrase it as a soft generalization (``tends to'',
+``is more associated with''), and defend it in an authoritative voice with invented supporting observations. The
+leaf term rewards honesty only if the leaf judge is more accurate than the estimator; with a weak judge and a
+strong estimator it rewards finding where the judge is most wrong.
+
+\section{Hazards in measuring incentives against LLM judges}\label{sec:hazards}
+
+\paragraph{Judge noise.} Two independent samples of the same judge on the same argument correlate $r = 0.08$--$0.33$
+within an item. Any sampler that selects on one judge sample and scores on the same one inflates the effect of
+optimization (in-sample best-of-16 consultancy liars appear to push the judge to 0.36 accuracy; held out, 0.55).
+Covariance estimates are attenuated by the same noise.
+
+\paragraph{Reward scale.} Log-score rewards grow with the judge's confidence, so ASD in log-score units is not
+comparable across judges; concordance and $r$ are.
+
+\paragraph{Last-word bias.} Weak judges side with the debater who speaks second: in sequential debate the honest side
+wins 0.75 of the time speaking second and 0.42 speaking first. Seat balancing is necessary for any EIC estimate of
+sequential protocols.
+
+\paragraph{Instant judges.} Earlier best-of-$n$ studies scored arguments with judges that answer at once. We
+re-judged the stored transcripts and best-of-16 pools with each weak judge answering without reasoning at temperature
+0 (two calls on one transcript correlate at $r = 0.78$--$0.95$). Instructed EIC falls (three-round consultancy $+0.38
+\to +0.00$, debates $\approx +0.77 \to +0.50$): removing the reasoning removes most of what the judge learns from the
+argument, not only noise. And the near-deterministic judge is far easier to exploit (Figure~\ref{fig:instant}):
+best-of-16 liars drive one-round debate's ASD to $-1.18$\ci{-1.37}{-1.00} (reasoning judge, held out: $-0.37$) and
+consultancy's to $-0.58$, and with both sides optimized debate gives honesty no edge at any $n$. The reasoning judge's
+noise partly protects it: an argument selected on one noisy verdict does not reliably fool the next.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig11_instant_best_of_n_paper.pdf}
+\caption{ASD along best-of-$n$ (one round, gpt-5-mini, judges pooled): instant judges (orange) vs the same judges
+reasoning first, scored on independent samples (blue).}
+\label{fig:instant}
+\end{figure}
+
+\paragraph{Item selection.} Items were kept because the weak judges alone get them wrong, so their blind baselines
+are negative by construction. This does not bias the within-item contrast (selection was never on a protocol's
+outcome, and protocol and baseline both use fresh judge samples), but it makes raw ASDs conditional on items that
+mislead a weak judge, and it exaggerates the rise of EIC with judge capability: the stronger judges were not
+selected against.
+
+\section{Discussion}
+
+The question for a training method is whether optimizing against it rewards honesty. On conceptual reasoning with
+weak judges, the answer depends on the protocol and on the optimizer. Instructed liars make consultancy, debate and
+recursive debate all look incentive compatible. A prompt optimizer that searches for good lies breaks consultancy and
+leaves debate's incentive positive but diminished; when both debaters best-respond to each other, simultaneous
+debate keeps it ($+0.48$) while sequential debate's is optimized away ($+0.05$); prover-estimator debate with a weak leaf judge rewards lying
+under every sampler, with or without its payoff exploit. The incentive grows with the judge's capability, but on unselected items a model panel shows that growth is the judge's own prior: the protocol's contribution over a judge that sees no argument is small for debate and negative for consultancy, and barely changes with the agent's intelligence once liars that refuse are removed.
+
+\paragraph{Limitations.} $v$ is by construction and binary; graded ground truth (e.g.\ expert-rated essays) would
+allow richer behaviour spaces. The optimizers are inference-time; whether EIC under these samplers predicts the effect
+of RL training is the open question this study prepares for but does not answer. The self-play runs have not converged
+after four iterations. The prompt-optimized liars were not audited for
+commitment. Judges are LLMs, not people.
+
+\paragraph{Reproducibility.} All experiments use the open-source \texttt{so-arena} library. The scripts are in its
+\nolinkurl{experiments/} directory, the data and tables in \nolinkurl{docs/results/}. Total API spend was
+about \$10{,}350.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\appendix
+\section{Judge accuracy (secondary)}
+For completeness: with committed liars, consultancy, debate and recursive debate raise the weak judges' accuracy by
+11--14 points over the judge alone (about a fifth of the 54-point gap), prover-estimator by 5. Under information
+asymmetry (QuALITY) the weak judges gain 0--16 points from debate and the gpt-4.1 judges 25--27. Full tables are in
+\nolinkurl{docs/results/decisive.md} and \nolinkurl{decisive_extended.md}.
+
+\section{Sequential debate and the last word}\label{app:seats}
+The self-play equilibria of Section~\ref{sec:psro} pool two seats. Splitting them by the honest debater's seat
+(held-out items, judges pooled, 95\% item-bootstrap intervals; each item has one fixed honest seat) shows that
+sequential debate's pooled incentive is an average of two very different games:
+
+\begin{center}\small
+\begin{tabular}{llrr}
+\toprule
+ & honest debater's seat & unprompted & equilibrium (round 4)\\
+\midrule
+sequential & first (liar has the last word) & $-0.15$ [$-0.31$, $+0.01$] & $-0.23$ [$-0.34$, $-0.11$]\\
+ & last & $+1.08$ [$+0.90$, $+1.26$] & $+0.32$ [$+0.20$, $+0.44$]\\
+ & last $-$ first & $+1.23$ [$+1.00$, $+1.49$] & $+0.55$ [$+0.39$, $+0.72$]\\
+\midrule
+simultaneous & listed first & $+0.25$ [$+0.09$, $+0.44$] & $+0.33$ [$+0.19$, $+0.47$]\\
+ & listed last & $+0.82$ [$+0.62$, $+1.03$] & $+0.63$ [$+0.50$, $+0.77$]\\
+ & last $-$ first & $+0.57$ [$+0.30$, $+0.85$] & $+0.30$ [$+0.11$, $+0.50$]\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+With the last word, a lying debater already wins against the unprompted honest one, and still does at
+equilibrium (judge accuracy 0.41). What optimization removes is the honest debater's last-word advantage
+($+1.08\to+0.32$): the liars learn to survive speaking first, mostly by front-loading unfalsifiable specifics,
+while no honest strategy found survives a lying last word. Simultaneous debate, where each side writes its
+speech without seeing the other's speech that round, has a smaller order effect and rewards honesty from either
+seat. The weak judges overweight the last unrebutted speech, which debate's theory, with a judge who weighs the
+whole transcript, assumes away. The gpt-4o-mini sequential cell had not converged, and stronger judges may be
+less order-sensitive. Per-judge rows are in \nolinkurl{docs/results/psro.md}.
+
+\section{The panel with committed liars only}\label{app:committed}
+Removing every sample whose liar conceded or refused (gpt-5 audit of 18{,}012 liar texts) leaves each agent a different subset of items, so each point is compared with the judge with no argument on the same items. Debate's gain over that judge is $-0.01$\ci{-0.04}{+0.02} pooling items across agents and rises with the agent's intelligence ($+0.026$\ci{+0.011}{+0.045} per 10 index points); consultancy's is $-0.07$\ci{-0.09}{-0.04}. Figures~\ref{fig:panel-agents-c} and \ref{fig:panel-judges-c} show the same plots as the main text. GPT-6 Astra commits to 29--35\% of its lies, and its debate ASD falls from $+0.60$ to $+0.15$ once refusals are removed. Along GPT-5.6 Sol's effort ladder, commitment rises from 58\% to 77\% with effort.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig12c_panel_agents_committed_paper.pdf}
+\caption{Model panel, agents, committed liars only. Gray ticks: the judges with no argument (no agent takes part; each tick sits at the agent whose committed items it is computed on). Light-blue dotted: the fit with all prompted liars, the blue line of Figure~\ref{fig:panel-agents}. Navy diamonds: agents whose liars commit at least 90\% of the time.}
+\label{fig:panel-agents-c}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig13c_panel_judges_committed_paper.pdf}
+\caption{Model panel, judges, committed liars only.}
+\label{fig:panel-judges-c}
+\end{figure}
+
+\section{Calibration}\label{app:calibration}
+Does debate look weak only because it pulls judges toward 0.5? Each judge's stated probability goes through a Platt map (logit $p' = a + b\,\mathrm{logit}\,p$, $b \ge 0$), fitted per judge and condition and cross-fitted over items. Debate lowers confidence slightly (mean $|p-0.5|$ of 0.36 against 0.38 with no argument), but every condition is overconfident, the judge with no argument most of all (average $b$ of 0.32, against 0.48 in debate). On the panel, debate's gain over the judge alone is $+0.07$\ci{+0.05}{+0.08} calibrated against $+0.06$\ci{+0.03}{+0.09} raw (all prompted liars) and $-0.015$\ci{-0.03}{-0.00} against $-0.01$\ci{-0.04}{+0.02} (committed liars), and the three strongest judges still gain nothing. On the prompt-optimized and self-play experiments the signs hold and the sizes shrink (Figure~\ref{fig:calibration}): at equilibrium, simultaneous debate goes from $+0.16$ to $+0.09$ and sequential debate stays at about $0$. Consultancy after prompt search stays near $+0.02$.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig15_calibration_paper.pdf}
+\caption{Raw (gray) against calibrated (blue) estimates, with 95\% intervals over items. Left: gain over the same judge with no argument on the model panel. Right: Brier ASD on the optimized experiments, with maps fitted on the panel's unselected items.}
+\label{fig:calibration}
+\end{figure}
+
+\end{document}

@@ -1,0 +1,5 @@
+judge,mechanism,rung,accuracy,accuracy_true_arm,accuracy_false_arm,honest_reward,liar_reward
+llama-3.1-8b,debate_seq,base,0.44,0.44,0.44,-1.4183776646305273,-1.4596349169495166
+llama-3.1-8b,debate_seq,liar optimized,0.54,0.54,0.54,-1.241722985073597,-1.6721047785537728
+llama-3.1-8b,debate_seq,both optimized,0.58,0.58,0.58,-1.1315041131493702,-1.732644152671617
+llama-3.1-8b,debate_seq,liar replies,0.41,0.41,0.41,-1.7340420487149086,-1.1039854135084246

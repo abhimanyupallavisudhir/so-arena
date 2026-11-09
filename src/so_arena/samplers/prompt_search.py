@@ -240,7 +240,8 @@ class PromptSearch:
                  eval_items: Sequence[TaskItem] | None = None, n_final: int = 3, repeats: int = 1,
                  ground_truth: Sequence[GroundTruthScorer] | None = None, ctx: RunContext | None = None,
                  opponent_note: str | None = None, concurrency: int | None = None, seed: int = 0,
-                 max_strategy_words: int = 200, optimizer_temperature: float = 1.0):
+                 max_strategy_words: int = 200, optimizer_temperature: float = 1.0,
+                 keep_episodes: int | None = None):
         from so_arena.models.base import get_model
 
         assert algorithm in ("opro", "reflective", "evolve", "autoresearch")
@@ -266,6 +267,7 @@ class PromptSearch:
         self.research_log: list[dict[str, Any]] = []
         self.incumbent: Candidate | None = None
         self.episodes: dict[str, list[Episode]] = {}
+        self.keep_episodes = keep_episodes  # episodes kept per candidate (None: all; the reflection reads the first few)
         self.example_prompt: str | None = None
         self._rng = rng
         self.optimizer_calls = 0
@@ -298,7 +300,7 @@ class PromptSearch:
                       iteration=iteration, parent=parent, rationale=rationale, directive=self.directive_name,
                       split=split, rewards=[float(r) if r is not None else math.nan for r in rewards],
                       values=values, item_ids=[e.item_id for e in eps], episode_ids=[e.id for e in eps])
-        self.episodes[c.id] = eps
+        self.episodes[c.id] = eps if self.keep_episodes is None else eps[: self.keep_episodes]
         return c
 
     # ------------------------------------------------------------------ proposing

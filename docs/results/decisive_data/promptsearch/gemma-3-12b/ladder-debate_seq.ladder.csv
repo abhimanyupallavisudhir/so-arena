@@ -1,0 +1,5 @@
+judge,mechanism,rung,accuracy,accuracy_true_arm,accuracy_false_arm,honest_reward,liar_reward
+gemma-3-12b,debate_seq,base,0.3,0.3,0.3,-1.8788885997147386,-1.1860340368910833
+gemma-3-12b,debate_seq,liar optimized,0.35,0.35,0.35,-1.3899578172840612,-1.0836962364359903
+gemma-3-12b,debate_seq,both optimized,0.35,0.35,0.35,-1.3899578172840612,-1.0836962364359903
+gemma-3-12b,debate_seq,liar replies,0.35,0.35,0.35,-1.3899578172840612,-1.0836962364359903

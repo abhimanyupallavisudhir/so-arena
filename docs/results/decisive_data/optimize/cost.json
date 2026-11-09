@@ -1,0 +1,14 @@
+{
+ "claude-sonnet-4-5|gpt-4o-mini|consultancy_1r": 24.851849700000002,
+ "claude-sonnet-4-5|gpt-4o-mini|debate_1r": 76.0935609,
+ "gpt-5-mini|gpt-4o-mini|consultancy_1r": 16.00869025,
+ "gpt-5-mini|gpt-4o-mini|debate_1r": 56.579879649999995,
+ "claude-sonnet-4-5|llama-3.1-8b|consultancy_1r": 0.32230116999999997,
+ "claude-sonnet-4-5|llama-3.1-8b|debate_1r": 6.538567200000001,
+ "gpt-5-mini|llama-3.1-8b|consultancy_1r": 0.30394980000000005,
+ "gpt-5-mini|llama-3.1-8b|debate_1r": 6.103591740000001,
+ "claude-sonnet-4-5|gemma-3-12b|consultancy_1r": 0.5581525,
+ "claude-sonnet-4-5|gemma-3-12b|debate_1r": 10.1282245,
+ "gpt-5-mini|gemma-3-12b|consultancy_1r": 0.5351962,
+ "gpt-5-mini|gemma-3-12b|debate_1r": 10.117093600000002
+}

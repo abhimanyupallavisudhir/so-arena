@@ -1,0 +1,10 @@
+debater,mechanism
+claude-opus-5@low,consultancy_1r
+claude-opus-5@low,debate_sim
+gemini-3.8-flash@low,consultancy_1r
+gpt-5-mini@medium,consultancy_1r
+gpt-5-mini@medium,debate_sim
+grok-4.6@low,consultancy_1r
+grok-4.6@low,debate_sim
+kimi-k3@low,consultancy_1r
+kimi-k3@low,debate_sim

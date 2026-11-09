@@ -392,6 +392,27 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
     candidate without one as the worst, expectations average over the plays that have one, and
     ``coverage`` / ``reward_coverage`` report the (selection-weighted) share of plays that do.
     """
+    t_, gap = _solve(tree, policies, fp_iters=fp_iters, tol=tol)
+    return _tree_value(t_, tree.root, gap)
+
+
+def selection_policies(tree: GameTree, policies: dict[str, Selection] | None = None, *, fp_iters: int = 200,
+                       tol: float = 1e-12) -> dict[str, dict[str, Any]]:
+    """The selection each information set ends up with in :func:`evaluate_tree`: ``{key: {"role", "phase",
+    "probs"}}``, ``probs`` being the probability of choosing each candidate of the set's pool (in the order of
+    ``TreeNode.children``). Use it to inspect *what* optimization selects - e.g. audit the arguments best-of-n
+    picks, weighted by how often it picks them."""
+    t_, _ = _solve(tree, policies, fp_iters=fp_iters, tol=tol)
+    out = {}
+    for key, ids in t_.sets.items():
+        node = tree.nodes[ids[0]]
+        out[key] = {"role": node.role, "phase": node.phase, "probs": t_.sigma[key].copy()}
+    return out
+
+
+def _solve(tree: GameTree, policies: dict[str, Selection] | None, *, fp_iters: int, tol: float
+           ) -> tuple["_Tree", float]:
+    """Backward induction and fictitious play of :func:`evaluate_tree`: the solved tree and its gap."""
     policies = policies or {}
 
     def sel(role: str, phase: str = "") -> Selection:
@@ -400,7 +421,7 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
 
     t_ = _Tree(tree)
     if tree.root in tree.leaves:
-        return _tree_value(t_, tree.root, 0.0)
+        return t_, 0.0
     # deepest information sets first: backward induction when each set is a single node
     order = sorted(t_.sets, key=lambda k: (-max(t_.depth[n] for n in t_.sets[k]), k))
 
@@ -428,7 +449,7 @@ def evaluate_tree(tree: GameTree, policies: dict[str, Selection] | None = None, 
         fin = np.isfinite(u)
         if fin.any():
             gap = max(gap, abs(float(((response(k, reach, u) - t_.sigma[k])[fin] * u[fin]).sum())))
-    return _tree_value(t_, tree.root, gap)
+    return t_, gap
 
 
 def _tree_value(t_: _Tree, nid: str, gap: float) -> TreeValue:
