@@ -412,7 +412,7 @@ def figures(t: dict, out: Path) -> None:
                         r = r.iloc[0]
                         lines.append(f"agents whose liars commit ≥ 90%: {r.gain_b:+.3f} "
                                      f"[{r.gain_b_lo:+.3f}, {r.gain_b_hi:+.3f}]")
-                _slope_note(ax, lines, top_left=True)
+                _slope_note(ax, lines, top_left=not appendix)
             # ---- agents: one figure per unit (Brier = headline, log score = appendix)
             for meas, fname in ((("asd_b", "fig12c_panel_agents_committed"),) if appendix else
                                 (("asd_b", "fig12_panel_agents"), ("asd", "fig12b_panel_agents_log"))):
