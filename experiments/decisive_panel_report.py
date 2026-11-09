@@ -366,6 +366,7 @@ def figures(t: dict, out: Path) -> None:
 
     items = t["_items"]
     GRAY = "#8f8d86"
+    LIGHT_BLUE = "#86b6ea"
     units = {"asd_b": "ASD, Brier score", "asd": "ASD, log score", "gain_b": "gain over the blind judge (Brier ASD)"}
 
     def fmt_s(reg):
@@ -432,7 +433,7 @@ def figures(t: dict, out: Path) -> None:
                     notes = ["slope per 10 index points [95% CI]"]
                     if v == "committed":
                         ra = regression(items["all"]["agents"].query("mechanism == @m"), "debater", t["a_idx"], meas)
-                        _band(ax, ra, GRAY, alpha=0.10, ls=(0, (1.5, 1.5)))
+                        _band(ax, ra, LIGHT_BLUE, alpha=0.12, ls=(0, (1.5, 1.5)))
                         notes.append(f"all prompted liars: {fmt_s(ra)}")
                     rc = regression(items[v]["agents"].query("mechanism == @m"), "debater", t["a_idx"], meas)
                     _band(ax, rc, BLUE)
@@ -457,10 +458,10 @@ def figures(t: dict, out: Path) -> None:
                            Line2D([], [], color=ORANGE, marker="o", mec="white", lw=1.4,
                                   label="GPT-5.6 Sol, effort none → high")]
                 if appendix:
-                    handles.append(Line2D([], [], color=GRAY, lw=1.8, ls=(0, (1.5, 1.5)),
-                                          label="fit with all prompted liars (incl. conceding / refusing)"))
+                    handles.append(Line2D([], [], color=LIGHT_BLUE, lw=1.8, ls=(0, (1.5, 1.5)),
+                                          label="fit with all prompted liars (the blue line of Fig 12)"))
                     handles.append(Line2D([], [], color=GRAY, marker="_", ms=9, mew=1.6, lw=0,
-                                          label="judges with no argument, on that agent's items"))
+                                          label="judges with no argument, on the items that agent's liars committed on"))
                 else:
                     handles.append(Line2D([], [], color=GRAY, lw=1.6, ls=(0, (4, 3)),
                                           label="judges with no argument (95% interval shaded)"))
@@ -478,7 +479,8 @@ def figures(t: dict, out: Path) -> None:
                          "Each point: one agent, pooled over 9 judges and 300 random testbed items, "
                          "95% item-bootstrap interval. Line and shaded band: least-squares fit and its 95% "
                          "bootstrap band (resampling items and agents)."
-                         + (" Gray tick: the same items judged with no argument." if appendix else
+                         + (" Gray tick: the judges with no argument. No agent takes part; it sits at the agent whose "
+                            "committed items it is computed on." if appendix else
                             " Prompted liars, including those who conceded or refused.")
                          + (" Bottom row: the point minus the no-argument judges, item by item; below 0 means the "
                             "protocol moved the judges away from the truth." if two else ""), 175),

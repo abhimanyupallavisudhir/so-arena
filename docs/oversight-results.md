@@ -360,7 +360,10 @@ legibench3's panel, placed by the Artificial Analysis Intelligence Index (v4.3).
   (+0.005 [−0.015, +0.024]).
 - **These gains include liars who conceded or refused,** which helps the protocols. Removing them is in the appendix
   below: debate then falls to −0.01 [−0.04, +0.02] and consultancy to −0.07 [−0.09, −0.04].
-- **Reasoning effort (GPT-5.6 Sol, none → high):** debate ASD falls (+0.47, +0.46, +0.44, +0.41).
+- **Reasoning effort (GPT-5.6 Sol, none → high):** debate ASD falls (+0.47, +0.46, +0.44, +0.41) and consultancy ASD
+  falls too (+0.36 to +0.30). More effort means fewer liars who concede or refuse (46% → 29% in debate, 37% → 23% in
+  consultancy), and those samples carry a much larger ASD (about +0.75). ASD among the committed samples rises slightly
+  (+0.19 to +0.25 in debate, +0.15 to +0.19 in consultancy), so the fall is the change in the mix.
 
 ![ASD against agent intelligence](results/eic/fig12_panel_agents.png)
 
