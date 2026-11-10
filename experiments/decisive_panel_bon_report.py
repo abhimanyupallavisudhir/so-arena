@@ -26,6 +26,7 @@ from decisive_panel import panel_config
 from decisive_panel_bon import AGENTS, JUDGES, mechanisms, root
 from decisive_panel_report import N_BOOT, regression
 
+UNIT_NAMES = {"brier": "Brier score", "log": "log score", "brier_cal": "Brier score after a calibration map"}
 NAMES = {"consultancy_1r": "Consultancy (one argument)", "debate_1r": "Debate (one round, simultaneous)"}
 
 
@@ -34,19 +35,41 @@ def brier(log_reward: float) -> float:
     return -(1.0 - math.exp(log_reward)) ** 2
 
 
+def calibrated_brier(a: float, b: float):
+    """Brier score after the judge's calibration map (fitted on the model panel's unselected items)."""
+    def f(log_reward: float) -> float:
+        p = min(max(math.exp(log_reward), 0.01), 0.99)
+        q = 1 / (1 + math.exp(-(a + b * math.log(p / (1 - p)))))
+        return -(1.0 - q) ** 2
+    return f
+
+
+def panel_maps(run: Path) -> dict:
+    """Platt maps per (judge, protocol family) on all of the panel's items (``decisive_calibration.py``)."""
+    import decisive_calibration as dc
+
+    panel = dc.panel_frame(run).assign(family=lambda d: d.mechanism.map(dc.FAMILY))
+    return {(j, f): dc.platt(dc.logit(g.p), g.y.to_numpy(), g.w.to_numpy(), f in dc.SYMMETRIC)
+            for (j, f), g in panel.groupby(["judge", "family"])}
+
+
 def _cell(args):
     import decisive_ic as dic
 
-    run, ag, jd, m = args
+    run, ag, jd, m, maps = args
     out = []
-    for unit, tf in (("log", None), ("brier", brier)):
+    units = [("log", None), ("brier", brier)]
+    fam = "consultancy" if m.startswith("consultancy") else "debate"
+    if maps and (jd, fam) in maps:
+        units.append(("brier_cal", calibrated_brier(*maps[(jd, fam)])))
+    for unit, tf in units:
         for r in dic.cell_rows(root(run), ag, jd, m, holdout=True, transform=tf, kinds=("bon",)):
             out.append({**r, "unit": unit})
     return out
 
 
-def bon_items(run: Path, agents=None, judges=None, workers: int = 6) -> pd.DataFrame:
-    cells = [(run, a, j, m.name) for a in (agents or AGENTS) for j in (judges or JUDGES) for m in mechanisms()]
+def bon_items(run: Path, agents=None, judges=None, workers: int = 6, maps: dict | None = None) -> pd.DataFrame:
+    cells = [(run, a, j, m.name, maps) for a in (agents or AGENTS) for j in (judges or JUDGES) for m in mechanisms()]
     with ProcessPoolExecutor(workers) as ex:
         rows = [r for got in ex.map(_cell, cells) for r in got]
     d = pd.DataFrame(rows)
@@ -83,7 +106,7 @@ def per_item_frame(items: pd.DataFrame, mech: str, unit: str, mode: str, n) -> p
 def slopes(items: pd.DataFrame, idx: dict) -> tuple[pd.DataFrame, dict]:
     rows, regs = [], {}
     for m in items.mechanism.unique():
-        for unit in ("brier", "log"):
+        for unit in [u for u in ("brier", "log", "brier_cal") if u in set(items.unit)]:
             for mode, n in (("liar", 1), ("liar", 16), ("both", 16), ("liar", "drop"), ("both", "drop")):
                 f = per_item_frame(items, m, unit, mode, n)
                 r = regression(f, "debater", idx, "asd")
@@ -124,8 +147,8 @@ def markdown(pool: pd.DataFrame, sl: pd.DataFrame, po: pd.DataFrame, idx: dict) 
          "Held-out ASD (honest reward minus liar reward; selection on one judge sample, scoring on an independent "
          "one), pooled over gpt-4o-mini, Llama-3.1-8B and Gemma-3-12B, 95% item-bootstrap intervals. "
          "`liar`: only the false side optimized; `both`: both sides at the same n.", ""]
-    for unit in ("brier", "log"):
-        L += [f"## Best-of-n by agent ({unit} score)", "",
+    for unit in [u for u in ("brier", "log", "brier_cal") if u in set(pool.unit)]:
+        L += [f"## Best-of-n by agent ({UNIT_NAMES[unit]})", "",
               "| agent | AA index | protocol | n=1 | liar n=16 | both n=16 | items |", "|---|---|---|---|---|---|---|"]
         p = pool[pool.unit == unit]
         for (ag, m), g in sorted(p.groupby(["debater", "mechanism"]), key=lambda x: (x[0][1], idx.get(x[0][0], 0))):
@@ -154,7 +177,19 @@ def markdown(pool: pd.DataFrame, sl: pd.DataFrame, po: pd.DataFrame, idx: dict) 
     return "\n".join(L) + "\n"
 
 
-def figure(pool: pd.DataFrame, regs: dict, po: pd.DataFrame, idx: dict, out: Path, unit: str = "brier") -> None:
+def blind_baseline(run: Path, items: set, unit: str = "brier") -> tuple[float, float, float] | None:
+    """The three weak judges with no argument on the same items, Brier ASD with an item-bootstrap interval."""
+    import decisive_calibration as dc
+
+    if unit != "brier":
+        return None
+    b = dc.panel_frame(run)
+    b = b[(b.mechanism == "direct") & b.judge.isin(JUDGES) & b.item.isin(items)]
+    return dc.boot(dc.item_asd(b, ["judge"], "p").groupby("item").b.mean().to_numpy())
+
+
+def figure(pool: pd.DataFrame, regs: dict, po: pd.DataFrame, idx: dict, out: Path, unit: str = "brier",
+           blind: tuple | None = None) -> None:
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
 
@@ -173,6 +208,9 @@ def figure(pool: pd.DataFrame, regs: dict, po: pd.DataFrame, idx: dict, out: Pat
                 ax = axes[0, c]
                 st.axes(ax)
                 ax.axhline(0, color=INK2, lw=0.9, zorder=1)
+                if blind is not None:
+                    ax.axhspan(blind[1], blind[2], color=GRAY, alpha=0.13, lw=0, zorder=0)
+                    ax.axhline(blind[0], color=GRAY, lw=1.4, ls=(0, (4, 3)), zorder=1)
                 p = pool[(pool.unit == unit) & (pool.mechanism == m)]
                 series = (("liar", 1, GRAY, "unoptimized (n = 1)"), ("liar", 16, ORANGE, "liar optimized, n = 16"),
                           ("both", 16, BLUE, "both optimized, n = 16"))
@@ -223,9 +261,13 @@ def figure(pool: pd.DataFrame, regs: dict, po: pd.DataFrame, idx: dict, out: Pat
                        Line2D([], [], color=ORANGE, marker="o", mec="white", lw=1.8,
                               label="liar optimized (best-of-16 / after prompt search)"),
                        Line2D([], [], color=BLUE, marker="o", mec="white", lw=1.8, label="both sides optimized")]
-            fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else 0.955), ncol=3,
+            if blind is not None:
+                handles.append(Line2D([], [], color=GRAY, lw=1.4, ls=(0, (4, 3)),
+                                      label="judges with no argument, same items (95% interval shaded)"))
+            fig.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.06, 0.995 if paper else 0.955), ncol=4,
                        fontsize=7, handlelength=2.6, columnspacing=1.6)
-            fig.suptitle("Does a smarter agent beat the protocol more under optimization?", x=0.005, ha="left",
+            fig.suptitle("An optimized liar erases most of debate's honesty incentive, and smarter agents don't lose more of it",
+                         x=0.005, ha="left",
                          fontsize=10.5, fontweight="bold", y=1.0)
             fig.text(0.005, 0.975, "Top: each point is one agent, pooled over 3 weak judges, scored on independent "
                      "judge samples; lines and bands: least-squares fits with 95% bootstrap bands (items and agents). "
@@ -244,13 +286,17 @@ def main(argv=None):
     ap.add_argument("--run", default="runs/decisive")
     ap.add_argument("--out", default="docs/results")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--reuse", action="store_true", help="read the per-item rows saved by an earlier run")
     a = ap.parse_args(argv)
     run, out = Path(a.run), Path(a.out)
     idx = {x["name"]: x["aa_index"] for x in panel_config()["agents"]}
-    items = bon_items(run, workers=a.workers)
     res = out / "panel_opt"
     res.mkdir(parents=True, exist_ok=True)
-    items.to_csv(res / "bon_items.csv.gz", index=False)
+    if a.reuse and (res / "bon_items.csv.gz").exists():
+        items = pd.read_csv(res / "bon_items.csv.gz")
+    else:
+        items = bon_items(run, workers=a.workers, maps=panel_maps(run))
+        items.to_csv(res / "bon_items.csv.gz", index=False)
     pool = pooled(items)
     pool.to_csv(res / "bon_agents.csv", index=False)
     sl, regs = slopes(items, idx)
@@ -261,7 +307,7 @@ def main(argv=None):
     (res / "panel_opt.md").write_text(md)
     print(md)
     for unit in ("brier", "log"):
-        figure(pool, regs, po, idx, out / "eic", unit)
+        figure(pool, regs, po, idx, out / "eic", unit, blind_baseline(run, set(items.item), unit))
 
 
 if __name__ == "__main__":

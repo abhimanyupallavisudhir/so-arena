@@ -40,8 +40,8 @@ LOG_EPS = 1e-4  # the protocols' own log-score clip
 B_MAX = 8.0
 FOLDS = 5
 N_BOOT = 2000
-FAMILY = {"debate_sim": "debate", "debate_seq": "debate", "debate": "debate", "consultancy": "consultancy",
-          "consultancy_1r": "consultancy", "direct": "direct"}
+FAMILY = {"debate_1r": "debate", "consultancy_1r": "consultancy", "debate_sim": "debate", "debate_seq": "debate", "debate": "debate", "consultancy": "consultancy",
+          "direct": "direct"}
 SYMMETRIC = {"debate", "direct"}
 NAMES = {"debate_sim": "debate, simultaneous", "debate_seq": "debate, sequential", "consultancy": "consultancy",
          "consultancy_1r": "consultancy (one argument)", "direct": "judge, no argument"}
@@ -375,7 +375,7 @@ def figure(t: dict, out: Path) -> None:
             fig.suptitle("Calibration shrinks the ASDs, and strong judges still gain nothing from either protocol",
                          x=0.005, ha="left", fontsize=10.5, fontweight="bold", y=1.0)
             fig.tight_layout(rect=(0, 0, 1, 0.91))
-            st.save(fig, out, "fig15_calibration")
+            st.save(fig, out, "fig16_calibration")
 
 
 class _Null:

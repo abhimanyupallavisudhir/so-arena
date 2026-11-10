@@ -296,3 +296,29 @@ def test_calibration_equalizes_judges_that_differ_only_in_scale():
     raw = dc.item_asd(a, ["judge"], "p").b.mean() - dc.item_asd(b, ["judge"], "p").b.mean()
     cal = dc.item_asd(a, ["judge"], "pc").b.mean() - dc.item_asd(b, ["judge"], "pc").b.mean()
     assert abs(raw) > 0.15 and abs(cal) < 0.02
+
+
+def test_panel_bon_audit_reads_the_liars_pool_and_weights_by_selection():
+    import decisive_panel_bon_audit as pba
+
+    # consultancy: one node, children are leaves
+    leaves = {f"l{i}": {"rewards": {"consultant": float(i)}} for i in range(4)}
+    tree = {"root": "r", "nodes": {"r": {"role": "consultant", "children": list(leaves), "candidates": list("abcd")}},
+            "leaves": leaves}
+    texts, u = pba.liar_pool(tree, "consultant")
+    assert texts == list("abcd") and list(u) == [0, 1, 2, 3]
+    # debate: root debater_a (2 candidates) x debater_b (3 candidates); the liar's mean is over the other side
+    lv, nodes = {}, {"r": {"role": "debater_a", "children": ["b0", "b1"], "candidates": ["A0", "A1"]}}
+    for i in range(2):
+        kids = []
+        for j in range(3):
+            lv[f"l{i}{j}"] = {"rewards": {"debater_a": i * 10 + j, "debater_b": -(i * 10 + j)}}
+            kids.append(f"l{i}{j}")
+        nodes[f"b{i}"] = {"role": "debater_b", "children": kids, "candidates": ["B0", "B1", "B2"]}
+    t = {"root": "r", "nodes": nodes, "leaves": lv}
+    ta, ua = pba.liar_pool(t, "debater_a")
+    tb, ub = pba.liar_pool(t, "debater_b")
+    assert ta == ["A0", "A1"] and list(ua) == [1.0, 11.0]
+    assert tb == ["B0", "B1", "B2"] and list(ub) == [-5.0, -6.0, -7.0]
+    w = pba.selection_weights(np.array([0.0, 1.0, np.nan, 2.0]), 16)
+    assert w[2] == 0 and w.sum() == pytest.approx(1) and w[3] > w[1] > w[0]
