@@ -372,6 +372,16 @@ Raw ASD rises steeply with the judge's capability, but so does the same judge wi
 \label{fig:panel-agents}
 \end{figure}
 
+
+\paragraph{Optimized liars across the panel.} Twelve of the panel's agents were optimized against the three weak judges on 150 of its items: exact best-of-16 over pools of 16 arguments per side in one-round consultancy and one-round simultaneous debate, selected on one judge sample and scored on an independent one (Figure~\ref{fig:panel-opt}). Averaged over agents, an optimized liar cuts debate's Brier ASD from $+0.20$ to $+0.03$, below the judges with no argument ($+0.09$\ci{+0.02}{+0.16}), and to significantly below zero for four agents; when both sides optimize, debate recovers to $+0.18$. Consultancy goes from $+0.16$ to $+0.09$ (liar optimized) and $+0.12$ (both). The loss from $n=1$ to $n=16$ does not grow detectably with the agent's intelligence ($+0.015$\ci{-0.003}{+0.027} per 10 index points in debate, $+0.008$\ci{-0.003}{+0.018} in consultancy). An audit of every candidate liar argument on 40 items shows that best-of-16 hardly changes how often the selected liar commits to the lie, so the high ASD of agents that refuse (GPT-6 Astra commits in 39--47\%) survives optimization. A calibration map shrinks every number but changes none of these conclusions. Prompt search for six agents (gpt-4o-mini judge, 400 held-out items) lowers the honest-minus-deceptive gap from $+0.21$ to $+0.13$ in consultancy and from $+0.24$ to $+0.18$ in debate, positive for every agent.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig15_panel_optimized_paper.pdf}
+\caption{Optimized panel. Top: held-out Brier ASD per agent, unoptimized (gray), liar optimized at $n=16$ (orange) and both sides optimized (blue), with least-squares fits and 95\% bootstrap bands over items and agents; dashed gray: the judges with no argument on the same items. Bottom: prompt search, from the unprompted agent to the end of the search.}
+\label{fig:panel-opt}
+\end{figure}
+
 \section{Liars that refuse}\label{sec:tournament}
 
 \begin{figure}[t]
@@ -466,7 +476,7 @@ commitment. Judges are LLMs, not people.
 
 \paragraph{Reproducibility.} All experiments use the open-source \texttt{so-arena} library. The scripts are in its
 \nolinkurl{experiments/} directory, the data and tables in \nolinkurl{docs/results/}. Total API spend was
-about \$10{,}350.
+about \$13{,}750.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}
@@ -530,7 +540,7 @@ Does debate look weak only because it pulls judges toward 0.5? Each judge's stat
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\linewidth]{fig15_calibration_paper.pdf}
+\includegraphics[width=\linewidth]{fig16_calibration_paper.pdf}
 \caption{Raw (gray) against calibrated (blue) estimates, with 95\% intervals over items. Left: gain over the same judge with no argument on the model panel. Right: Brier ASD on the optimized experiments, with maps fitted on the panel's unselected items.}
 \label{fig:calibration}
 \end{figure}

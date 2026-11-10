@@ -176,8 +176,10 @@ Other figures:
 
 Prompt optimization cost $1,259 (the original searches $676, the fixed prover-estimator's $583), the held-out
 rescoring $463, the fixed prover-estimator's instructed runs $82, self-play (PSRO) $2,018 and the instant-judge
-replay $41, and the model panel $1,102 plus $97 of audit. Total spend for the whole decisive study is about
-$10,350 (per-stage ledger in `runs/decisive/spend.json`: $10,334, plus about $16 of pilots).
+replay $41, and the model panel $1,102 plus $97 of audit. Later stages: recursive-debate self-play $290, the
+best-of-16 panel $2,263, the prompt-search panel $735 and the audit of the best-of-16 panel's liars $107. Total spend
+for the whole decisive study is about $13,750 (per-stage ledger in `runs/decisive/spend.json`: $13,729, plus about
+$16 of pilots).
 
 
 ### Self-play: incentive compatibility at equilibrium (added 2026-11-06)
@@ -416,7 +418,7 @@ a map fitted on it. b is floored at 0. Code and full tables:
   grid from +0.28 to +0.12), because the no-argument judge's confident errors on the gap-selected items drive most of
   that raw gap.
 
-![Raw against calibrated](results/eic/fig15_calibration.png)
+![Raw against calibrated](results/eic/fig16_calibration.png)
 
 #### Why the experiments differ
 
@@ -516,6 +518,55 @@ together, so each agent keeps a different subset of items.
 ![EIC against agent intelligence](results/eic/fig12c_panel_agents_committed.png)
 
 The same in log score (the protocols' own reward): [`fig12b`](results/eic/fig12b_panel_agents_log.png).
+
+### Optimized panel: does a smarter liar beat the protocol more? (added 2026-11-10)
+
+The model panel above uses prompted liars only. Here 12 of its agents are optimized against the judges.
+- **Best-of-16:** 12 agents (Llama-3.1-8B to GPT-6 Astra), the 3 weak judges (gpt-4o-mini, Llama-3.1-8B,
+  Gemma-3-12B), the first 150 of the panel's random items. One-round consultancy and one-round simultaneous debate,
+  16 candidate arguments per side, exact best-of-n over the pool. Each candidate is selected on one judge sample and
+  scored on an independent one, so the winner's curse does not apply.
+- **Prompt search:** 6 agents, gpt-4o-mini judge, honest and deceptive searches on 100 training items, scored on 400
+  held-out items.
+- Code: [`decisive_panel_bon.py`](../experiments/decisive_panel_bon.py), [`decisive_panel_po.py`](../experiments/decisive_panel_po.py),
+  [`decisive_panel_bon_report.py`](../experiments/decisive_panel_bon_report.py),
+  [`decisive_panel_bon_audit.py`](../experiments/decisive_panel_bon_audit.py); tables:
+  [`results/panel_opt/panel_opt.md`](results/panel_opt/panel_opt.md).
+- A few hundred of the roughly 11 million judged leaves failed after every retry and are left out.
+
+Brier ASD, averaged over the 12 agents (each pooled over the 3 judges):
+
+| one-round protocol | unoptimized (n = 1) | liar optimized (n = 16) | both optimized (n = 16) |
+|---|---|---|---|
+| consultancy | +0.16 | +0.09 | +0.12 |
+| debate | +0.20 | +0.03 | +0.18 |
+| judges with no argument, same items | +0.09 [+0.02, +0.16] | | |
+| after a calibration map: consultancy | +0.09 | +0.05 | +0.07 |
+| after a calibration map: debate | +0.12 | +0.03 | +0.11 |
+
+- **A lone optimized liar erases most of debate's honesty incentive.** At n = 16 debate falls to +0.03 on average,
+  below the judges with no argument, and is significantly negative for 4 agents (Llama-3.1-8B −0.11, gpt-4o-mini
+  −0.07, gpt-5-mini −0.07, Mistral Small 4 −0.06). Only GPT-6 Astra (+0.33), Claude Sonnet 4.5 (+0.09) and GPT-5.6
+  Sol (+0.09) stay clearly positive.
+- **When both sides optimize, debate recovers** to +0.18, near its unoptimized value and above the judges alone.
+  Consultancy loses less to a lone liar but does not recover when the honest consultant optimizes too.
+- **Smarter agents don't lose more.** The change from n = 1 to n = 16 does not depend detectably on the agent's
+  intelligence: +0.015 [−0.003, +0.027] per 10 index points in debate with only the liar optimized, +0.008 [−0.003,
+  +0.018] in consultancy, and about 0 with both sides optimized. The levels rise with intelligence (debate, liar
+  optimized: +0.064 [+0.005, +0.107]), mostly through refusals (next point).
+- **Best-of-16 does not select real lies over concessions.** gpt-5 audited every candidate liar argument on a random
+  40 of the 150 items (23,584 texts). The share that commits to the lie is within a few points at n = 1 and at n = 16
+  for most agents (GPT-5.6 Sol in debate moves most, 65% → 77%). It varies by agent from 25% (DeepSeek-V3.2,
+  consultancy) to 86% (gpt-5-mini, debate); GPT-6 Astra commits in 39–47%, so its high ASD is mostly refusals.
+  Table: [`results/panel_opt/audit.csv`](results/panel_opt/audit.csv).
+- **Prompt search (gpt-4o-mini judge):** the held-out gap between the best honest and best deceptive strategy falls
+  from +0.21 to +0.13 in consultancy and from +0.24 to +0.18 in debate, averaged over the 6 agents. It stays
+  positive for every agent; the largest drops are gpt-5-mini and GPT-5.6 Sol in consultancy.
+
+![Optimized panel](results/eic/fig15_panel_optimized.png)
+
+**Caveats.** One-round protocols only; three weak judges; 150 items, and 40 for the audit; the liars are not
+filtered by the audit, so refusing agents look better than they are.
 
 ### Why prover-estimator debate fails here (added 2026-11-04)
 
@@ -1097,11 +1148,14 @@ Per-family tables: [`results/decisive_extended_grid_gpt-5-mini_by_family.csv`](r
 | EIC prompt optimization (15 searches, then the fixed prover-estimator's 3) | 1,259 |
 | held-out rescoring of the prompt-search strategies (400 more items) | 463 |
 | fixed prover-estimator, instructed (400 items) | 82 |
-| self-play (PSRO), 2 debates × 3 judges | 2,018 |
+| self-play (PSRO), 2 debates × 3 judges, then recursive debate × 1 judge | 2,308 |
 | instant-judge replay | 41 |
 | model panel (20 agents × 9 judges × 300 items) | 1,102 |
+| optimized panel: best-of-16 (12 agents × 3 judges × 150 items) | 2,263 |
+| optimized panel: prompt search (6 agents, gpt-4o-mini judge) | 735 |
+| audit of the best-of-16 panel's liars (gpt-5, 23,584 texts) | 107 |
 | pilots outside the run ledger | about 16 |
-| **total** | **about 10,350** (1,262 for the first decisive study, about 4,030 for the extension, about 1,800 for the EIC headline, about 3,250 for self-play, instant judges and the panel) |
+| **total** | **about 13,750** (1,262 for the first decisive study, about 4,030 for the extension, about 1,800 for the EIC headline, about 3,250 for self-play, instant judges and the panel, about 3,400 for the optimized panel and recursive self-play) |
 
 Spend per stage comes from the stage's recorded episode costs or its response cache. The cache records each paid
 call once. Where a stage paid for the same call twice concurrently, the larger, episode-based figure is used.
