@@ -391,7 +391,53 @@ def report(run: Path, out: Path) -> None:
         L += [f"**{s['judge']}, iteration {s['iteration']}, {s['population']}** (training gain {s['train_gain']:+.3f}):",
               "", "> " + (s["strategy"] or "(default)").replace("\n", "\n> "), ""]
     (res / "pe_psro.md").write_text("\n".join(L) + "\n")
+    if len(df):
+        figure(df, out / "eic")
     print("\n".join(L[:8 + len(df)]))
+
+
+def figure(df, out: Path) -> None:
+    """Honesty incentive and the estimator's accuracy at each iteration's equilibrium (held-out items)."""
+    import matplotlib.pyplot as plt
+
+    import eic_style as st
+    from eic_style import BLUE, INK2, ORANGE
+
+    for paper in (False, True):
+        with (st.paper_mode() if paper else _Null()):
+            fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.2))
+            for ax in (a1, a2):
+                st.axes(ax)
+                ax.axhline(0, color=INK2, lw=0.9, zorder=1)
+                ax.set_xlabel("self-play iteration (0 = nobody optimized)")
+                ax.set_xticks(sorted(df.iteration.unique()))
+            for j, g in df.groupby("judge"):
+                g = g.sort_values("iteration")
+                a1.fill_between(g.iteration, g.asd_lo, g.asd_hi, color=BLUE, alpha=0.15, lw=0)
+                a1.plot(g.iteration, g.asd, "o-", color=BLUE, mec="white", ms=6, lw=1.8)
+                for col, c, lab in (("v_est_h", BLUE, "prover defends the true answer"),
+                                    ("v_est_l", ORANGE, "prover defends a false answer")):
+                    a2.fill_between(g.iteration, g[col + "_lo"], g[col + "_hi"], color=c, alpha=0.15, lw=0)
+                    a2.plot(g.iteration, g[col], "o-", color=c, mec="white", ms=6, lw=1.8, label=lab)
+            a1.set_ylabel("prover's reward arguing the truth minus lying")
+            a1.set_title("Prover: honesty incentive at equilibrium")
+            a2.set_ylabel("estimator's accuracy on the prover's answer\n(minus squared error)")
+            a2.set_title("Estimator: accuracy at equilibrium")
+            a2.legend(fontsize=7, loc="lower left")
+            last = df.sort_values("iteration").iloc[-1]
+            fig.suptitle(f"With prover and estimator both optimized, lying still pays more: {last.asd:+.2f} "
+                         f"[{last.asd_lo:+.2f}, {last.asd_hi:+.2f}] after {int(last.iteration)} iterations",
+                         x=0.005, ha="left", fontsize=10.5, fontweight="bold", y=1.0)
+            fig.tight_layout(rect=(0, 0, 1, 0.94 if not paper else 0.99))
+            st.save(fig, out, "fig18_pe_selfplay")
+
+
+class _Null:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
 
 
 def main(argv=None):
