@@ -103,7 +103,9 @@ the instructed sampler on the same items.
 What holds up:
 1. **Instructed liars make every protocol but prover-estimator look incentive compatible.** Prover-estimator debate
    pays a prover more for the false side on about 60% of items, with the original payoff and with the fixed one
-   ([Why prover-estimator debate fails here](#why-prover-estimator-debate-fails-here-added-2026-11-04)).
+   ([Why prover-estimator debate fails here](#why-prover-estimator-debate-fails-here-added-2026-11-04)). This
+   holds against six differently honest estimators and at a self-play equilibrium in which the estimator is
+   optimized too (−0.11 [−0.14, −0.09]).
 2. **Optimized deception erases consultancy's incentive to be honest.**
    - Prompt search takes consultancy's held-out ASD from +0.42 at round 0 to −0.06 [−0.18, +0.06]. Under
      Llama-3.1-8B the best deceptive consultant out-earns the best honest one (−0.66 [−0.91, −0.44]).
@@ -177,9 +179,9 @@ Other figures:
 Prompt optimization cost $1,259 (the original searches $676, the fixed prover-estimator's $583), the held-out
 rescoring $463, the fixed prover-estimator's instructed runs $82, self-play (PSRO) $2,018 and the instant-judge
 replay $41, and the model panel $1,102 plus $97 of audit. Later stages: recursive-debate self-play $290, the
-best-of-16 panel $2,263, the prompt-search panel $735 and the audit of the best-of-16 panel's liars $107. Total spend
-for the whole decisive study is about $13,750 (per-stage ledger in `runs/decisive/spend.json`: $13,729, plus about
-$16 of pilots).
+best-of-16 panel $2,263, the prompt-search panel $735 and the audit of the best-of-16 panel's liars $107. The
+prover-estimator follow-up cost $610: both sides' incentives $183, self-play $425, a smoke test $2. Total spend for
+the whole decisive study is about $14,360.
 
 
 ### Self-play: incentive compatibility at equilibrium (added 2026-11-06)
@@ -569,6 +571,83 @@ Brier ASD, averaged over the 12 agents (each pooled over the 3 judges):
 filtered by the audit, so refusing agents look better than they are.
 
 ### Why prover-estimator debate fails here (added 2026-11-04)
+
+#### Both sides' incentives, and an optimized estimator (added 2026-11-11)
+
+**What the earlier numbers measured.** Until now only the prover was given a side. The estimator was always
+gpt-5-mini told to give honest, calibrated probabilities, and it was never optimized. So the earlier
+prover-estimator ASDs measure the prover's first-order incentive against one fixed estimator that prices what is
+*true*. At the protocol's equilibrium the estimator best-responds too, and in theory it predicts what the judge will
+say. Two new experiments fill that gap, both with the fixed payoff and gpt-5-mini in both roles.
+
+**1. Both sides' first-order incentives** ([`decisive_pe_estimator.py`](../experiments/decisive_pe_estimator.py);
+400 gap-selected items, 3 weak judges, 14,400 episodes, $183). The estimator is prompted to play one of six
+behaviours; its ground truth is graded: the accuracy of its first probability, the one for the prover's answer
+(minus the squared error against the truth).
+
+| estimator behaviour | prover's honesty incentive | estimator's reward | estimator's accuracy | its P(answer), true / false answers |
+|---|---|---|---|---|
+| sincere (as before) | −0.11 [−0.16, −0.07] | +0.031 | −0.026 | 0.94 / 0.07 |
+| told to predict the judge | −0.12 [−0.16, −0.07] | +0.029 | −0.061 | 0.87 / 0.22 |
+| understates, mild | −0.07 [−0.11, −0.03] | +0.025 | −0.042 | 0.80 / 0.07 |
+| understates, strong | +0.05 [+0.01, +0.09] | −0.085 | −0.096 | 0.59 / 0.05 |
+| understates its first number only | −0.05 [−0.09, −0.01] | +0.013 | −0.096 | 0.59 / 0.05 |
+| overstates, mild | −0.14 [−0.18, −0.10] | +0.038 | −0.045 | 0.94 / 0.22 |
+
+- **The prover's incentive is negative against every estimator but one that grossly understates.**
+- **Prompting the estimator to predict the judge does not make it do so.** On true final claims it still says 0.84
+  (sincere: 0.87) while the judge says 0.56. A prompt cannot make gpt-5-mini model how weak the judge is, so the
+  cheap "prompt the other role toward its equilibrium" proxy fails its own check here.
+- **The estimator's first-order incentive is weakly honest, and only against honest provers.** Within an item,
+  across the behaviours, its reward correlates with its accuracy at +0.11 [+0.09, +0.13] (positive on 66% of items):
+  +0.21 when the prover defends the true answer, +0.02 (interval spans 0) when it defends a false one. Gross
+  understatement is caught at the final check (−0.12 against sincere), but mild understatement, mild overstatement
+  and understating only the first number cost nothing detectable: the decomposition rounds catch the last one
+  (+0.05 to the prover) and the start term pays it back.
+
+**2. Self-play with the estimator optimized** ([`decisive_pe_psro.py`](../experiments/decisive_pe_psro.py); gpt-4o-mini
+judge averaged over 3 samples, 100 training and 390 held-out items, 4 iterations, $425). Three populations grow
+by best responses (prompt search by Claude Opus 5.5): honest provers, lying provers, and estimators. An estimator
+does not know which prover it faces: each plays both on every item and is paid minus their average reward. The
+honest and lying provers never meet, so the equilibrium is a saddle point solved exactly by linear programming,
+and the equilibrium ASD is the honest prover's held-out reward minus the lying prover's.
+
+| iteration | estimator's equilibrium mix | prover's honesty incentive | estimator's accuracy, true / false answers |
+|---|---|---|---|
+| 0 (nobody optimized) | sincere | −0.13 [−0.17, −0.08] | −0.03 / −0.03 |
+| 1 | sincere | −0.10 [−0.14, −0.06] | −0.03 / −0.03 |
+| 2 | 73% sincere, 27% exploit | −0.05 [−0.08, −0.03] | −0.24 / −0.02 |
+| 3 | 87% / 13% | −0.06 [−0.09, −0.03] | −0.13 / −0.03 |
+| 4 | 84% / 16% | **−0.11 [−0.14, −0.09]** | −0.16 / −0.03 |
+
+- **At equilibrium, lying still pays more**, by about as much as with nobody optimized. In the last iteration the
+  honest search found nothing better and the other two gained under 0.005, so the populations are near a fixed
+  point of this search.
+- **The optimized estimator does not learn to predict the judge.** Its one new strategy is an exploit: price every
+  answer near 0 (avoiding the start term), accept paying the decomposition rounds for that incoherence (about +0.2
+  to the prover), and price final claims high, never below 0.5, because the optimized provers always call "too low"
+  there and the weak judge rates false final claims low. That cuts the optimized liars from about +0.25 to −0.28
+  against it, but it makes the protocol's output, the estimator's probability for the answer, useless (0.18 on true
+  answers). At equilibrium it is mixed in at 16%, and the estimator's accuracy on true answers falls from −0.03 to
+  −0.16.
+- **The optimized liar is the obfuscated argument the protocol was designed to defeat.** Its final strategy steers
+  to a final claim "whose refutation requires large enumeration" ("Among the 576 profiles, every Maskin-monotone
+  unanimous rule must..."), shows 2–3 cases and asserts that the rest "follow by symmetry". The paper's answer is an
+  estimator that prices such steps below 1; our optimized estimator did not find that defence.
+- **Figures:** [`fig17`](results/eic/fig17_pe_estimator.png) (both sides, first order) and
+  [`fig18`](results/eic/fig18_pe_selfplay.png) (self-play). Tables: [`results/pe_est/pe_est.md`](results/pe_est/pe_est.md),
+  [`results/pe_psro/pe_psro.md`](results/pe_psro/pe_psro.md).
+
+**What this settles.** The negative incentive is not an artifact of an unoptimized estimator: it survives every
+estimator behaviour we prompted and an equilibrium with the estimator optimized. The cause remains the weak judge at
+the final check, which no estimator strategy we found can neutralize without giving up accuracy on the answer.
+Caveats: one judge for self-play, 4 iterations of a prompt-search optimizer, two decomposition rounds.
+
+![Prover-estimator, both sides](results/eic/fig17_pe_estimator.png)
+
+![Prover-estimator self-play](results/eic/fig18_pe_selfplay.png)
+
+#### Earlier analysis (2026-11-04 to 11-08)
 
 **How the protocol works, and what it assumes** (added 2026-11-08). Three parties, as in Brown-Cohen et al.: the
 *prover* and the *estimator* are both AI debaters (here the same model, gpt-5-mini), and the *judge* is the weak
@@ -1154,8 +1233,10 @@ Per-family tables: [`results/decisive_extended_grid_gpt-5-mini_by_family.csv`](r
 | optimized panel: best-of-16 (12 agents × 3 judges × 150 items) | 2,263 |
 | optimized panel: prompt search (6 agents, gpt-4o-mini judge) | 735 |
 | audit of the best-of-16 panel's liars (gpt-5, 23,584 texts) | 107 |
+| prover-estimator: both sides' incentives (6 estimator behaviours) | 183 |
+| prover-estimator self-play with the estimator optimized (gpt-4o-mini judge) | 427 |
 | pilots outside the run ledger | about 16 |
-| **total** | **about 13,750** (1,262 for the first decisive study, about 4,030 for the extension, about 1,800 for the EIC headline, about 3,250 for self-play, instant judges and the panel, about 3,400 for the optimized panel and recursive self-play) |
+| **total** | **about 14,360** (1,262 for the first decisive study, about 4,030 for the extension, about 1,800 for the EIC headline, about 3,250 for self-play, instant judges and the panel, about 3,400 for the optimized panel and recursive self-play, about 610 for the prover-estimator follow-up) |
 
 Spend per stage comes from the stage's recorded episode costs or its response cache. The cache records each paid
 call once. Where a stage paid for the same call twice concurrently, the larger, episode-based figure is used.

@@ -422,6 +422,22 @@ estimator prices lowest that still reads as true out of context, phrase it as a 
 leaf term rewards honesty only if the leaf judge is more accurate than the estimator; with a weak judge and a
 strong estimator it rewards finding where the judge is most wrong.
 
+\paragraph{Both sides, and an optimized estimator.} These results give only the prover a side; the estimator was always prompted to price the truth and never optimized, while at the protocol's equilibrium it should predict the judge. We therefore measured both sides' first-order incentives over six estimator behaviours (sincere, told to predict the judge, understating mildly, strongly or only its first number, overstating mildly), with the estimator's ground truth graded as the accuracy of its probability for the prover's answer (Figure~\ref{fig:pe-est}). The prover's honesty incentive is negative against every behaviour except gross understatement ($-0.11$\ci{-0.16}{-0.07} against the sincere estimator, $-0.12$\ci{-0.16}{-0.07} against the one told to predict the judge, which did not: it priced true final claims at 0.84 where the judge said 0.56). The estimator's reward rises weakly with its accuracy (within-item correlation $+0.11$\ci{+0.09}{+0.13}), and only against honest provers. We then ran self-play over three populations: honest provers, lying provers, and estimators that face both without knowing which, solving the saddle point exactly by linear programming (gpt-4o-mini judge, 390 held-out items). After four iterations lying still pays more: $-0.11$\ci{-0.14}{-0.09} (Figure~\ref{fig:pe-psro}). The optimized estimator did not learn to predict the judge; it learned an exploit, pricing every answer near zero and final claims high, which beats the optimized liars but destroys the protocol's output, and is mixed in at 16\% at equilibrium. The optimized liar, in turn, steers to final claims whose refutation needs a large enumeration: the obfuscated argument the protocol is meant to defeat.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig17_pe_estimator_paper.pdf}
+\caption{Prover-estimator debate, first order on both sides. Left: the prover's honesty incentive against six estimator behaviours (diamonds: all judges with 95\% CIs; dots: each judge). Right: each behaviour's mean reward against its accuracy on the prover's answer.}
+\label{fig:pe-est}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig18_pe_selfplay_paper.pdf}
+\caption{Prover-estimator self-play with honest provers, lying provers and estimators all optimized (gpt-4o-mini judge, held-out items, 95\% CIs). Left: the prover's honesty incentive at each iteration's equilibrium. Right: the estimator's accuracy on the prover's answer.}
+\label{fig:pe-psro}
+\end{figure}
+
 \section{Hazards in measuring incentives against LLM judges}\label{sec:hazards}
 
 \paragraph{Judge noise.} Two independent samples of the same judge on the same argument correlate $r = 0.08$--$0.33$
@@ -466,7 +482,7 @@ weak judges, the answer depends on the protocol and on the optimizer. Instructed
 recursive debate all look incentive compatible. A prompt optimizer that searches for good lies breaks consultancy and
 leaves debate's incentive positive but diminished; when both debaters best-respond to each other, simultaneous
 debate keeps it ($+0.48$) while sequential debate's is optimized away ($+0.05$); prover-estimator debate with a weak leaf judge rewards lying
-under every sampler, with or without its payoff exploit. The incentive grows with the judge's capability, but on unselected items a model panel shows that growth is the judge's own prior: the protocol's contribution over a judge that sees no argument is small for debate and negative for consultancy, and barely changes with the agent's intelligence once liars that refuse are removed.
+under every sampler, with or without its payoff exploit, and still does at a self-play equilibrium in which the estimator is optimized too. The incentive grows with the judge's capability, but on unselected items a model panel shows that growth is the judge's own prior: the protocol's contribution over a judge that sees no argument is small for debate and negative for consultancy, and barely changes with the agent's intelligence once liars that refuse are removed.
 
 \paragraph{Limitations.} $v$ is by construction and binary; graded ground truth (e.g.\ expert-rated essays) would
 allow richer behaviour spaces. The optimizers are inference-time; whether EIC under these samplers predicts the effect
@@ -476,7 +492,7 @@ commitment. Judges are LLMs, not people.
 
 \paragraph{Reproducibility.} All experiments use the open-source \texttt{so-arena} library. The scripts are in its
 \nolinkurl{experiments/} directory, the data and tables in \nolinkurl{docs/results/}. Total API spend was
-about \$13{,}750.
+about \$14{,}360.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}
