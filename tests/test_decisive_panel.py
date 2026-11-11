@@ -322,3 +322,42 @@ def test_panel_bon_audit_reads_the_liars_pool_and_weights_by_selection():
     assert tb == ["B0", "B1", "B2"] and list(ub) == [-5.0, -6.0, -7.0]
     w = pba.selection_weights(np.array([0.0, 1.0, np.nan, 2.0]), 16)
     assert w[2] == 0 and w.sum() == pytest.approx(1) and w[3] > w[1] > w[0]
+
+
+def test_pe_psro_solve_finds_the_saddle_point_of_the_shared_estimator_game():
+    import decisive_pe_psro as pp
+
+    # honest provers: matching pennies against the estimator; liars: no say (a single strategy)
+    A_H = np.array([[1.0, 0.0], [0.0, 1.0]])
+    A_L = np.array([[0.0, 0.0]])
+    s = pp.solve(A_H, A_L)
+    assert s["estimator"] == pytest.approx([0.5, 0.5], abs=1e-6)
+    assert s["honest"] == pytest.approx([0.5, 0.5], abs=1e-6)
+    assert s["value_honest"] == pytest.approx(0.5) and s["nash_conv"] == pytest.approx(0, abs=1e-6)
+    # a dominant estimator strategy is played with certainty, and each prover best-responds to it
+    A_H = np.array([[0.2, 0.9], [0.4, 0.8]])
+    A_L = np.array([[-0.5, 0.1], [-0.3, 0.3]])
+    s = pp.solve(A_H, A_L)
+    assert s["estimator"] == pytest.approx([1, 0], abs=1e-6)
+    assert s["honest"] == pytest.approx([0, 1], abs=1e-6) and s["liar"] == pytest.approx([0, 1], abs=1e-6)
+    assert s["value_honest"] - s["value_liar"] == pytest.approx(0.7) and s["nash_conv"] == pytest.approx(0, abs=1e-6)
+
+
+def test_pe_estimator_eic_is_positive_when_reward_tracks_accuracy():
+    import decisive_pe_estimator as pe
+
+    rows = []
+    for it in range(30):
+        for arm in ("True", "False"):
+            y = arm == "True"
+            for b, err in zip(pe.STRATEGIES, (0.0, 0.1, 0.2, 0.3, 0.4, 0.5)):
+                p = (1 - err) if y else err
+                rows.append({"judge": "j", "behaviour": b, "item": f"i{it}", "arm": arm, "episode": f"{it}{arm}{b}",
+                             "reward": err - 0.2 + (0.3 if y else 0.0), "p_top": p, "start": 0.1, "rounds": 0.0,
+                             "leaf": 0.0})
+    r = pe.prepare(pd.DataFrame(rows))
+    e = pe.estimator_eic(r)
+    top = e[(e.arm == "all") & (e.judge == "all")].iloc[0]
+    assert top["cov"] > 0 and top["corr"] > 0.9 and top["share_positive"] == 1.0
+    a = pe.prover_asd(r)
+    assert a[(a.judge == "all") & (a.behaviour == "sincere")].asd.iloc[0] == pytest.approx(0.3)
